@@ -154,9 +154,15 @@ type WorkflowStatus struct{}
 
 // InstanceFilter selects instances for List/ListInstances (Blueprint §12/§20).
 //
-// Shape completed at M08 (owning milestone); not part of the G1 format freeze
-// (IMP §13 — sdk surface mutable until M08).
-type InstanceFilter struct{}
+// First-consumer shape completed at M03 (StateStore/ListInstances). Fields are
+// additive and default to no-predicate when zero; the full shape is mutable
+// until M08 when the sdk surface freezes (ADJ-4b).
+type InstanceFilter struct {
+	// Namespace restricts results to the given namespace. Empty = no predicate.
+	Namespace string
+	// Status restricts results to the given lifecycle status. Empty = no predicate.
+	Status InstanceStatus
+}
 
 // HistoryQuery selects execution history for RecallAPI.QueryHistory
 // (Blueprint §12).

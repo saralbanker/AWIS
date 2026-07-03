@@ -90,9 +90,39 @@ func Run(t *testing.T, factory func(t *testing.T) core.StoragePort) {
 	t.Run("SchemaVersionZeroNormalized", func(t *testing.T) {
 		testSchemaVersionZeroNormalized(t, factory(t))
 	})
-	t.Run("StubsReturnErrNotImplemented", func(t *testing.T) {
-		testStubsReturnErrNotImplemented(t, factory(t))
+	// StateStore subtests (M03).
+	t.Run("GetInstanceNotFound", func(t *testing.T) {
+		testGetInstanceNotFound(t, factory(t))
 	})
+	t.Run("UpsertCreateThenGet", func(t *testing.T) {
+		testUpsertCreateThenGet(t, factory(t))
+	})
+	t.Run("UpsertOptimisticConflict", func(t *testing.T) {
+		testUpsertOptimisticConflict(t, factory(t))
+	})
+	t.Run("UpsertUpdateAdvancesVersion", func(t *testing.T) {
+		testUpsertUpdateAdvancesVersion(t, factory(t))
+	})
+	t.Run("ListInstancesNamespacePredicate", func(t *testing.T) {
+		testListInstancesNamespacePredicate(t, factory(t))
+	})
+	t.Run("ListInstancesStatusPredicate", func(t *testing.T) {
+		testListInstancesStatusPredicate(t, factory(t))
+	})
+	t.Run("ClaimAtMostOnce", func(t *testing.T) {
+		testClaimAtMostOnce(t, factory(t))
+	})
+	t.Run("ClaimBumpsVersion", func(t *testing.T) {
+		testClaimBumpsVersion(t, factory(t))
+	})
+	t.Run("ClaimInstanceAbsentErrors", func(t *testing.T) {
+		testClaimInstanceAbsentErrors(t, factory(t))
+	})
+	t.Run("TerminalUpsertReleasesClaims", func(t *testing.T) {
+		testTerminalUpsertReleasesClaims(t, factory(t))
+	})
+	// Note: StubsReturnErrNotImplemented has been removed — all four StateStore
+	// methods are implemented in M03 and no stubs remain.
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -524,20 +554,291 @@ func testCacheAbsentKeyMiss(t *testing.T, s core.StoragePort) {
 	}
 }
 
-// testStubsReturnErrNotImplemented verifies the four StateStore stubs.
-func testStubsReturnErrNotImplemented(t *testing.T, s core.StoragePort) {
-	t.Helper()
+// ── StateStore subtests (M03) ─────────────────────────────────────────────────
 
-	if err := s.UpsertInstance(bg(), core.WorkflowInstance{}, 0); !errors.Is(err, storage.ErrNotImplemented) {
-		t.Errorf("UpsertInstance: want ErrNotImplemented, got %v", err)
+// makeInstance builds a minimal WorkflowInstance for test use.
+func makeInstance(id, defID, ns string, status core.InstanceStatus) core.WorkflowInstance {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	return core.WorkflowInstance{
+		InstanceID:        core.InstanceID(id),
+		DefinitionID:      defID,
+		DefinitionVersion: core.SemVer("1.0.0"),
+		Namespace:         ns,
+		Status:            status,
+		CurrentSteps:      []string{},
+		Variables:         map[string]any{},
+		StartedAt:         base,
+		UpdatedAt:         base,
+		CompletedAt:       nil,
 	}
-	if _, err := s.GetInstance(bg(), "x"); !errors.Is(err, storage.ErrNotImplemented) {
-		t.Errorf("GetInstance: want ErrNotImplemented, got %v", err)
+}
+
+// testUpsertCreateThenGet verifies a full 10-field roundtrip (all WorkflowInstance
+// fields, incl. nil CompletedAt) via UpsertInstance(expectedVersion=0) then GetInstance.
+func testUpsertCreateThenGet(t *testing.T, s core.StoragePort) {
+	t.Helper()
+	inst := makeInstance("inst-cg-1", "wf-cg", "ns-cg", core.InstanceStatusRunning)
+	inst.CurrentSteps = []string{"step-a", "step-b"}
+	inst.Variables = map[string]any{"inputs": map[string]any{"x": float64(1)}}
+
+	if err := s.UpsertInstance(bg(), inst, 0); err != nil {
+		t.Fatalf("UpsertInstance: %v", err)
 	}
-	if _, err := s.ListInstances(bg(), core.InstanceFilter{}); !errors.Is(err, storage.ErrNotImplemented) {
-		t.Errorf("ListInstances: want ErrNotImplemented, got %v", err)
+
+	got, err := s.GetInstance(bg(), inst.InstanceID)
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
 	}
-	if _, err := s.ClaimStep(bg(), "x", "s", "w"); !errors.Is(err, storage.ErrNotImplemented) {
-		t.Errorf("ClaimStep: want ErrNotImplemented, got %v", err)
+
+	checks := []struct {
+		field string
+		got   any
+		want  any
+	}{
+		{"InstanceID", string(got.InstanceID), string(inst.InstanceID)},
+		{"DefinitionID", got.DefinitionID, inst.DefinitionID},
+		{"DefinitionVersion", string(got.DefinitionVersion), string(inst.DefinitionVersion)},
+		{"Namespace", got.Namespace, inst.Namespace},
+		{"Status", string(got.Status), string(inst.Status)},
+	}
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("%s: want %v got %v", c.field, c.want, c.got)
+		}
+	}
+
+	if !got.StartedAt.Equal(inst.StartedAt) {
+		t.Errorf("StartedAt: want %v got %v", inst.StartedAt, got.StartedAt)
+	}
+	if !got.UpdatedAt.Equal(inst.UpdatedAt) {
+		t.Errorf("UpdatedAt: want %v got %v", inst.UpdatedAt, got.UpdatedAt)
+	}
+	if got.CompletedAt != nil {
+		t.Errorf("CompletedAt: want nil, got %v", got.CompletedAt)
+	}
+
+	if len(got.CurrentSteps) != 2 || got.CurrentSteps[0] != "step-a" || got.CurrentSteps[1] != "step-b" {
+		t.Errorf("CurrentSteps: want [step-a step-b], got %v", got.CurrentSteps)
+	}
+
+	inputs, _ := got.Variables["inputs"].(map[string]any)
+	if inputs["x"] != float64(1) {
+		t.Errorf("Variables.inputs.x: want 1 got %v", inputs["x"])
+	}
+}
+
+// testUpsertOptimisticConflict verifies that supplying a stale expectedVersion
+// returns a typed ErrVersionConflict (errors.Is).
+func testUpsertOptimisticConflict(t *testing.T, s core.StoragePort) {
+	t.Helper()
+	inst := makeInstance("inst-oc-1", "wf-oc", "ns-oc", core.InstanceStatusRunning)
+
+	// Create (version becomes 1 in DB).
+	if err := s.UpsertInstance(bg(), inst, 0); err != nil {
+		t.Fatalf("UpsertInstance create: %v", err)
+	}
+
+	// Attempt update with stale version 0.
+	err := s.UpsertInstance(bg(), inst, 0)
+	if !errors.Is(err, storage.ErrVersionConflict) {
+		t.Errorf("stale version: want ErrVersionConflict, got %v", err)
+	}
+}
+
+// testUpsertUpdateAdvancesVersion verifies create then update succeeds when the
+// caller uses the correct version sequence (0 → created at 1; 1 → updated to 2).
+func testUpsertUpdateAdvancesVersion(t *testing.T, s core.StoragePort) {
+	t.Helper()
+	inst := makeInstance("inst-uav-1", "wf-uav", "ns-uav", core.InstanceStatusRunning)
+
+	if err := s.UpsertInstance(bg(), inst, 0); err != nil {
+		t.Fatalf("UpsertInstance create: %v", err)
+	}
+
+	inst.Status = core.InstanceStatusWaiting
+	inst.UpdatedAt = inst.UpdatedAt.Add(time.Second)
+
+	if err := s.UpsertInstance(bg(), inst, 1); err != nil {
+		t.Fatalf("UpsertInstance update (expectedVersion=1): %v", err)
+	}
+
+	got, err := s.GetInstance(bg(), inst.InstanceID)
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
+	if got.Status != core.InstanceStatusWaiting {
+		t.Errorf("Status after update: want waiting, got %s", got.Status)
+	}
+}
+
+// testListInstancesNamespacePredicate verifies that ListInstances with a non-empty
+// Namespace returns only instances in that namespace.
+func testListInstancesNamespacePredicate(t *testing.T, s core.StoragePort) {
+	t.Helper()
+	a := makeInstance("inst-lns-a", "wf-lns", "list-ns-ia", core.InstanceStatusRunning)
+	b := makeInstance("inst-lns-b", "wf-lns", "list-ns-ib", core.InstanceStatusRunning)
+
+	if err := s.UpsertInstance(bg(), a, 0); err != nil {
+		t.Fatalf("UpsertInstance a: %v", err)
+	}
+	if err := s.UpsertInstance(bg(), b, 0); err != nil {
+		t.Fatalf("UpsertInstance b: %v", err)
+	}
+
+	listA, err := s.ListInstances(bg(), core.InstanceFilter{Namespace: "list-ns-ia"})
+	if err != nil {
+		t.Fatalf("ListInstances ns-a: %v", err)
+	}
+	if len(listA) != 1 || string(listA[0].InstanceID) != "inst-lns-a" {
+		t.Errorf("ns-a: want [inst-lns-a], got %v", listA)
+	}
+
+	listB, err := s.ListInstances(bg(), core.InstanceFilter{Namespace: "list-ns-ib"})
+	if err != nil {
+		t.Fatalf("ListInstances ns-b: %v", err)
+	}
+	if len(listB) != 1 || string(listB[0].InstanceID) != "inst-lns-b" {
+		t.Errorf("ns-b: want [inst-lns-b], got %v", listB)
+	}
+}
+
+// testListInstancesStatusPredicate verifies that ListInstances with a non-empty
+// Status returns only instances with that status.
+func testListInstancesStatusPredicate(t *testing.T, s core.StoragePort) {
+	t.Helper()
+	run := makeInstance("inst-lsp-r", "wf-lsp", "ns-lsp", core.InstanceStatusRunning)
+	wait := makeInstance("inst-lsp-w", "wf-lsp", "ns-lsp", core.InstanceStatusWaiting)
+
+	if err := s.UpsertInstance(bg(), run, 0); err != nil {
+		t.Fatalf("UpsertInstance running: %v", err)
+	}
+	if err := s.UpsertInstance(bg(), wait, 0); err != nil {
+		t.Fatalf("UpsertInstance waiting: %v", err)
+	}
+
+	running, err := s.ListInstances(bg(), core.InstanceFilter{Namespace: "ns-lsp", Status: core.InstanceStatusRunning})
+	if err != nil {
+		t.Fatalf("ListInstances running: %v", err)
+	}
+	if len(running) != 1 || running[0].Status != core.InstanceStatusRunning {
+		t.Errorf("running: want 1 running instance, got %d", len(running))
+	}
+
+	waiting, err := s.ListInstances(bg(), core.InstanceFilter{Namespace: "ns-lsp", Status: core.InstanceStatusWaiting})
+	if err != nil {
+		t.Fatalf("ListInstances waiting: %v", err)
+	}
+	if len(waiting) != 1 || waiting[0].Status != core.InstanceStatusWaiting {
+		t.Errorf("waiting: want 1 waiting instance, got %d", len(waiting))
+	}
+}
+
+// testClaimAtMostOnce verifies the at-most-once claim contract: a second claim
+// by any worker on the same (instance, step) returns (false, nil).
+func testClaimAtMostOnce(t *testing.T, s core.StoragePort) {
+	t.Helper()
+	inst := makeInstance("inst-amo-1", "wf-amo", "ns-amo", core.InstanceStatusRunning)
+	if err := s.UpsertInstance(bg(), inst, 0); err != nil {
+		t.Fatalf("UpsertInstance: %v", err)
+	}
+
+	// First claim → must succeed.
+	claimed, err := s.ClaimStep(bg(), inst.InstanceID, "step-x", "worker-1")
+	if err != nil {
+		t.Fatalf("ClaimStep first: %v", err)
+	}
+	if !claimed {
+		t.Errorf("first claim: want true, got false")
+	}
+
+	// Second claim (different worker) → must return (false, nil).
+	claimed2, err := s.ClaimStep(bg(), inst.InstanceID, "step-x", "worker-2")
+	if err != nil {
+		t.Fatalf("ClaimStep second: %v", err)
+	}
+	if claimed2 {
+		t.Errorf("second claim: want false, got true")
+	}
+}
+
+// testClaimBumpsVersion verifies that a successful ClaimStep increments the
+// instance version, so a subsequent UpsertInstance with the pre-claim
+// expectedVersion returns ErrVersionConflict.
+func testClaimBumpsVersion(t *testing.T, s core.StoragePort) {
+	t.Helper()
+	inst := makeInstance("inst-cbv-1", "wf-cbv", "ns-cbv", core.InstanceStatusRunning)
+
+	// Create: DB version becomes 1.
+	if err := s.UpsertInstance(bg(), inst, 0); err != nil {
+		t.Fatalf("UpsertInstance create: %v", err)
+	}
+
+	// Claim: DB version becomes 2.
+	claimed, err := s.ClaimStep(bg(), inst.InstanceID, "step-y", "worker-1")
+	if err != nil || !claimed {
+		t.Fatalf("ClaimStep: claimed=%v err=%v", claimed, err)
+	}
+
+	// Upsert with pre-claim expectedVersion=1 → conflict (actual is 2).
+	err = s.UpsertInstance(bg(), inst, 1)
+	if !errors.Is(err, storage.ErrVersionConflict) {
+		t.Errorf("want ErrVersionConflict after claim bump, got %v", err)
+	}
+}
+
+// testClaimInstanceAbsentErrors verifies that ClaimStep returns a non-nil error
+// when the instance_id does not exist (not (false, nil) — distinct from conflict).
+func testClaimInstanceAbsentErrors(t *testing.T, s core.StoragePort) {
+	t.Helper()
+	_, err := s.ClaimStep(bg(), "no-such-instance-cia", "step-z", "worker-1")
+	if err == nil {
+		t.Errorf("absent instance: want error, got nil")
+	}
+}
+
+// testTerminalUpsertReleasesClaims verifies the EDR-006 release site:
+// upserting a terminal status deletes existing step_claims, so a subsequent
+// ClaimStep on the same (instance, step) succeeds again (true, nil).
+func testTerminalUpsertReleasesClaims(t *testing.T, s core.StoragePort) {
+	t.Helper()
+	inst := makeInstance("inst-trc-1", "wf-trc", "ns-trc", core.InstanceStatusRunning)
+
+	// Create instance.
+	if err := s.UpsertInstance(bg(), inst, 0); err != nil {
+		t.Fatalf("UpsertInstance create: %v", err)
+	}
+
+	// Claim a step — DB version becomes 2.
+	claimed, err := s.ClaimStep(bg(), inst.InstanceID, "step-fin", "worker-1")
+	if err != nil || !claimed {
+		t.Fatalf("ClaimStep: claimed=%v err=%v", claimed, err)
+	}
+
+	// Upsert terminal status with expectedVersion=2 → releases step_claims.
+	now := time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC)
+	inst.Status = core.InstanceStatusCompleted
+	inst.CompletedAt = &now
+	inst.UpdatedAt = now
+	if err := s.UpsertInstance(bg(), inst, 2); err != nil {
+		t.Fatalf("UpsertInstance terminal: %v", err)
+	}
+
+	// Claim again on the same step — must succeed because claims were released.
+	claimed2, err := s.ClaimStep(bg(), inst.InstanceID, "step-fin", "worker-2")
+	if err != nil {
+		t.Fatalf("ClaimStep after terminal: %v", err)
+	}
+	if !claimed2 {
+		t.Errorf("after terminal upsert: want claimed=true (claims released), got false")
+	}
+}
+
+// testGetInstanceNotFound asserts the typed not-found error for absent
+// instances (M03 checklist item 4).
+func testGetInstanceNotFound(t *testing.T, s core.StoragePort) {
+	t.Helper()
+	_, err := s.GetInstance(bg(), "no-such-instance")
+	if !errors.Is(err, storage.ErrInstanceNotFound) {
+		t.Errorf("GetInstance(absent): want ErrInstanceNotFound, got %v", err)
 	}
 }

@@ -28,8 +28,13 @@ var (
 	// with the same (id, version) pair already exists (TDS-02 §5 immutability).
 	ErrAlreadyRegistered = errors.New("storage: workflow (id, version) already registered")
 
-	// ErrNotImplemented is returned by StateStore stubs until M03.
-	ErrNotImplemented = errors.New("storage: not implemented (M03)")
+	// ErrVersionConflict is returned by UpsertInstance when the expectedVersion
+	// does not match the stored version (optimistic concurrency control; M03).
+	ErrVersionConflict = errors.New("storage: version conflict")
+
+	// ErrInstanceNotFound is returned by GetInstance when no row exists for the
+	// given instance_id (M03).
+	ErrInstanceNotFound = errors.New("storage: instance not found")
 )
 
 // SQLiteStorage is the SQLite-backed implementation of core.StoragePort.
@@ -351,26 +356,363 @@ func (s *SQLiteStorage) GetCachedResult(ctx context.Context, key core.Idempotenc
 	return result, true, nil
 }
 
-// ── StateStore stubs (M03) ────────────────────────────────────────────────────
+// ── StateStore ────────────────────────────────────────────────────────────────
 
-// UpsertInstance is not yet implemented (M03).
-func (s *SQLiteStorage) UpsertInstance(_ context.Context, _ core.WorkflowInstance, _ int) error {
-	return fmt.Errorf("%w: UpsertInstance", ErrNotImplemented)
+// UpsertInstance writes a WorkflowInstance with optimistic concurrency control.
+//
+// Algorithm (M03 / CONTRA-6 / EDR-006):
+//   - Attempt UPDATE ... WHERE instance_id=? AND version=expectedVersion,
+//     setting version=expectedVersion+1 and all user fields.
+//   - If 0 rows affected AND expectedVersion==0 AND no row exists → INSERT with
+//     version=1.
+//   - Otherwise 0 rows affected → typed ErrVersionConflict (wraps instance id +
+//     expected version).
+//   - If the resulting status is terminal (completed|failed|cancelled|compensated|
+//     compensation_failed) the instance's step_claims rows are deleted in the
+//     same transaction (EDR-006 release site).
+//
+// Times are stored as RFC3339Nano UTC (matches AppendEvent convention).
+// current_steps and variables are stored as JSON; completed_at is nullable.
+// cancellation_requested is DB-internal and is not modified here.
+func (s *SQLiteStorage) UpsertInstance(ctx context.Context, instance core.WorkflowInstance, expectedVersion int) error {
+	tx, err := s.db.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("storage: UpsertInstance begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Marshal JSON fields; normalise nil slices/maps.
+	currentSteps := instance.CurrentSteps
+	if currentSteps == nil {
+		currentSteps = []string{}
+	}
+	currentStepsJSON, err := json.Marshal(currentSteps)
+	if err != nil {
+		return fmt.Errorf("storage: UpsertInstance marshal current_steps: %w", err)
+	}
+
+	variables := instance.Variables
+	if variables == nil {
+		variables = map[string]any{}
+	}
+	variablesJSON, err := json.Marshal(variables)
+	if err != nil {
+		return fmt.Errorf("storage: UpsertInstance marshal variables: %w", err)
+	}
+
+	startedAt := instance.StartedAt.UTC().Format(time.RFC3339Nano)
+	updatedAt := instance.UpdatedAt.UTC().Format(time.RFC3339Nano)
+
+	var completedAt *string
+	if instance.CompletedAt != nil {
+		v := instance.CompletedAt.UTC().Format(time.RFC3339Nano)
+		completedAt = &v
+	}
+
+	// Attempt UPDATE guarded by version.
+	res, err := tx.ExecContext(ctx, `
+		UPDATE workflow_instances SET
+			definition_id      = ?,
+			definition_version = ?,
+			namespace          = ?,
+			status             = ?,
+			current_steps      = ?,
+			variables          = ?,
+			started_at         = ?,
+			updated_at         = ?,
+			completed_at       = ?,
+			version            = ?
+		WHERE instance_id = ? AND version = ?`,
+		instance.DefinitionID,
+		string(instance.DefinitionVersion),
+		instance.Namespace,
+		string(instance.Status),
+		string(currentStepsJSON),
+		string(variablesJSON),
+		startedAt,
+		updatedAt,
+		completedAt,
+		expectedVersion+1,
+		string(instance.InstanceID),
+		expectedVersion,
+	)
+	if err != nil {
+		return fmt.Errorf("storage: UpsertInstance update: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("storage: UpsertInstance rows affected: %w", err)
+	}
+
+	if n == 0 {
+		// Determine whether to INSERT or conflict.
+		if expectedVersion == 0 {
+			var exists int
+			if err := tx.QueryRowContext(ctx,
+				`SELECT COUNT(*) FROM workflow_instances WHERE instance_id = ?`,
+				string(instance.InstanceID),
+			).Scan(&exists); err != nil {
+				return fmt.Errorf("storage: UpsertInstance existence check: %w", err)
+			}
+			if exists > 0 {
+				return fmt.Errorf("%w: instance_id=%s expected=%d",
+					ErrVersionConflict, instance.InstanceID, expectedVersion)
+			}
+			// Row absent → INSERT with version=1.
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO workflow_instances
+					(instance_id, definition_id, definition_version, namespace, status,
+					 current_steps, variables, started_at, updated_at, completed_at,
+					 version, cancellation_requested)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0)`,
+				string(instance.InstanceID),
+				instance.DefinitionID,
+				string(instance.DefinitionVersion),
+				instance.Namespace,
+				string(instance.Status),
+				string(currentStepsJSON),
+				string(variablesJSON),
+				startedAt,
+				updatedAt,
+				completedAt,
+			); err != nil {
+				return fmt.Errorf("storage: UpsertInstance insert: %w", err)
+			}
+		} else {
+			return fmt.Errorf("%w: instance_id=%s expected=%d",
+				ErrVersionConflict, instance.InstanceID, expectedVersion)
+		}
+	}
+
+	// On terminal status: release all step_claims for this instance (EDR-006).
+	if isTerminalStatus(instance.Status) {
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM step_claims WHERE instance_id = ?`,
+			string(instance.InstanceID),
+		); err != nil {
+			return fmt.Errorf("storage: UpsertInstance delete step_claims: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("storage: UpsertInstance commit: %w", err)
+	}
+	return nil
 }
 
-// GetInstance is not yet implemented (M03).
-func (s *SQLiteStorage) GetInstance(_ context.Context, _ core.InstanceID) (core.WorkflowInstance, error) {
-	return core.WorkflowInstance{}, fmt.Errorf("%w: GetInstance", ErrNotImplemented)
+// GetInstance fetches a WorkflowInstance by id. Returns ErrInstanceNotFound
+// (typed, use errors.Is) when absent. All 10 user-visible fields are mapped
+// faithfully; CompletedAt is nil when the DB column is NULL; times are UTC.
+func (s *SQLiteStorage) GetInstance(ctx context.Context, instanceID core.InstanceID) (core.WorkflowInstance, error) {
+	var (
+		idStr, defID, defVer, ns, status string
+		stepsJSON, varsJSON              string
+		startedAtStr, updatedAtStr       string
+		completedAtStr                   sql.NullString
+		version                          int // DB-internal; not exposed
+	)
+
+	err := s.db.db.QueryRowContext(ctx, `
+		SELECT instance_id, definition_id, definition_version, namespace, status,
+		       current_steps, variables, started_at, updated_at, completed_at, version
+		FROM workflow_instances
+		WHERE instance_id = ?`,
+		string(instanceID),
+	).Scan(&idStr, &defID, &defVer, &ns, &status,
+		&stepsJSON, &varsJSON,
+		&startedAtStr, &updatedAtStr, &completedAtStr,
+		&version,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return core.WorkflowInstance{}, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+		}
+		return core.WorkflowInstance{}, fmt.Errorf("storage: GetInstance query: %w", err)
+	}
+
+	var inst core.WorkflowInstance
+	inst.InstanceID = core.InstanceID(idStr)
+	inst.DefinitionID = defID
+	inst.DefinitionVersion = core.SemVer(defVer)
+	inst.Namespace = ns
+	inst.Status = core.InstanceStatus(status)
+
+	if err := json.Unmarshal([]byte(stepsJSON), &inst.CurrentSteps); err != nil {
+		return core.WorkflowInstance{}, fmt.Errorf("storage: GetInstance unmarshal current_steps: %w", err)
+	}
+	if err := json.Unmarshal([]byte(varsJSON), &inst.Variables); err != nil {
+		return core.WorkflowInstance{}, fmt.Errorf("storage: GetInstance unmarshal variables: %w", err)
+	}
+
+	startedAt, err := parseTimeStr(startedAtStr)
+	if err != nil {
+		return core.WorkflowInstance{}, fmt.Errorf("storage: GetInstance parse started_at: %w", err)
+	}
+	inst.StartedAt = startedAt
+
+	updatedAt, err := parseTimeStr(updatedAtStr)
+	if err != nil {
+		return core.WorkflowInstance{}, fmt.Errorf("storage: GetInstance parse updated_at: %w", err)
+	}
+	inst.UpdatedAt = updatedAt
+
+	if completedAtStr.Valid {
+		t, err := parseTimeStr(completedAtStr.String)
+		if err != nil {
+			return core.WorkflowInstance{}, fmt.Errorf("storage: GetInstance parse completed_at: %w", err)
+		}
+		inst.CompletedAt = &t
+	}
+
+	return inst, nil
 }
 
-// ListInstances is not yet implemented (M03).
-func (s *SQLiteStorage) ListInstances(_ context.Context, _ core.InstanceFilter) ([]core.WorkflowInstance, error) {
-	return nil, fmt.Errorf("%w: ListInstances", ErrNotImplemented)
+// ListInstances returns instances matching filter. Fields with zero values add
+// no WHERE predicate; non-zero Namespace or Status each add one. Results are
+// ordered by started_at ascending (NFR-S-04 namespace predicate via
+// idx_instances_ns_status).
+func (s *SQLiteStorage) ListInstances(ctx context.Context, filter core.InstanceFilter) ([]core.WorkflowInstance, error) {
+	query := `
+		SELECT instance_id, definition_id, definition_version, namespace, status,
+		       current_steps, variables, started_at, updated_at, completed_at
+		FROM workflow_instances
+		WHERE 1=1`
+	var args []any
+
+	if filter.Namespace != "" {
+		query += " AND namespace = ?"
+		args = append(args, filter.Namespace)
+	}
+	if filter.Status != "" {
+		query += " AND status = ?"
+		args = append(args, string(filter.Status))
+	}
+	query += " ORDER BY started_at"
+
+	rows, err := s.db.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("storage: ListInstances query: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var instances []core.WorkflowInstance
+	for rows.Next() {
+		var (
+			idStr, defID, defVer, ns, status string
+			stepsJSON, varsJSON              string
+			startedAtStr, updatedAtStr       string
+			completedAtStr                   sql.NullString
+		)
+		if err := rows.Scan(
+			&idStr, &defID, &defVer, &ns, &status,
+			&stepsJSON, &varsJSON,
+			&startedAtStr, &updatedAtStr, &completedAtStr,
+		); err != nil {
+			return nil, fmt.Errorf("storage: ListInstances scan: %w", err)
+		}
+
+		var inst core.WorkflowInstance
+		inst.InstanceID = core.InstanceID(idStr)
+		inst.DefinitionID = defID
+		inst.DefinitionVersion = core.SemVer(defVer)
+		inst.Namespace = ns
+		inst.Status = core.InstanceStatus(status)
+
+		if err := json.Unmarshal([]byte(stepsJSON), &inst.CurrentSteps); err != nil {
+			return nil, fmt.Errorf("storage: ListInstances unmarshal current_steps: %w", err)
+		}
+		if err := json.Unmarshal([]byte(varsJSON), &inst.Variables); err != nil {
+			return nil, fmt.Errorf("storage: ListInstances unmarshal variables: %w", err)
+		}
+
+		startedAt, err := parseTimeStr(startedAtStr)
+		if err != nil {
+			return nil, fmt.Errorf("storage: ListInstances parse started_at: %w", err)
+		}
+		inst.StartedAt = startedAt
+
+		updatedAt, err := parseTimeStr(updatedAtStr)
+		if err != nil {
+			return nil, fmt.Errorf("storage: ListInstances parse updated_at: %w", err)
+		}
+		inst.UpdatedAt = updatedAt
+
+		if completedAtStr.Valid {
+			t, err := parseTimeStr(completedAtStr.String)
+			if err != nil {
+				return nil, fmt.Errorf("storage: ListInstances parse completed_at: %w", err)
+			}
+			inst.CompletedAt = &t
+		}
+
+		instances = append(instances, inst)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("storage: ListInstances rows: %w", err)
+	}
+	return instances, nil
 }
 
-// ClaimStep is not yet implemented (M03).
-func (s *SQLiteStorage) ClaimStep(_ context.Context, _ core.InstanceID, _ string, _ string) (bool, error) {
-	return false, fmt.Errorf("%w: ClaimStep", ErrNotImplemented)
+// ClaimStep atomically claims a step for a worker using the step_claims table
+// as an at-most-once gate (CONTRA-6 / EDR-006 / Blueprint §8 step 3).
+//
+// Single transaction semantics:
+//  1. Verify the instance exists (else return error).
+//  2. INSERT INTO step_claims — PK conflict means another worker already holds
+//     the claim; return (false, nil).
+//  3. On successful INSERT bump workflow_instances.version by 1 (optimistic-lock
+//     coupling so a concurrent UpsertInstance sees the version change).
+//  4. Commit → (true, nil).
+//
+// claimed_at is sourced from the injectable clock.
+func (s *SQLiteStorage) ClaimStep(ctx context.Context, instanceID core.InstanceID, stepID string, workerID string) (bool, error) {
+	tx, err := s.db.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("storage: ClaimStep begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Step 1: instance must exist.
+	var exists int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM workflow_instances WHERE instance_id = ?`,
+		string(instanceID),
+	).Scan(&exists); err != nil {
+		return false, fmt.Errorf("storage: ClaimStep existence check: %w", err)
+	}
+	if exists == 0 {
+		return false, fmt.Errorf("storage: ClaimStep: instance %q not found", instanceID)
+	}
+
+	// Step 2: attempt INSERT.
+	claimedAt := s.now().UTC().Format(time.RFC3339Nano)
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO step_claims (instance_id, step_id, worker_id, claimed_at)
+		VALUES (?, ?, ?, ?)`,
+		string(instanceID), stepID, workerID, claimedAt,
+	)
+	if err != nil {
+		if isUniqueConstraintError(err) {
+			// Another worker already holds the claim.
+			return false, nil
+		}
+		return false, fmt.Errorf("storage: ClaimStep insert: %w", err)
+	}
+
+	// Step 3: bump instance version.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE workflow_instances SET version = version + 1 WHERE instance_id = ?`,
+		string(instanceID),
+	); err != nil {
+		return false, fmt.Errorf("storage: ClaimStep version bump: %w", err)
+	}
+
+	// Step 4: commit.
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("storage: ClaimStep commit: %w", err)
+	}
+	return true, nil
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -389,4 +731,30 @@ func isUniqueConstraintError(err error) bool {
 		}
 	}
 	return false
+}
+
+// isTerminalStatus reports whether status is a terminal workflow lifecycle
+// state. Terminal instances have their step_claims released on upsert (EDR-006).
+func isTerminalStatus(status core.InstanceStatus) bool {
+	switch status {
+	case core.InstanceStatusCompleted,
+		core.InstanceStatusFailed,
+		core.InstanceStatusCancelled,
+		core.InstanceStatusCompensated,
+		core.InstanceStatusCompensationFailed:
+		return true
+	}
+	return false
+}
+
+// parseTimeStr parses a time string stored by the adapter (RFC3339Nano or RFC3339).
+func parseTimeStr(s string) (time.Time, error) {
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		t, err = time.Parse(time.RFC3339, s)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("parse time %q: %w", s, err)
+		}
+	}
+	return t.UTC(), nil
 }
