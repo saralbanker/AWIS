@@ -1,0 +1,26 @@
+# Go build artifacts
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# SQLite artifacts
+*.db
+*.db-wal
+*.db-shm
+
+# AWIS runtime state
+.awis/
+
+# Decision index
+.decisions/.index/
+
+# Python venvs
+.venv/
+venv/
+__pycache__/
