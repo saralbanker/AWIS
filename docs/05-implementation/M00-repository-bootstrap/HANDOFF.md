@@ -1,5 +1,5 @@
 # M00 → M01 Handoff
-**Status: EXECUTED — awaiting human squash-merge** — the *Guaranteed outputs* below are the contract M01 may rely on;
+**Status: MERGED (`0277c9d`)**** — the *Guaranteed outputs* below are the contract M01 may rely on;
 the *Actuals* section is completed when M00 merges (per 05-implementation/README.md policy).
 
 ## Guaranteed outputs (contract)
@@ -16,7 +16,7 @@ the *Actuals* section is completed when M00 merges (per 05-implementation/README
 - `e1`, `contract`, `bench` targets are stubs. No executable behavior exists anywhere.
 
 ## Actuals (drafted at execution 2026-07-03; merge commit filled at merge)
-- Merge commit: _ (pending human squash-merge of branch `m00-repository-bootstrap`, work commit `1042939`)
+- Merge commit: `0277c9d` (squash of `m00-repository-bootstrap`; work `1042939`, record `79436ed`; approved by founder 2026-07-03)
 - Toolchain (environment, not repo): Go 1.26.4 + golangci-lint 2.12.2, user-installed at `~/toolchains/`
 - EDR decisions: edr-001 CONTRA-1 module path; edr-002 CLI = spf13/cobra (require lands at M14); edr-003 modernc.org/sqlite + WAL default (require lands at M02); edr-004 AEO model mapping
 - Boundary proof (executed twice — builder, then independent verifier on a clean clone):
