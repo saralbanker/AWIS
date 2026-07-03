@@ -40,3 +40,8 @@ type Capability = core.Capability
 // completed at M04; it is not part of the G1 format freeze (sdk surface mutable
 // until M08).
 type Example = core.Example
+
+// Usage records provider-reported consumption (adapter name, model, tokens) for
+// a single intelligence call. Its shape is completed at M04; it is not part of
+// the G1 format freeze (sdk surface mutable until M08).
+type Usage = core.Usage
