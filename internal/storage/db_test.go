@@ -134,12 +134,19 @@ func TestWALModeActive(t *testing.T) {
 	}
 }
 
-// TestTablesExist verifies the three tables from migration 0001 are present
-// and that workflow_instances is NOT present.
+// TestTablesExist verifies all tables from migration 0001 are present
+// (execution_events, workflow_definitions, step_results_cache, workflow_instances,
+// step_claims — fold-forward per M03).
 func TestTablesExist(t *testing.T) {
 	db := openTestDB(t)
 
-	want := []string{"execution_events", "workflow_definitions", "step_results_cache"}
+	want := []string{
+		"execution_events",
+		"workflow_definitions",
+		"step_results_cache",
+		"workflow_instances",
+		"step_claims",
+	}
 	for _, tbl := range want {
 		var name string
 		err := db.db.QueryRow(
@@ -149,22 +156,17 @@ func TestTablesExist(t *testing.T) {
 			t.Errorf("table %q not found: %v", tbl, err)
 		}
 	}
-
-	// workflow_instances must NOT exist in this card.
-	var name string
-	err := db.db.QueryRow(
-		`SELECT name FROM sqlite_master WHERE type='table' AND name='workflow_instances'`,
-	).Scan(&name)
-	if err == nil {
-		t.Errorf("workflow_instances must not exist, but it does")
-	}
 }
 
-// TestIndexesExist verifies the two indexes are present.
+// TestIndexesExist verifies all indexes from migration 0001 are present.
 func TestIndexesExist(t *testing.T) {
 	db := openTestDB(t)
 
-	wantIndexes := []string{"idx_events_instance_seq", "idx_events_ns_time"}
+	wantIndexes := []string{
+		"idx_events_instance_seq",
+		"idx_events_ns_time",
+		"idx_instances_ns_status",
+	}
 	for _, idx := range wantIndexes {
 		var name string
 		err := db.db.QueryRow(
