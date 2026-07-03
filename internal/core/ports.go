@@ -1,0 +1,185 @@
+package core
+
+import (
+	"context"
+	"time"
+)
+
+// StoragePort is the persistence boundary for the runtime: EventLog, StateStore,
+// WorkflowRegistry, and StepResultCache (Blueprint §20). The method set is frozen
+// verbatim; adapters (SQLite, Postgres) implement it identically.
+type StoragePort interface {
+	// AppendEvent appends one event to the EventLog.
+	AppendEvent(ctx context.Context, event ExecutionEvent) error
+	// ReadEvents reads events for an instance from a sequence number onward.
+	ReadEvents(ctx context.Context, instanceID InstanceID, fromSeq int) ([]ExecutionEvent, error)
+	// ReadEventRange reads events for a namespace within a time range.
+	ReadEventRange(ctx context.Context, namespace string, from, to time.Time) ([]ExecutionEvent, error)
+
+	// UpsertInstance writes an instance using optimistic concurrency control.
+	UpsertInstance(ctx context.Context, instance WorkflowInstance, expectedVersion int) error
+	// GetInstance fetches an instance by id.
+	GetInstance(ctx context.Context, instanceID InstanceID) (WorkflowInstance, error)
+	// ListInstances lists instances matching a filter.
+	ListInstances(ctx context.Context, filter InstanceFilter) ([]WorkflowInstance, error)
+	// ClaimStep atomically claims a step for a worker; reports whether it won.
+	ClaimStep(ctx context.Context, instanceID InstanceID, stepID string, workerID string) (bool, error)
+
+	// RegisterWorkflow registers a workflow definition.
+	RegisterWorkflow(ctx context.Context, def WorkflowDefinition) error
+	// GetWorkflow fetches a definition by id and version.
+	GetWorkflow(ctx context.Context, id string, version SemVer) (WorkflowDefinition, error)
+	// ListWorkflows lists the definitions in a namespace.
+	ListWorkflows(ctx context.Context, namespace string) ([]WorkflowDefinition, error)
+
+	// CacheResult caches a step result under an idempotency key with a TTL.
+	CacheResult(ctx context.Context, key IdempotencyKey, result StepResult, ttl time.Duration) error
+	// GetCachedResult fetches a cached step result; reports whether it was found.
+	GetCachedResult(ctx context.Context, key IdempotencyKey) (StepResult, bool, error)
+}
+
+// IntelligencePort is the translation layer between step declarations and
+// provider implementations (Blueprint §13). If the layer is absent the runtime
+// routes intelligence steps to their fallbacks and continues executing.
+type IntelligencePort interface {
+	// Draft produces structured output from an assembled context.
+	Draft(ctx context.Context, req DraftRequest) (DraftResponse, error)
+	// Embed returns an embedding vector for the given text.
+	Embed(ctx context.Context, text string) ([]float32, error)
+	// Synthesize composes a synthesized answer over supplied entries.
+	Synthesize(ctx context.Context, req SynthesisRequest) (SynthesisResponse, error)
+	// Classify assigns text to one of the supplied categories.
+	//
+	// FR-IL-10: this is a non-callable placeholder in the current surface; it is
+	// declared for interface completeness and is not invoked by the runtime yet.
+	Classify(ctx context.Context, text string, categories []string) (Classification, error)
+
+	// IsAvailable reports whether the provider is currently reachable.
+	IsAvailable() bool
+	// Capabilities lists the capabilities this provider declares.
+	Capabilities() []Capability
+	// ProviderName returns the provider's stable name.
+	ProviderName() string
+}
+
+// DraftRequest is the input to IntelligencePort.Draft (Blueprint §13).
+type DraftRequest struct {
+	// Context is the assembled context, bounded by the step's context budget.
+	Context string
+	// Schema is the expected output structure.
+	Schema map[string]any
+	// Persona is an optional role for the model to assume.
+	Persona string
+	// Examples are optional few-shot examples.
+	Examples []Example
+}
+
+// SynthesisRequest is the input to IntelligencePort.Synthesize (Blueprint §13).
+type SynthesisRequest struct {
+	// Query is the synthesis question.
+	Query string
+	// Entries are the source entries to synthesize over.
+	Entries []any
+	// MaxLen is the maximum output length.
+	MaxLen int
+}
+
+// Classification is the result of IntelligencePort.Classify (Blueprint §13).
+type Classification struct {
+	// Category is the chosen category.
+	Category string
+	// Confidence is the model's confidence in [0,1].
+	Confidence float32
+	// Reasoning is an optional explanation.
+	Reasoning string
+}
+
+// DraftResponse is the result of IntelligencePort.Draft (Blueprint §13).
+//
+// Shape completed at M04 (owning milestone); not part of the G1 format freeze
+// (IMP §13 — sdk surface mutable until M08).
+type DraftResponse struct{}
+
+// SynthesisResponse is the result of IntelligencePort.Synthesize (Blueprint §13).
+//
+// Shape completed at M04 (owning milestone); not part of the G1 format freeze
+// (IMP §13 — sdk surface mutable until M08).
+type SynthesisResponse struct{}
+
+// Capability describes an intelligence capability a provider declares
+// (Blueprint §13).
+//
+// Shape completed at M04 (owning milestone); not part of the G1 format freeze
+// (IMP §13 — sdk surface mutable until M08).
+type Capability struct{}
+
+// Example is a few-shot example supplied to a draft request (Blueprint §13).
+//
+// Shape completed at M04 (owning milestone); not part of the G1 format freeze
+// (IMP §13 — sdk surface mutable until M08).
+type Example struct{}
+
+// WorkflowRunner is the application-facing runtime control surface for workflow
+// instances (Blueprint §12).
+type WorkflowRunner interface {
+	// Submit starts a new workflow instance and returns its id.
+	Submit(ctx context.Context, definitionID string, inputs map[string]any) (InstanceID, error)
+	// Signal delivers a signal to a waiting instance.
+	Signal(ctx context.Context, instanceID InstanceID, signalName string, payload map[string]any) error
+	// Status returns the current state of an instance.
+	Status(ctx context.Context, instanceID InstanceID) (WorkflowStatus, error)
+	// Cancel requests cancellation of a running instance.
+	Cancel(ctx context.Context, instanceID InstanceID, reason string) error
+	// List returns instances matching a filter.
+	List(ctx context.Context, filter InstanceFilter) ([]WorkflowStatus, error)
+}
+
+// RecallAPI is the application-facing read surface over execution history
+// (Blueprint §12).
+type RecallAPI interface {
+	// QueryHistory returns execution records matching a query.
+	QueryHistory(ctx context.Context, query HistoryQuery) ([]ExecutionRecord, error)
+	// ReplayInstance replays a completed instance for debugging.
+	ReplayInstance(ctx context.Context, instanceID InstanceID) (ReplayTrace, error)
+	// StepStats returns aggregate statistics for a step across all instances.
+	StepStats(ctx context.Context, definitionID, stepID string) (StepStatistics, error)
+}
+
+// WorkflowStatus is the summarized current state of an instance returned by the
+// runner (Blueprint §12).
+//
+// Shape completed at M08 (owning milestone); not part of the G1 format freeze
+// (IMP §13 — sdk surface mutable until M08).
+type WorkflowStatus struct{}
+
+// InstanceFilter selects instances for List/ListInstances (Blueprint §12/§20).
+//
+// Shape completed at M08 (owning milestone); not part of the G1 format freeze
+// (IMP §13 — sdk surface mutable until M08).
+type InstanceFilter struct{}
+
+// HistoryQuery selects execution history for RecallAPI.QueryHistory
+// (Blueprint §12).
+//
+// Shape completed at M08 (owning milestone); not part of the G1 format freeze
+// (IMP §13 — sdk surface mutable until M08).
+type HistoryQuery struct{}
+
+// ExecutionRecord is a summarized history record returned by the RecallAPI
+// (Blueprint §12).
+//
+// Shape completed at M08 (owning milestone); not part of the G1 format freeze
+// (IMP §13 — sdk surface mutable until M08).
+type ExecutionRecord struct{}
+
+// ReplayTrace is the trace produced by RecallAPI.ReplayInstance (Blueprint §12).
+//
+// Shape completed at M08 (owning milestone); not part of the G1 format freeze
+// (IMP §13 — sdk surface mutable until M08).
+type ReplayTrace struct{}
+
+// StepStatistics are aggregate statistics for a step (Blueprint §12).
+//
+// Shape completed at M08 (owning milestone); not part of the G1 format freeze
+// (IMP §13 — sdk surface mutable until M08).
+type StepStatistics struct{}
