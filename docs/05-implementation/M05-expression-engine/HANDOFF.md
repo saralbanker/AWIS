@@ -22,7 +22,7 @@
 - Handler resolvability is presence-only until M08 registration.
 
 ## Actuals (execution 2026-07-03)
-- Merge commit: _ (pending; branch tip `5bc33fe`, M05-V1 15/15 PASS clean-clone)
+- Merge commit: `c0a75b7` (squash of `m05-expression-engine` tip `c6c45d3`; verified `5bc33fe` M05-V1 15/15 PASS clean-clone; merged under founder directive "Complete, verify, and merge each milestone before beginning M06"; tagged `milestone/M05`)
 - Cards: M05-C1 (**Opus**: both grammars + Env + corpus/fuzz, 10 files, corpus 42/42, fuzz 30s×2 ~7.4M/5.5M execs zero panics), M05-C2 (**Opus**: validator, 16 issue codes, 27 tests) — Opus per IMP §28 row, no downward substitution
 - Verifier fuzz re-run: 20s×2, 4.8M/3.9M execs, zero crashers; 6 corpus rows independently re-probed
 - CE review: full-diff review of both cards; traced every invalid corpus row (T9–T15, C20–C27) through parser paths; no semantic findings; no fix cycle needed (second consecutive zero-failure milestone)
