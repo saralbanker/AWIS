@@ -57,6 +57,13 @@ func (d *DB) Close() error {
 	return d.db.Close()
 }
 
+// ExposedDB returns the underlying *sql.DB for use in tests that need
+// direct SQL access (e.g. raw-snapshot assertions in rebuild_test.go).
+// Production code must not call this method.
+func (d *DB) ExposedDB() *sql.DB {
+	return d.db
+}
+
 // applyPragmas configures the WAL journal mode, busy timeout, foreign keys, and
 // synchronous level on the connection (edr-003; FR-ST-06).
 func applyPragmas(db *sql.DB) error {
