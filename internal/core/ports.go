@@ -94,30 +94,53 @@ type Classification struct {
 	Reasoning string
 }
 
+// Usage records provider-reported consumption for a single intelligence call.
+// It feeds the FR-IL-09 StepCompleted payload {adapter, model, tokens_used}
+// assembled at M06. Shape completed at M04.
+type Usage struct {
+	// Adapter is the ProviderName() of the adapter that served the request.
+	Adapter string
+	// Model is the model identifier reported by the adapter ("null" for NullAdapter).
+	Model string
+	// TokensUsed is the number of tokens consumed as reported by the provider;
+	// 0 for adapters that do not bill tokens (e.g. NullAdapter).
+	TokensUsed int
+}
+
 // DraftResponse is the result of IntelligencePort.Draft (Blueprint §13).
-//
-// Shape completed at M04 (owning milestone); not part of the G1 format freeze
-// (IMP §13 — sdk surface mutable until M08).
-type DraftResponse struct{}
+// Output conforms to DraftRequest.Schema. Shape completed at M04.
+type DraftResponse struct {
+	// Output is the structured result conforming to the request Schema.
+	Output map[string]any
+	// Usage records adapter and token consumption for this call.
+	Usage Usage
+}
 
 // SynthesisResponse is the result of IntelligencePort.Synthesize (Blueprint §13).
-//
-// Shape completed at M04 (owning milestone); not part of the G1 format freeze
-// (IMP §13 — sdk surface mutable until M08).
-type SynthesisResponse struct{}
+// Shape completed at M04.
+type SynthesisResponse struct {
+	// Text is the composed synthesized answer.
+	Text string
+	// Usage records adapter and token consumption for this call.
+	Usage Usage
+}
 
 // Capability describes an intelligence capability a provider declares
-// (Blueprint §13).
-//
-// Shape completed at M04 (owning milestone); not part of the G1 format freeze
-// (IMP §13 — sdk surface mutable until M08).
-type Capability struct{}
+// (Blueprint §13). Providers announce capabilities by name: "draft", "embed",
+// "synthesize", "classify". Shape completed at M04.
+type Capability struct {
+	// Name is the capability identifier (e.g. "draft", "embed", "synthesize", "classify").
+	Name string
+}
 
 // Example is a few-shot example supplied to a draft request (Blueprint §13).
-//
-// Shape completed at M04 (owning milestone); not part of the G1 format freeze
-// (IMP §13 — sdk surface mutable until M08).
-type Example struct{}
+// Shape completed at M04.
+type Example struct {
+	// Input is the example input, keyed by field name.
+	Input map[string]any
+	// Output is the example output, keyed by field name.
+	Output map[string]any
+}
 
 // WorkflowRunner is the application-facing runtime control surface for workflow
 // instances (Blueprint §12).
