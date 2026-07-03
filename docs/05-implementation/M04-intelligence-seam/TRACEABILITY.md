@@ -16,6 +16,15 @@
   not in any frozen format; honors §17's public routing spec while staying internally simple
   (Finalization open item, IMP risk note).
 
+- **required-field deferral** — Blueprint §13 YAML shows `required:` inside the step's
+  intelligence block, but M01's IntelReq froze `{capability, model_hint, context_budget}`
+  (transcribed from Blueprint §6 L292, which omits required). IntelReq is NOT G1-frozen
+  (sdk mutable until M08), so this is an owning-milestone completion, not a conflict:
+  Router/Dispatcher take `required bool` as an explicit parameter now; the field lands on
+  IntelReq when its consumer (M06 engine wiring TDS-02 step config → dispatch) arrives.
+
 ## Deviations
 - Named-agent dispatch unavailable mid-session → general-purpose Agent with model pinned +
   identity embedded (standing AEO deviation, recorded each milestone).
+- M04-C2 session-limit interruption after router.go+budget.go (both complete, kept);
+  continuation card M04-C2r finished dispatcher + tests.
