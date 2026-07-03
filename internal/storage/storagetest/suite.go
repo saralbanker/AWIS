@@ -91,6 +91,9 @@ func Run(t *testing.T, factory func(t *testing.T) core.StoragePort) {
 		testSchemaVersionZeroNormalized(t, factory(t))
 	})
 	// StateStore subtests (M03).
+	t.Run("GetInstanceNotFound", func(t *testing.T) {
+		testGetInstanceNotFound(t, factory(t))
+	})
 	t.Run("UpsertCreateThenGet", func(t *testing.T) {
 		testUpsertCreateThenGet(t, factory(t))
 	})
@@ -827,5 +830,15 @@ func testTerminalUpsertReleasesClaims(t *testing.T, s core.StoragePort) {
 	}
 	if !claimed2 {
 		t.Errorf("after terminal upsert: want claimed=true (claims released), got false")
+	}
+}
+
+// testGetInstanceNotFound asserts the typed not-found error for absent
+// instances (M03 checklist item 4).
+func testGetInstanceNotFound(t *testing.T, s core.StoragePort) {
+	t.Helper()
+	_, err := s.GetInstance(bg(), "no-such-instance")
+	if !errors.Is(err, storage.ErrInstanceNotFound) {
+		t.Errorf("GetInstance(absent): want ErrInstanceNotFound, got %v", err)
 	}
 }
