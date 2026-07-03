@@ -50,4 +50,8 @@ const (
 	InstanceStatusCompensating InstanceStatus = "compensating"
 	// InstanceStatusCompensated finished compensation.
 	InstanceStatusCompensated InstanceStatus = "compensated"
+	// InstanceStatusCompensationFailed is the terminal state when compensation
+	// itself failed (rare but critical; always audited). Added by G1-amendment
+	// ADJ-5 per Finalization B4 / Blueprint §8 (CONTRA-7 disposition).
+	InstanceStatusCompensationFailed InstanceStatus = "compensation_failed"
 )

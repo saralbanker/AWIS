@@ -1,0 +1,18 @@
+# M03 — Validation Checklist (all binary; all must pass)
+- [ ] Clean clone: `make build test lint contract` exit 0; `go test -race ./internal/storage/...` exit 0
+- [ ] 0001 fold-forward: `workflow_instances` (12 cols incl. `version` + `cancellation_requested INTEGER NOT NULL DEFAULT 0`) + `idx_instances_ns_status` + `step_claims` table exist; N−1 fixture test updated
+- [ ] UpsertInstance optimistic lock: stale expectedVersion → typed ErrVersionConflict (test)
+- [ ] GetInstance not-found typed error; 11-field faithful roundtrip (test)
+- [ ] ListInstances: namespace predicate + status predicate via InstanceFilter{Namespace,Status} (tests; NFR-S-04)
+- [ ] ClaimStep at-most-once: second claim (false,nil); claim bumps instance version; instance-absent errors (tests)
+- [ ] Terminal-status upsert deletes the instance's step_claims (EDR-006 release site; test)
+- [ ] All 12 StoragePort methods contract-tested (no ErrNotImplemented remains)
+- [ ] Rebuild: 10K-event deterministic fixture, all 12 event types → wipe → RebuildState → row-snapshot BYTE-IDENTICAL (NFR-R-03; test evidence)
+- [ ] WorkflowCompensationFailed projects to `compensation_failed` (ADJ-5; test)
+- [ ] Crash mid-append → reopen → rebuild → consistent projection (test)
+- [ ] 100K rebuild wall time recorded (informational vs NFR-P-06 <30s)
+- [ ] InstanceFilter completed {Namespace, Status} — only core change beyond CE's ADJ-5 enum edit (`git diff main -- internal/core` shows exactly those two)
+- [ ] sdk/ untouched; M02 registry/cache/EventLog behavior unaltered (M02 contract tests green unchanged)
+- [ ] edr-006 + edr-007 committed; CONTRA-6/7 + ADJ-5 recorded in module TRACEABILITY + gate log
+- [ ] CE rebuild-fidelity review recorded in merge description
+- [ ] Global DoD (IMP §24) items 1–7 (macOS CI leg pending remote)
