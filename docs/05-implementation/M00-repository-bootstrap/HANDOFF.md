@@ -1,5 +1,5 @@
 # M00 → M01 Handoff
-**Status: PENDING EXECUTION** — the *Guaranteed outputs* below are the contract M01 may rely on;
+**Status: EXECUTED — awaiting human squash-merge** — the *Guaranteed outputs* below are the contract M01 may rely on;
 the *Actuals* section is completed when M00 merges (per 05-implementation/README.md policy).
 
 ## Guaranteed outputs (contract)
@@ -15,7 +15,12 @@ the *Actuals* section is completed when M00 merges (per 05-implementation/README
 ## Known limitations (by design)
 - `e1`, `contract`, `bench` targets are stubs. No executable behavior exists anywhere.
 
-## Actuals (fill at merge)
-- Merge commit: _
-- Deviations from spec: _
-- Open issues created: _
+## Actuals (drafted at execution 2026-07-03; merge commit filled at merge)
+- Merge commit: _ (pending human squash-merge of branch `m00-repository-bootstrap`, work commit `1042939`)
+- Toolchain (environment, not repo): Go 1.26.4 + golangci-lint 2.12.2, user-installed at `~/toolchains/`
+- EDR decisions: edr-001 CONTRA-1 module path; edr-002 CLI = spf13/cobra (require lands at M14); edr-003 modernc.org/sqlite + WAL default (require lands at M02); edr-004 AEO model mapping
+- Boundary proof (executed twice — builder, then independent verifier on a clean clone):
+  `cd apps/oip && go build ./...` → `boundarycheck.go:3:8: use of internal package github.com/awis/awis/internal/scratch not allowed` (exit 1); scratch files deleted; post-cleanup builds green
+- Verification: awis-verifier card M00-V1 → VERDICT PASS, 12/12 items (CI-on-GitHub item static-only), HEAD `1042939`
+- Deviations from spec: (1) CI green on GitHub Linux+macOS unverifiable locally — no remote configured; pending first push. (2) `.claude/agents/` (4 AEO subagents) added — org tooling additive to IMP §5 tree, recorded in edr-004. (3) This session invoked builder/verifier as general-purpose agents pinned to Sonnet carrying the `.claude/agents` identities verbatim (named agents register at next session start). (4) CE trivial review patches: golangci-lint-action v6→v8, EDR-002 canonical command names. (5) Checklist ticks + this actuals draft written by CE directly (sub-trivial volume) rather than a scribe batch.
+- Open issues created: none
