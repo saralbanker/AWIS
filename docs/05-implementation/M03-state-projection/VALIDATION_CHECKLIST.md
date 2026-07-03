@@ -2,7 +2,7 @@
 - [ ] Clean clone: `make build test lint contract` exit 0; `go test -race ./internal/storage/...` exit 0
 - [ ] 0001 fold-forward: `workflow_instances` (12 cols incl. `version` + `cancellation_requested INTEGER NOT NULL DEFAULT 0`) + `idx_instances_ns_status` + `step_claims` table exist; N−1 fixture test updated
 - [ ] UpsertInstance optimistic lock: stale expectedVersion → typed ErrVersionConflict (test)
-- [ ] GetInstance not-found typed error; 11-field faithful roundtrip (test)
+- [ ] GetInstance not-found typed error (contract subtest); 10-field faithful roundtrip (`version`/`cancellation_requested` are DB-internal, not struct fields)
 - [ ] ListInstances: namespace predicate + status predicate via InstanceFilter{Namespace,Status} (tests; NFR-S-04)
 - [ ] ClaimStep at-most-once: second claim (false,nil); claim bumps instance version; instance-absent errors (tests)
 - [ ] Terminal-status upsert deletes the instance's step_claims (EDR-006 release site; test)
