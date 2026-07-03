@@ -17,7 +17,7 @@ race:
 	cd apps/oip && go test -race ./...
 
 contract:
-	@echo "NOT-YET (wired at M02/M06/M18): contract"
+	go test -v ./internal/storage/... -run 'Contract|Suite|TestSQLiteStorageContract' -count=1
 
 e1:
 	@echo "NOT-YET (wired at M02/M06/M18): e1"

@@ -1,0 +1,22 @@
+# M02 — Validation Checklist (all binary; all must pass)
+Verified by awis-verifier card M02-V1 on clean clone at HEAD `08ed6d2`: 19/20 ✅ + item 16 (go.mod direct require) fixed in `17ea646` with evidence re-checked. Crash: 20 committed seqs survived SIGKILL. 100K append: 7.36s (13,594 ev/s, informational).
+- [x] Clean clone: `make build test lint` exit 0; `go test -race ./internal/storage/...` exit 0
+- [x] `make contract` runs the StoragePort contract suite (stub replaced) and exits 0
+- [x] Migration runner: empty DB → `0001` applies; version recorded in `schema_version` table; re-open is a no-op (idempotent)
+- [x] N−1 fixture test present (empty DB → 0001) per IMP §14
+- [x] `execution_events` schema == TDS-01 §1 exactly: 9 columns incl. `schema_version INTEGER NOT NULL DEFAULT 1`; both §20 event indexes exist
+- [x] `workflow_definitions` and `step_results_cache` == Blueprint §20 DDL verbatim
+- [x] `workflow_instances` does NOT exist yet (M03 scope wall held)
+- [x] AppendEvent rejects non-increasing `sequence_num` per instance (test evidence)
+- [x] Adapter exposes no event update/delete path (FR-ST-01; code inspection)
+- [x] Append/read roundtrip preserves all 9 envelope fields byte-faithfully incl. StepError payloads
+- [x] `ReadEventRange` and `ListWorkflows` filter by namespace (NFR-S-04 test evidence)
+- [x] Re-registering existing `(id, version)` fails (TDS-02 §5 immutability test)
+- [x] Cache TTL honored via injectable clock (no `time.Now()` in TTL logic)
+- [x] StateStore methods return ErrNotImplemented (M03 marker); SQLiteStorage satisfies core.StoragePort at compile time
+- [x] Crash-durability: helper process SIGKILLed mid-append; reopen; all committed events present (NFR-R-02, §20 checkpoint) — transcript recorded
+- [x] 100K-event append completes; wall time recorded (informational)
+- [x] Only new require: `modernc.org/sqlite` (+testify if used); `go.mod` diff inspected
+- [x] `internal/core` and `sdk` untouched (git diff empty on those paths)
+- [x] CE deep review of append path recorded in PR/merge description
+- [x] Global DoD (IMP §24) items 1–7 (macOS CI leg pending remote, Linux verified)
