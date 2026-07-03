@@ -104,4 +104,5 @@ table (§9). Fields (VERBATIM §6): `instance_id: UUID`, `definition_id: string`
 `definition_version: SemVer`, `namespace: string`, `status: InstanceStatus`,
 `current_steps: string[]`, `variables: map<string, any>`, `started_at: Timestamp`,
 `updated_at: Timestamp`, `completed_at: Timestamp?`.
-`InstanceStatus = pending | running | waiting | completed | failed | cancelled | compensating | compensated` (§6, line 328).
+`InstanceStatus = pending | running | waiting | completed | failed | cancelled | compensating | compensated | compensation_failed`
+(§6 line 328 lists eight values; **`compensation_failed` added by G1-amendment ADJ-5, founder-approved 2026-07-03** — CONTRA-7 disposition: Finalization B4 and Blueprint §8 name it as a terminal status and the Finalization outranks §6 in the authority order. Recorded in the M03 module TRACEABILITY and the 04-planning gate log.)
