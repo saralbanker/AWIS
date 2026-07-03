@@ -26,7 +26,7 @@
 - EDR-008 estimator is flagged for G2 review with engine dispatch semantics.
 
 ## Actuals (execution 2026-07-03)
-- Merge commit: _ (pending; branch tip `b8989a9`, M04-V1 12/12 PASS clean-clone)
+- Merge commit: `cc0362f` (squash of `m04-intelligence-seam` tip `6289b03`; verified `b8989a9` M04-V1 12/12 PASS clean-clone; merged under founder directive "Complete, verify, and merge each milestone before beginning M06"; tagged `milestone/M04`)
 - Cards: M04-C1 (Sonnet: shapes+NullAdapter+porttest, 19 tests), M04-C2/C2r (Sonnet: router+budget+dispatcher, 17 branch tests; C2 session-limit cutoff after router.go+budget.go — both kept, C2r finished)
 - CE review: C1/C2 diffs reviewed in full; no semantic findings; no fix cycle needed (first milestone with zero verification failures)
 - Deviations: standing named-agent dispatch deviation; C2 session-limit continuation
