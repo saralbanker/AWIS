@@ -1,5 +1,5 @@
 # M03 → M06 Handoff
-**Status: EXECUTED + VERIFIED — awaiting human squash-merge** — *Guaranteed outputs* are the contract; *Actuals* below (merge commit filled at merge).
+**Status: MERGED — milestone closed** — *Guaranteed outputs* are the contract; *Actuals* below.
 
 ## Guaranteed outputs (contract)
 - StoragePort 12/12 live and contract-tested; optimistic versioning on instances; at-most-once ClaimStep (step_claims, CONTRA-6)
@@ -16,8 +16,8 @@
 - `waiting` status entry is not evented until M07's wait_records.
 - `cancellation_requested` rebuilds as 0 (request flag is non-evented state; B4).
 
-## Actuals (drafted at execution 2026-07-03; merge commit filled at merge)
-- Merge commit: _ (pending founder squash-merge; branch tip `2eb9604`, verified `980d8b6` M03-V1 17/18 + item-4 fix re-checked)
+## Actuals (drafted at execution 2026-07-03; merge recorded same day)
+- Merge commit: `7a11348` (squash of `m03-state-projection`, founder-approved verdict 2026-07-03; branch tip `f8f04b7`, verified `980d8b6` M03-V1 17/18 + item-4 fix `2eb9604` re-checked; tagged `milestone/M03`)
 - Contract suite: 22 subtests (12/12 StoragePort methods covered); 10K replay: 10,849 events / 60 instances, byte-identical across two rebuilds + 6 field-exact anchors (incl. compensation_failed); crash+rebuild consistent; 100K rebuild: **447ms** (informational; NFR-P-06 gate <30s at M18)
 - Founder adjudications at entry: **CONTRA-6** (claims table, no in_flight status) + **CONTRA-7/ADJ-5** (compensation_failed 9th InstanceStatus; G1-frozen TDS-02 amended under sign-off) — gate log + TRACEABILITY
 - CE deep review (rebuild fidelity, per EDR-004): 3 findings fixed pre-verification — scan-error propagation (silent-skip would corrupt recovery), strict payload sub-field parsing (unmarshalField), offline/single-writer assumption documented
