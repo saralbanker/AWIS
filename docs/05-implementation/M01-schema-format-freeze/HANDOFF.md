@@ -1,5 +1,5 @@
 # M01 → M02/M04/M05 Handoff
-**Status: EXECUTED + G1 APPROVED — awaiting human squash-merge** — *Guaranteed outputs* are the contract; *Actuals* below (merge commit filled at merge).
+**Status: MERGED (`aef89bf`) + G1 APPROVED** — *Guaranteed outputs* are the contract; *Actuals* below (merge commit filled at merge).
 
 ## Guaranteed outputs (contract)
 - TDS-01/02/03 frozen under G1 approval — downstream code treats them as Tier-0-derived normative text
@@ -16,7 +16,7 @@
 - No storage, no parsing, no engine. Types have no methods. `apps/oip` still empty.
 
 ## Actuals (drafted at execution 2026-07-03; merge commit filled at merge)
-- Merge commit: _ (pending human squash-merge; branch tip `d66df49`, verification M01-V1 PASS 21/21 at that sha)
+- Merge commit: `aef89bf` (squash; verified state `d66df49`, M01-V1 PASS 21/21; merge directed by founder 2026-07-03 via M02 execution order)
 - G1 sign-off: **APPROVED by founder 2026-07-03** with adjudications ADJ-1..4 adopted (dispositions verbatim in TRACEABILITY.md and the 04-planning gate log); sign-off text recorded in the milestone PR/merge description
 - Event types enumerated: **12** (TDS-01 §2; §8 cross-check found no unlisted type)
 - CONTRA entries raised during transcription: **CONTRA-5** — WorkflowCancelled payload conflict (Blueprint §9 L671 `{reason}` vs §8 L603 `{reason, cancelled_at}`); G1 disposition: §9 canonical, `cancelled_at` derived from envelope `emitted_at`. Plus three ADJ completions (schema_version ×2, StepError shape) — additive CONTRA-4-class, all G1-approved
