@@ -1,5 +1,5 @@
 # M02 → M03 Handoff
-**Status: EXECUTED + VERIFIED — awaiting human squash-merge** — *Guaranteed outputs* are the contract; *Actuals* below (merge commit filled at merge).
+**Status: MERGED (`e0f64ec`)** — *Guaranteed outputs* are the contract; *Actuals* below (merge commit filled at merge).
 
 ## Guaranteed outputs (contract)
 - `internal/storage`: SQLite adapter with live EventLog (append/read/range), WorkflowRegistry, StepResultCache; StateStore methods stubbed with ErrNotImplemented
@@ -18,7 +18,7 @@
 - 100K timing is informational; NFR-P-05/06 bind at M03/M14 benchmarks.
 
 ## Actuals (drafted at execution 2026-07-03; merge commit filled at merge)
-- Merge commit: _ (pending founder squash-merge; branch tip `17ea646`, verified `08ed6d2` M02-V1 19/20 + item-16 fix re-checked)
+- Merge commit: `e0f64ec` (squash-merged by founder; verified `08ed6d2`, M02-V1 19/20 + item-16 fix `17ea646`)
 - Contract suite: 13 subtests (incl. SchemaVersionZeroNormalized added by CE review); crash: child SIGKILLed after 20 committed seqs, all present + intact on reopen (NFR-R-02)
 - 100K append wall time: 7.36s ≈ 13,594 events/sec (informational; binding targets NFR-P-05/06 at M03/M14)
 - Driver pinned: `modernc.org/sqlite v1.53.0` (direct require)
