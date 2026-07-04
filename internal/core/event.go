@@ -62,6 +62,31 @@ const (
 	EventTypeWorkflowCompensationFailed EventType = "WorkflowCompensationFailed"
 )
 
+// DomainEvent is one row of the domain_events table (Blueprint §10; TTL 7d;
+// ingested at M06 per Verification F-2). It is distinct from ExecutionEvent
+// (§9): DomainEvents are external facts that may trigger workflows, not the
+// append-only execution history.
+//
+// Shape completed at M06 (owning milestone; additive CONTRA-4-class table); not
+// part of the G1 ExecutionEvent format freeze. The struct is defined here at
+// C1; ingestion, matching, and the migration are wired at C3 (T5).
+type DomainEvent struct {
+	// EventID is the UUID primary key uniquely identifying the domain event.
+	EventID string `json:"event_id"`
+	// Namespace is the owning namespace, e.g. "oip".
+	Namespace string `json:"namespace"`
+	// EventType is the domain event's type, matched against trigger config["event"].
+	EventType string `json:"event_type"`
+	// Source identifies the emitter of the domain event.
+	Source string `json:"source"`
+	// Payload is the event's data; it becomes a trigger-submitted instance's inputs.
+	Payload map[string]any `json:"payload"`
+	// EmittedAt is when the domain event was emitted.
+	EmittedAt time.Time `json:"emitted_at"`
+	// ConsumedAt is when a workflow first fired from this event; nil until consumed.
+	ConsumedAt *time.Time `json:"consumed_at,omitempty"`
+}
+
 // StepError is the persisted error shape carried inside StepFailed,
 // WorkflowFailed, and WorkflowCompensationFailed payloads (TDS-01 §2.1). It is
 // part of the irreversible format and frozen at Gate G1.
