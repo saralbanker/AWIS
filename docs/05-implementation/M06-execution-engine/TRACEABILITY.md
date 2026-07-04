@@ -40,6 +40,22 @@ runner_unavailable until M07; compensation-step optional Retry shape; migration 
 - EDR-008 estimator + EDR-010 semantics + EDR-011 join/stall semantics — G2 review set.
 - 'in_flight' reading (CONTRA-6) — revisit with the real engine now existing.
 
+## Decisions added during BUILD (CE-authored, reversible pre-G2)
+- **EDR-011 §8** (authored at C2 dispatch): terminal-failure routing order — fallback (§8 L530
+  explicit) → on_error transitions (all-that-fire) → WorkflowFailed+compensation; failure-driven
+  activations bypass the join gate via an in-memory pending set (restart derivation documented,
+  not exercised at V1); cancel-during-retry-wait ⇒ StepFailed{retrying:false, code=cancelled};
+  SignalReceived 12/12 coverage at projection level (forward emission site is M07's).
+
 ## Deviations
-- Named-agent dispatch unavailable mid-session → general-purpose Agent with model pinned +
-  identity embedded (standing AEO deviation).
+- Named agents registered this session (awis-core-engineer/awis-verifier used directly); the
+  earlier general-purpose+pinned-model deviation no longer applies from M06 on.
+- Session-limit/timeout cutoffs on three agent runs (C1 after production code, C2 after satellite
+  files, V1 mid-run) → continuation cards C1r/C2r/C2r2/V1r with CE audit of delivered files
+  marked FINAL between runs (established M04-C2r pattern). All delivered code CE-audited before
+  continuation; no re-work discarded.
+
+## Verification
+- **M06-V1r (Sonnet, clean clone at `01d2f5c`): 15/15 PASS, zero fix cycles.** 183 PASS across
+  internal/...; E1 8/8; 31 forward≡rebuild call sites; StoragePort diff zero; core diff =
+  step.go/workflow.go/event.go only; no TODO/FIXME in engine source.
