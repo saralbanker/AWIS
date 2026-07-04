@@ -1,5 +1,5 @@
 # M06 → M07/M08/M09/M11/M12 Handoff
-**Status: IN EXECUTION** — Actuals filled at completion; merge commit at merge.
+**Status: EXECUTED + VERIFIED (M06-V1r 15/15 at `01d2f5c`)** — merge commit filled at merge.
 
 ## Guaranteed outputs (contract)
 - `internal/engine`: Engine (Submit/Cancel/Ingest/Tick/Run), pull loop per §8, forward projection
