@@ -19,8 +19,28 @@ import (
 	"time"
 
 	"github.com/awis/awis/internal/core"
+	"github.com/awis/awis/internal/runner/native"
 	"github.com/awis/awis/internal/storage"
 )
+
+// newNativeEngine builds an Engine with a NativeRunner registered for the given
+// handlers and an explicit clock. It is the flexible counterpart to
+// buildEngine (fixtures_test.go) for the C2 fixtures that need custom handler
+// types (flaky/recording) and controllable clocks (manualClock).
+func newNativeEngine(t *testing.T, def core.WorkflowDefinition, maxParallel int, clock func() time.Time, handlers ...core.StepHandler) (*Engine, *storage.SQLiteStorage) {
+	t.Helper()
+	s := openStorage(t)
+	if err := s.RegisterWorkflow(context.Background(), def); err != nil {
+		t.Fatalf("RegisterWorkflow: %v", err)
+	}
+	nr := native.New()
+	for _, h := range handlers {
+		nr.Register(h)
+	}
+	e := New(s, map[core.StepType]Runner{core.StepTypeNative: nr},
+		Config{MaxParallelSteps: maxParallel, Clock: clock}, discardLogger())
+	return e, s
+}
 
 // errBoom is the canned handler failure used by the failure fixture.
 var errBoom = errors.New("boom")
@@ -111,6 +131,71 @@ func (c *fakeClock) now() time.Time {
 	return t
 }
 
+// manualClock is a test clock the test moves explicitly: now() returns the
+// current value WITHOUT advancing, and advance moves it forward. It is used by
+// the retry / cancellation fixtures where time must jump past a backoff between
+// ticks (the auto-advancing fakeClock cannot express that). duration_ms is 0
+// under this clock (StepStarted and StepCompleted share an emitted_at); those
+// fixtures assert attempt/sequence, not durations.
+type manualClock struct {
+	mu  sync.Mutex
+	cur time.Time
+}
+
+func newManualClock(start time.Time) *manualClock { return &manualClock{cur: start} }
+
+func (c *manualClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cur
+}
+
+func (c *manualClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cur = c.cur.Add(d)
+}
+
+// rawKeys decodes an event payload into a flat key set (top-level keys only).
+func rawKeys(t *testing.T, ev core.ExecutionEvent) map[string]json.RawMessage {
+	t.Helper()
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(ev.Payload, &m); err != nil {
+		t.Fatalf("decode %s payload keys: %v", ev.EventType, err)
+	}
+	return m
+}
+
+// assertHasKeys fails unless every named key is present in the payload.
+func assertHasKeys(t *testing.T, ev core.ExecutionEvent, keys ...string) {
+	t.Helper()
+	m := rawKeys(t, ev)
+	for _, k := range keys {
+		if _, ok := m[k]; !ok {
+			t.Fatalf("%s payload is missing key %q; keys=%v", ev.EventType, k, keysOf(m))
+		}
+	}
+}
+
+// assertLacksKeys fails if any named key is present in the payload.
+func assertLacksKeys(t *testing.T, ev core.ExecutionEvent, keys ...string) {
+	t.Helper()
+	m := rawKeys(t, ev)
+	for _, k := range keys {
+		if _, ok := m[k]; ok {
+			t.Fatalf("%s payload must NOT carry key %q; keys=%v", ev.EventType, k, keysOf(m))
+		}
+	}
+}
+
+func keysOf(m map[string]json.RawMessage) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
 // stepHandler is the tiny fake StepHandler helper (deliverable 4): configurable
 // outputs/error and an atomic call counter (atomic so concurrent DISPATCH in
 // the fan-out fixture is race-clean).
@@ -129,6 +214,48 @@ func (h *stepHandler) Execute(_ core.StepContext) (core.StepResult, error) {
 		return core.StepResult{}, h.err
 	}
 	return core.StepResult{Outputs: h.outputs}, nil
+}
+
+// flakyHandler fails its first failUntil attempts (returning err) and succeeds
+// thereafter (returning outputs). It counts calls atomically. Used by the retry
+// and compensation-undo fixtures.
+type flakyHandler struct {
+	id       string
+	outputs  map[string]any
+	err      error
+	failUntil int32 // number of leading calls that fail
+	calls    int32
+}
+
+func (h *flakyHandler) ID() string { return h.id }
+
+func (h *flakyHandler) Execute(_ core.StepContext) (core.StepResult, error) {
+	n := atomic.AddInt32(&h.calls, 1)
+	if n <= h.failUntil {
+		return core.StepResult{}, h.err
+	}
+	return core.StepResult{Outputs: h.outputs}, nil
+}
+
+// recordingHandler records the order in which it is invoked (by appending its id
+// to a shared, mutex-guarded slice). Used to assert reverse compensation order.
+type recordingHandler struct {
+	id    string
+	order *[]string
+	mu    *sync.Mutex
+	err   error
+}
+
+func (h *recordingHandler) ID() string { return h.id }
+
+func (h *recordingHandler) Execute(_ core.StepContext) (core.StepResult, error) {
+	h.mu.Lock()
+	*h.order = append(*h.order, h.id)
+	h.mu.Unlock()
+	if h.err != nil {
+		return core.StepResult{}, h.err
+	}
+	return core.StepResult{Outputs: map[string]any{}}, nil
 }
 
 // isTerminal reports whether a status is terminal (bounded-loop exit condition).

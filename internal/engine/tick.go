@@ -65,53 +65,40 @@ type dispatchItem struct {
 	assembleErr *core.StepError // set when input assembly failed (template_error)
 }
 
-// dispatchResult is the outcome of one step's Runner execution.
+// dispatchResult is the outcome of one step's Runner execution. usage is the
+// optional ADJ-8 side-channel value (nil for native runners / cache hits).
 type dispatchResult struct {
 	out     core.StepResult
+	usage   *core.Usage
 	stepErr *core.StepError
 }
 
-// processInstance runs CLAIM → DISPATCH → SETTLE for one running instance.
+// processInstance runs CLAIM → DISPATCH → SETTLE for one running instance,
+// generalized (C2) with retry re-dispatch, failure routing, and the cancellation
+// gate. The stages remain those C1 established; the failure branch and the
+// activation sources are what C2 broadened.
 func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance) error {
 	dv, err := e.defViewFor(ctx, inst)
 	if err != nil {
 		return err
 	}
 
-	acts := activatableSteps(dv, inst)
-	if len(acts) == 0 {
-		return nil
+	// ── Cancellation gate (top of tick) — Finalization B4 step 3 ──────────────
+	// If cancellation was requested on a prior tick, NO new step activates and NO
+	// retry re-dispatches; retry-waiting steps are terminally failed and the
+	// instance finalizes when current_steps drains.
+	flagged, err := e.cancellationRequested(ctx, inst.InstanceID)
+	if err != nil {
+		return err
+	}
+	if flagged {
+		return e.handleCancellation(ctx, dv, inst)
 	}
 
-	// ── CLAIM + StepStarted (serial, deterministic order) ─────────────────────
-	// Claims give at-most-once ownership (EDR-006); a lost claim is skipped.
-	// Dispatch is bounded by MaxParallelSteps — excess activatable steps wait for
-	// the next tick, where the stateless scan re-derives them.
-	items := make([]dispatchItem, 0, e.cfg.MaxParallelSteps)
-	for _, stepID := range acts {
-		if len(items) >= e.cfg.MaxParallelSteps {
-			break
-		}
-		won, err := e.claim(ctx, inst.InstanceID, stepID)
-		if err != nil {
-			return err
-		}
-		if !won {
-			e.logger.Info("claim lost", "instance_id", string(inst.InstanceID), "step_id", stepID)
-			continue
-		}
-		step := dv.steps[stepID]
-		sc, aerr := e.assembleContext(inst, step, 1)
-		if aerr != nil {
-			items = append(items, dispatchItem{step: step, assembleErr: aerr})
-			continue
-		}
-		startedAt, err := e.emitStepStarted(ctx, inst, stepID, sc.Attempt, sc.Inputs)
-		if err != nil {
-			return err
-		}
-		e.logger.Info("dispatch", "instance_id", string(inst.InstanceID), "step_id", stepID)
-		items = append(items, dispatchItem{step: step, sc: sc, startedAt: startedAt})
+	// ── Gather dispatch items ─────────────────────────────────────────────────
+	items, err := e.gatherDispatch(ctx, dv, inst)
+	if err != nil {
+		return err
 	}
 	if len(items) == 0 {
 		return nil
@@ -144,26 +131,43 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 		it := items[i]
 		r := results[i]
 		if r.stepErr != nil {
-			// C1 degenerate failure path: StepFailed{retrying:false} → WorkflowFailed.
-			// C2 seam: retry / fallback / on_error transitions generalize this.
-			if err := e.emitStepFailed(ctx, inst, it.step.ID, it.sc.Attempt, *r.stepErr, false); err != nil {
+			terminal, err := e.settleFailure(ctx, dv, inst, it.step, it.sc.Attempt, *r.stepErr)
+			if err != nil {
 				return err
 			}
-			if err := e.emitWorkflowFailed(ctx, inst, it.step.ID, *r.stepErr); err != nil {
-				return err
+			if terminal {
+				return nil // workflow reached a terminal state; stop settling.
 			}
-			e.logger.Info("settle", "instance_id", string(inst.InstanceID), "step_id", it.step.ID, "outcome", "failed")
-			return nil // workflow terminal.
+			continue
 		}
-		if err := e.emitStepCompleted(ctx, inst, it.step.ID, it.sc.Attempt, r.out.Outputs, it.startedAt); err != nil {
+		if err := e.settleSuccess(ctx, inst, it, r); err != nil {
 			return err
 		}
-		e.logger.Info("settle", "instance_id", string(inst.InstanceID), "step_id", it.step.ID, "outcome", "completed")
+	}
+
+	// ── Cancellation gate (post-settle) — Finalization B4 steps 2/3 ───────────
+	// A handler may have requested cancellation DURING dispatch (the B4 fixture
+	// cancels from inside Execute). Re-read the flag: if set, no next step
+	// activates and the instance finalizes once current_steps drains.
+	flagged2, err := e.cancellationRequested(ctx, inst.InstanceID)
+	if err != nil {
+		return err
+	}
+	if flagged2 {
+		cur, found, err := e.getInstance(ctx, inst.InstanceID)
+		if err != nil {
+			return err
+		}
+		if found {
+			return e.handleCancellation(ctx, dv, cur)
+		}
+		return nil
 	}
 
 	// ── Completion check ──────────────────────────────────────────────────────
 	// A workflow completes when a FinalStep has completed, no steps are running,
-	// and no further steps are activatable (EDR-011 §2).
+	// and no further steps are activatable — including failure-driven pending
+	// activations (EDR-011 §2/§8).
 	inst2, found, err := e.getInstance(ctx, inst.InstanceID)
 	if err != nil {
 		return err
@@ -171,7 +175,7 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 	if !found || len(inst2.CurrentSteps) != 0 {
 		return nil
 	}
-	if len(activatableSteps(dv, inst2)) != 0 {
+	if len(e.activatableFor(dv, inst2)) != 0 {
 		return nil
 	}
 	finals := completedFinalOutputs(dv, inst2)
@@ -179,6 +183,86 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 		return nil // stalled (join stall / no final reached) — author semantics, EDR-011 §1.
 	}
 	return e.emitWorkflowCompleted(ctx, inst2, finals)
+}
+
+// gatherDispatch builds this tick's dispatch items from two sources: newly
+// activatable steps (join gate + failure-driven pending set), which CLAIM and
+// emit StepStarted{attempt:1}; and due retries (steps already in current_steps
+// under an existing claim), which re-emit StepStarted{attempt:n} WITHOUT
+// re-claiming (retries do not re-claim, EDR-011 §3). Both are bounded by
+// MaxParallelSteps; the sources are disjoint (retries are running, activatable
+// excludes running).
+func (e *Engine) gatherDispatch(ctx context.Context, dv *defView, inst core.WorkflowInstance) ([]dispatchItem, error) {
+	items := make([]dispatchItem, 0, e.cfg.MaxParallelSteps)
+
+	// (1) Newly activatable — CLAIM + StepStarted{attempt:1}.
+	for _, stepID := range e.activatableFor(dv, inst) {
+		if len(items) >= e.cfg.MaxParallelSteps {
+			break
+		}
+		won, err := e.claim(ctx, inst.InstanceID, stepID)
+		if err != nil {
+			return nil, err
+		}
+		if !won {
+			e.logger.Info("claim lost", "instance_id", string(inst.InstanceID), "step_id", stepID)
+			continue
+		}
+		step := dv.steps[stepID]
+		sc, aerr := e.assembleContext(inst, step, 1)
+		if aerr != nil {
+			items = append(items, dispatchItem{step: step, assembleErr: aerr})
+			continue
+		}
+		startedAt, err := e.emitStepStarted(ctx, inst, stepID, sc.Attempt, sc.Inputs)
+		if err != nil {
+			return nil, err
+		}
+		e.clearPending(inst.InstanceID, stepID)
+		e.logger.Info("dispatch", "instance_id", string(inst.InstanceID), "step_id", stepID)
+		items = append(items, dispatchItem{step: step, sc: sc, startedAt: startedAt})
+	}
+
+	// (2) Due retries — re-dispatch WITHOUT re-claiming (EDR-011 §3).
+	for _, stepID := range e.dueRetries(inst.InstanceID, inst.CurrentSteps) {
+		if len(items) >= e.cfg.MaxParallelSteps {
+			break
+		}
+		attempt := e.retryAttempt(inst.InstanceID, stepID)
+		step := dv.steps[stepID]
+		sc, aerr := e.assembleContext(inst, step, attempt)
+		if aerr != nil {
+			items = append(items, dispatchItem{step: step, assembleErr: aerr})
+			continue
+		}
+		startedAt, err := e.emitStepStarted(ctx, inst, stepID, sc.Attempt, sc.Inputs)
+		if err != nil {
+			return nil, err
+		}
+		e.logger.Info("dispatch retry", "instance_id", string(inst.InstanceID), "step_id", stepID, "attempt", attempt)
+		items = append(items, dispatchItem{step: step, sc: sc, startedAt: startedAt})
+	}
+
+	return items, nil
+}
+
+// settleSuccess emits StepCompleted for a successful dispatch and clears any
+// retry bookkeeping. Intelligence-type steps with a live usage side-channel
+// carry the ADJ-8 {adapter, model, tokens_used} triple; every other step uses
+// the plain four-field payload (usage keys absent).
+func (e *Engine) settleSuccess(ctx context.Context, inst core.WorkflowInstance, it dispatchItem, r dispatchResult) error {
+	e.clearRetry(inst.InstanceID, it.step.ID)
+	if it.step.Type == core.StepTypeIntelligence && r.usage != nil {
+		if err := e.emitStepCompletedUsage(ctx, inst, it.step.ID, it.sc.Attempt, r.out.Outputs, it.startedAt, *r.usage); err != nil {
+			return err
+		}
+	} else {
+		if err := e.emitStepCompleted(ctx, inst, it.step.ID, it.sc.Attempt, r.out.Outputs, it.startedAt); err != nil {
+			return err
+		}
+	}
+	e.logger.Info("settle", "instance_id", string(inst.InstanceID), "step_id", it.step.ID, "outcome", "completed")
+	return nil
 }
 
 // claim wraps ClaimStep and keeps the engine's tracked version in lock-step with
@@ -210,14 +294,24 @@ func (e *Engine) dispatchOne(ctx context.Context, iid core.InstanceID, step core
 	runner, ok := e.runners[step.Type]
 	if !ok {
 		// Unregistered StepType (signal=M07, subprocess=M11, plugin=M12 register
-		// later; EDR-011 §5). C2's T4 inserts retry/fallback in front of this.
+		// later; EDR-011 §5). Retry/fallback routing runs in front of this at settle.
 		return dispatchResult{stepErr: &core.StepError{
 			Code:    "runner_unavailable",
 			Message: fmt.Sprintf("no runner registered for step type %q", step.Type),
 		}}
 	}
 
-	out, serr := runner.Run(ctx, sc, step)
+	// Prefer the ADJ-8 usage side-channel when the runner reports it.
+	var (
+		out   core.StepResult
+		usage *core.Usage
+		serr  *core.StepError
+	)
+	if ur, ok := runner.(UsageRunner); ok {
+		out, usage, serr = ur.RunWithUsage(ctx, sc, step)
+	} else {
+		out, serr = runner.Run(ctx, sc, step)
+	}
 	if serr != nil {
 		return dispatchResult{stepErr: serr}
 	}
@@ -225,5 +319,5 @@ func (e *Engine) dispatchOne(ctx context.Context, iid core.InstanceID, step core
 		e.logger.Warn("cache write failed",
 			"instance_id", string(iid), "step_id", step.ID, "error", err.Error())
 	}
-	return dispatchResult{out: out}
+	return dispatchResult{out: out, usage: usage}
 }
