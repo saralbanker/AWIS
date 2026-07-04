@@ -30,7 +30,7 @@ func (e *Engine) Run(ctx context.Context) error {
 
 // Tick runs one pass of the pull pipeline (Blueprint §8 stage order).
 func (e *Engine) Tick(ctx context.Context) error {
-	// SCAN_TRIGGERABLE — STUB (C3, T5/F-2).
+	// SCAN_TRIGGERABLE (T5/F-2) — trigger.go.
 	e.scanTriggerable(ctx)
 
 	// SCAN_RUNNABLE.
@@ -48,10 +48,6 @@ func (e *Engine) Tick(ctx context.Context) error {
 	e.signalScan(ctx)
 	return nil
 }
-
-// scanTriggerable is the SCAN_TRIGGERABLE stage stub. C3 (T5, F-2) fills it with
-// domain-event → workflow trigger matching and Ingest-driven submission.
-func (e *Engine) scanTriggerable(_ context.Context) {}
 
 // signalScan is the SIGNAL_SCAN stage stub. M07 fills it with signal delivery /
 // waiting-status exit (EDR-007 §9 waiting-entry gap is M07's too).
