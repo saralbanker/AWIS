@@ -60,6 +60,32 @@ Absent ⇒ single attempt.
 (M12). 0006 = recall FTS (M17). IMP §14's pre-amendment table is overridden by the amendments
 ("amendments override the IMP text they amend", IKB §3).
 
+## 8. Terminal-failure routing order + failure-driven activation (added at C2 dispatch)
+
+Frozen text: §8 L530 explicitly orders fallback ("If the step has a `fallback`, the fallback
+step is activated. If no fallback: workflow transitions to `failed` and compensation begins")
+but never orders §6 L301's `on_error` transitions relative to it — on_error would be dead code
+if failure always went fallback-or-workflow-failure.
+
+**Rule:** on terminal step failure (attempts exhausted, or capability_fallback signal):
+(1) `step.fallback` ≠ "" ⇒ fallback path (L530 is explicit — fallback wins);
+(2) else if ≥1 `on_error` transition from the failed step fires (condition absent = fires;
+present = Eval) ⇒ StepFailed{retrying:false} then those targets activate (same all-that-fire
+fan-out rule; no WorkflowFailed — the definition declared an error route);
+(3) else StepFailed{retrying:false} + WorkflowFailed + compensation per §8.
+
+**Activation bookkeeping:** failure-driven activations (fallback targets, on_error targets)
+bypass the join gate — they are DIRECT activations recorded in an engine in-memory pending set
+consumed by the next scan (V1 single-process). On restart the set is reconstructible from the
+event log (StepFallbackActivated / terminal StepFailed events whose routed targets have no
+later StepStarted); V1 documents this recovery derivation without exercising multi-process
+restart. Rebuild resets `cancellation_requested` to 0 (EDR-007) — a crash mid-cancellation
+loses the request; the caller re-issues Cancel (documented limitation).
+
+**SignalReceived at M06:** the engine has no emission site (signals are M07). The 12/12
+event-type coverage item is satisfied for SignalReceived at projection level (direct append +
+forward/rebuild equivalence fixture); the forward emission site arrives with M07.
+
 ## Why not CONTRAs
 
 Every rule fills a mechanism the frozen text names but does not specify; none touches a frozen

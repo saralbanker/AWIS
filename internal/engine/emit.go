@@ -33,6 +33,53 @@ type stepCompletedPayload struct {
 	DurationMs int64          `json:"duration_ms"`
 }
 
+// stepCompletedUsagePayload is the ADJ-8 (CONTRA-11) StepCompleted variant that
+// carries the optional {adapter, model, tokens_used} usage triple for
+// INTELLIGENCE steps only. The triple is written WITHOUT omitempty so a null-path
+// tokens_used of 0 is present (the null adapter yields "null"/"null"/0). Native
+// steps use the plain four-field stepCompletedPayload — the usage keys are absent
+// entirely. Projection reads only `outputs`, so the two payloads are
+// replay-equivalent (EDR-007; ADJ-8 "replay-neutral").
+type stepCompletedUsagePayload struct {
+	StepID     string         `json:"step_id"`
+	Attempt    int            `json:"attempt"`
+	Outputs    map[string]any `json:"outputs"`
+	DurationMs int64          `json:"duration_ms"`
+	Adapter    string         `json:"adapter"`
+	Model      string         `json:"model"`
+	TokensUsed int            `json:"tokens_used"`
+}
+
+// stepFallbackActivatedPayload is StepFallbackActivated's payload (TDS-01 §2:
+// {step_id, fallback_step_id, reason}).
+type stepFallbackActivatedPayload struct {
+	StepID         string `json:"step_id"`
+	FallbackStepID string `json:"fallback_step_id"`
+	Reason         string `json:"reason"`
+}
+
+// workflowCancelledPayload is WorkflowCancelled's payload — {reason} ONLY
+// (CONTRA-5 / G1 ADJ-2; cancelled_at is derived from the envelope's emitted_at,
+// never stored in the payload).
+type workflowCancelledPayload struct {
+	Reason string `json:"reason"`
+}
+
+// workflowCompensatingPayload is WorkflowCompensating's payload ({from_step}).
+type workflowCompensatingPayload struct {
+	FromStep string `json:"from_step"`
+}
+
+// workflowCompensatedPayload is WorkflowCompensated's payload — {} (empty object).
+type workflowCompensatedPayload struct{}
+
+// workflowCompensationFailedPayload is WorkflowCompensationFailed's payload
+// ({step_id, error}).
+type workflowCompensationFailedPayload struct {
+	StepID string         `json:"step_id"`
+	Error  core.StepError `json:"error"`
+}
+
 type stepFailedPayload struct {
 	StepID   string         `json:"step_id"`
 	Attempt  int            `json:"attempt"`
