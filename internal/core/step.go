@@ -102,7 +102,11 @@ type IntelReq struct {
 //
 // Shape completed at M06 (owning milestone); not part of the G1 format freeze
 // (IMP §13 — sdk surface mutable until M08).
-type CompensationRef struct{}
+type CompensationRef struct {
+	// Handler identifies the undo handler run through the NativeRunner when this
+	// step is compensated (Blueprint §8 L537–539 shape).
+	Handler HandlerRef `json:"handler"`
+}
 
 // StepHandler is implemented by applications for native steps (Blueprint §12).
 type StepHandler interface {
@@ -137,8 +141,14 @@ type StepResult struct {
 	Outputs map[string]any
 }
 
-// Logger is the step-scoped logging interface handed to handlers.
+// Logger is the step-scoped logging interface handed to handlers. Its shape is
+// slog-shaped so a *slog.Logger satisfies it directly (M06 wires the engine's
+// structured JSON logger through StepContext.Logger).
 //
 // Shape completed at M06 (owning milestone); not part of the G1 format freeze
 // (IMP §13 — sdk surface mutable until M08).
-type Logger interface{}
+type Logger interface {
+	Info(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Error(msg string, args ...any)
+}
