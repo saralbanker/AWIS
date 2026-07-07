@@ -53,6 +53,16 @@ jobs:
       - name: Build and Test
         run: make build test
 
+  docs-lint:
+    name: EEOS docs-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run docs-lint
+        run: bash scripts/docs-lint.sh
+
   e1:
     name: AWIS-E1
     runs-on: ubuntu-latest

@@ -23,3 +23,13 @@ evidence.
 ## Module contract (every materialized milestone directory)
 `README.md` · `IMPLEMENTATION_SPEC.md` · `AI_EXECUTION_CONTEXT.md` · `VALIDATION_CHECKLIST.md`
 · `HANDOFF.md` (finalized at completion) · `TRACEABILITY.md` · `DEPENDENCY_MAP.md`
+
+## EEOS v2.0 ruling (founder-approved 2026-07-08 — AWIS_EEOS.md §15 D1)
+From M07 on, a module file may **satisfy its contract by reference** to the milestone's
+`cards/` directory (persisted Execution Cards, EEOS §4): `IMPLEMENTATION_SPEC.md` = card index
+(objectives + scope-wall summary + card→TRACEABILITY rows) and `AI_EXECUTION_CONTEXT.md` =
+model row + dispatch order + milestone escalation deltas, each ≤15 lines. The transcription
+layer they used to carry lives once, inside the cards. The 7-file contract and this policy's
+drift rules are otherwise unchanged; `cards/` is an optional additional subdirectory. The
+execution ledger `STATE.md` and the immutable verification block `V-COMMON.md` live beside
+the milestone directories (EEOS §1).

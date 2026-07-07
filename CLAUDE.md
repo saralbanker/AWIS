@@ -1,5 +1,11 @@
 # CLAUDE.md — Agent System Bridge
 
+> **AWIS EEOS override (canonical, founder-approved 2026-07-08 — AWIS_EEOS.md §15 D4):**
+> in any session whose task references EEOS, a milestone (MXX), or Execution Cards,
+> `/EEOS.md` is the P0 protocol; skip the `.agents/` loading protocol, request routing,
+> and skill announcements entirely. The AWIS canonical corpus and the AEO govern; the
+> generic rules below apply only to non-EEOS work in this workspace.
+
 This file connects Claude Code to the `.agent` / `.agents` folder so the same agent/skill/rules system works here as in other IDEs (Cursor, Windsurf, Copilot, etc.).
 
 ---
