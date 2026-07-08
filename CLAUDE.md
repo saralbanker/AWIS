@@ -89,3 +89,29 @@ security-auditor, seo-fundamentals, server-management, simplify-code, skill-forg
 skillify, systematic-debugging, system-auditor, tailwind-patterns, task-planner,
 tdd-workflow, test-generator, testing-patterns, verify-changes, vulnerability-scanner,
 webapp-testing, web-design-guidelines
+
+
+
+# Model Allocation Policy (Frozen)
+
+The implementation phase of AWIS Baseline V1 uses a fixed model allocation.
+
+## Allowed
+
+- Sonnet
+- Haiku
+
+## Forbidden
+
+- Opus
+- Fable (except human-requested architecture reviews)
+
+Implementation, testing, verification, refactoring, migrations, documentation updates, and repository changes MUST be performed using Sonnet.
+
+Repository search, symbol lookup, dependency discovery, and lightweight documentation tasks MAY use Haiku.
+
+Opus MUST NOT be selected automatically.
+
+Fable MUST remain dormant unless explicitly invoked by the human for architectural reasoning or merge approval.
+
+This policy is frozen for the remainder of Baseline V1.
