@@ -65,9 +65,10 @@ schema below is transcribed VERBATIM; each carries a REPLAY-SUFFICIENCY statemen
    - REPLAY: reconstructs a step activation because it carries `step_id`, the `attempt`
      ordinal, and the resolved `inputs` handed to the runner.
 
-3. **StepCompleted** — `{step_id, attempt: int, outputs: map, duration_ms: int}` (§9)
+3. **StepCompleted** — `{step_id, attempt: int, outputs: map, duration_ms: int, adapter?: string, model?: string, tokens_used?: int}` (§9; optional usage triple added by **G1-amendment ADJ-8, founder-approved 2026-07-03** — CONTRA-11: FR-IL-09 Must Have + Blueprint §17 "recorded in the StepCompleted event payload" vs the §9-derived four-field schema; additive, present only for intelligence steps, replay-neutral — the EDR-007 projection reads only `outputs`)
    - REPLAY: reconstructs post-step variable state because it carries the produced
-     `outputs` keyed to `step_id`/`attempt`, plus `duration_ms` for audit.
+     `outputs` keyed to `step_id`/`attempt`, plus `duration_ms` for audit. The optional
+     usage triple is observability data; it never mutates projection state.
 
 4. **StepFailed** — `{step_id, attempt: int, error: StepError, retrying: bool}` (§9)
    - REPLAY: reconstructs the failure and retry decision because it carries the `error`,

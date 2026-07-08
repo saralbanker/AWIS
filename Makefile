@@ -20,7 +20,7 @@ contract:
 	go test -v ./internal/storage/... -run 'Contract|Suite|TestSQLiteStorageContract' -count=1
 
 e1:
-	@echo "NOT-YET (wired at M02/M06/M18): e1"
+	go test ./internal/engine/... -run TestE1 -count=1
 
 bench:
 	@echo "NOT-YET (wired at M02/M06/M18): bench"

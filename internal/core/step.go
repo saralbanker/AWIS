@@ -52,13 +52,19 @@ const (
 	StepTypeSignal StepType = "signal"
 )
 
-// RetryPolicy configures retry behaviour for a step (Blueprint §6, line 287:
-// "attempts, backoff, retryable_errors").
+// RetryPolicy configures retry behaviour for a step (Blueprint §8, lines
+// 521–528; full shape adopted by G1-amendment ADJ-6, founder-approved
+// 2026-07-03 — CONTRA-8 disposition, TDS-02 §7).
 type RetryPolicy struct {
 	// Attempts is the maximum total number of attempts (including the first).
 	Attempts int `json:"attempts"`
-	// Backoff names the backoff strategy (e.g. immediate, linear, exponential).
+	// Backoff is the backoff strategy: immediate, linear, or exponential.
 	Backoff string `json:"backoff"`
+	// InitialDelay is the delay before the first retry; absent defaults to 1s
+	// (ADJ-6; §16 CloudRetryPolicy default pattern).
+	InitialDelay Duration `json:"initial_delay,omitempty"`
+	// MaxDelay caps the backoff delay; absent defaults to 30s (ADJ-6).
+	MaxDelay Duration `json:"max_delay,omitempty"`
 	// RetryableErrors lists error codes eligible for retry; empty means retry all
 	// transient errors.
 	RetryableErrors []string `json:"retryable_errors,omitempty"`
@@ -75,8 +81,9 @@ type WaitConfig struct {
 	TimeoutAction string `json:"timeout_action"`
 }
 
-// IntelReq configures a type=intelligence step (Blueprint §6, line 292:
-// "capability + model_hint + context_budget").
+// IntelReq configures a type=intelligence step (Blueprint §6, line 292 +
+// §13 capability declaration; `required` added by G1-amendment ADJ-7,
+// founder-approved 2026-07-03 — CONTRA-9 disposition, TDS-02 §7).
 type IntelReq struct {
 	// Capability is the requested intelligence capability, e.g. "draft".
 	Capability string `json:"capability"`
@@ -84,6 +91,10 @@ type IntelReq struct {
 	ModelHint string `json:"model_hint,omitempty"`
 	// ContextBudget is the maximum tokens for the assembled context.
 	ContextBudget int `json:"context_budget,omitempty"`
+	// Required controls the no-capable-provider outcome: true fails the step
+	// with CapabilityUnavailableError (FR-IL-07); false (default) routes to the
+	// step's fallback (FR-IL-06).
+	Required bool `json:"required,omitempty"`
 }
 
 // CompensationRef is a step's undo action, invoked if the workflow fails after
@@ -91,7 +102,11 @@ type IntelReq struct {
 //
 // Shape completed at M06 (owning milestone); not part of the G1 format freeze
 // (IMP §13 — sdk surface mutable until M08).
-type CompensationRef struct{}
+type CompensationRef struct {
+	// Handler identifies the undo handler run through the NativeRunner when this
+	// step is compensated (Blueprint §8 L537–539 shape).
+	Handler HandlerRef `json:"handler"`
+}
 
 // StepHandler is implemented by applications for native steps (Blueprint §12).
 type StepHandler interface {
@@ -126,8 +141,14 @@ type StepResult struct {
 	Outputs map[string]any
 }
 
-// Logger is the step-scoped logging interface handed to handlers.
+// Logger is the step-scoped logging interface handed to handlers. Its shape is
+// slog-shaped so a *slog.Logger satisfies it directly (M06 wires the engine's
+// structured JSON logger through StepContext.Logger).
 //
 // Shape completed at M06 (owning milestone); not part of the G1 format freeze
 // (IMP §13 — sdk surface mutable until M08).
-type Logger interface{}
+type Logger interface {
+	Info(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Error(msg string, args ...any)
+}

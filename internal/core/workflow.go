@@ -74,8 +74,28 @@ const (
 )
 
 // CompensationPlan is the ordered rollback plan run when a workflow fails after
-// one or more steps have completed (Blueprint §6).
+// one or more steps have completed (Blueprint §6; §8 L537–539).
 //
 // Shape completed at M06 (owning milestone); not part of the G1 format freeze
 // (IMP §13 — sdk surface mutable until M08).
-type CompensationPlan struct{}
+type CompensationPlan struct {
+	// Steps is the ordered list of undo actions; compensation runs them in
+	// REVERSE order at failure (Blueprint §8).
+	Steps []CompensationStep `json:"steps"`
+}
+
+// CompensationStep is one undo action in a CompensationPlan (Blueprint §8
+// L537–539). Retry is optional: §8's "Compensation steps have their own retry
+// policies" sanctions a per-step policy (EDR-011 §6); absent means a single
+// attempt.
+//
+// Shape completed at M06 (owning milestone); not part of the G1 format freeze
+// (IMP §13 — sdk surface mutable until M08).
+type CompensationStep struct {
+	// StepID is the id of the forward step this action undoes.
+	StepID string `json:"step_id"`
+	// UndoHandler is the handler run through the NativeRunner to undo the step.
+	UndoHandler HandlerRef `json:"undo_handler"`
+	// Retry is the optional per-step retry policy for the undo action.
+	Retry *RetryPolicy `json:"retry,omitempty"`
+}
