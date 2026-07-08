@@ -41,3 +41,9 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M07-signal-su
   TDS-02 Transition.condition over step outputs; TDS-01 StepCompleted REPLAY; Blueprint §8 SETTLE):
   the waiting step completes with the signal payload as outputs via the existing SETTLE path and
   its wait_record is deleted on completion. C3 WITHDRAWN pre-dispatch; C3r carries the delta.
+- **Model substitution, founder-directed (2026-07-08):** C3r executes on **Sonnet** under the
+  awis-core-engineer identity (constraints unchanged). This is a downward substitution from the
+  IMP §28 M07 Opus row / EDR-004 binding — outside CE authority (AEO §20.1), directed by the
+  founder after C3r's Opus run hit the session limit. Mitigations unchanged: crash-injection
+  checkpoint (§20.M7), independent V1, CE deep review, human G2 verdict. G2 reviewers: weigh this
+  when judging the atomicity evidence.
