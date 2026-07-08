@@ -275,6 +275,108 @@ func TestCancel_CompensateFromHandler(t *testing.T) {
 	assertProjectionEquivalence(t, s, iid)
 }
 
+// ── Cancel during signal wait (M07-C3r B4.6) ─────────────────────────────────
+
+// TestCancel_DuringWait asserts Finalization B4 step 6: when Cancel is called on
+// a waiting instance (signal step parked), the engine deletes its wait_records,
+// emits StepFailed{code:cancelled} for the parked step, and finalizes with
+// WorkflowCancelled. The event sequence matches the M06 cancellation sequence;
+// assertProjectionEquivalence passes because the transient `waiting` status
+// resolves to `cancelled` identically under both forward projection and
+// RebuildState (EDR-007 §9 gap closes before the terminal event).
+func TestCancel_DuringWait(t *testing.T) {
+	def := core.WorkflowDefinition{
+		SchemaVersion: 1, ID: "t.cw", Version: "1.0.0", Namespace: "t", Name: "cw",
+		Triggers:    []core.Trigger{{Type: core.TriggerTypeManual, Config: map[string]any{}}},
+		Steps:       []core.Step{signalStep("w", "go")},
+		InitialStep: "w", FinalSteps: []string{"w"}, Metadata: map[string]any{},
+	}
+	clk := newManualClock(engineStart)
+	e, s := newNativeEngine(t, def, 1, clk.now)
+	ctx := context.Background()
+
+	iid, err := e.Submit(ctx, "t.cw", "1.0.0", nil)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	// Tick 1: signal step activates and parks the instance in `waiting`.
+	if err := e.Tick(ctx); err != nil {
+		t.Fatalf("Tick 1: %v", err)
+	}
+	inst, _ := s.GetInstance(ctx, iid)
+	if inst.Status != core.InstanceStatusWaiting {
+		t.Fatalf("after WAIT entry status = %q, want waiting", inst.Status)
+	}
+
+	// Wait_record must exist before cancellation.
+	_, wrFound, err := s.GetWaitRecord(ctx, iid, "w")
+	if err != nil {
+		t.Fatalf("GetWaitRecord before cancel: %v", err)
+	}
+	if !wrFound {
+		t.Fatalf("wait_record must exist before cancellation")
+	}
+
+	// Cancel while the instance is waiting — B4.6 path.
+	if err := e.Cancel(ctx, iid, "stop waiting", false); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+
+	// Cancel is synchronous for the waiting state: instance is cancelled immediately.
+	inst, _ = s.GetInstance(ctx, iid)
+	if inst.Status != core.InstanceStatusCancelled {
+		t.Fatalf("after Cancel status = %q, want cancelled", inst.Status)
+	}
+
+	// semantics-bearing: B4 step 6 — wait_record deleted on cancellation.
+	_, wrFound, err = s.GetWaitRecord(ctx, iid, "w")
+	if err != nil {
+		t.Fatalf("GetWaitRecord after cancel: %v", err)
+	}
+	if wrFound {
+		t.Fatalf("wait_record must be deleted on cancellation (B4.6)")
+	}
+
+	// Exact event sequence: WorkflowStarted, StepStarted("w"), StepFailed("w"),
+	// WorkflowCancelled — matching the M06 cancellation sequence with a
+	// signal-step StepFailed instead of a native StepFailed.
+	pairs, evs := eventPairs(t, s, iid)
+	want := []pair{
+		{core.EventTypeWorkflowStarted, ""},
+		{core.EventTypeStepStarted, "w"},
+		{core.EventTypeStepFailed, "w"},  // code="cancelled", retrying=false
+		{core.EventTypeWorkflowCancelled, ""},
+	}
+	assertPairs(t, pairs, want)
+
+	// StepFailed.error.code = "cancelled" (not "signal_timeout").
+	sf := findEvent(t, evs, core.EventTypeStepFailed, "w")
+	var sfp struct {
+		Retrying bool           `json:"retrying"`
+		Error    core.StepError `json:"error"`
+	}
+	decodePayload(t, sf, &sfp)
+	if sfp.Error.Code != "cancelled" {
+		t.Fatalf("StepFailed.error.code = %q, want cancelled", sfp.Error.Code)
+	}
+	if sfp.Retrying {
+		t.Fatalf("StepFailed.retrying = true, want false")
+	}
+
+	// WorkflowCancelled.reason is verbatim.
+	wc := findEvent(t, evs, core.EventTypeWorkflowCancelled, "")
+	var wcp workflowCancelledPayload
+	decodePayload(t, wc, &wcp)
+	if wcp.Reason != "stop waiting" {
+		t.Fatalf("WorkflowCancelled.reason = %q, want %q", wcp.Reason, "stop waiting")
+	}
+
+	// forward ≡ rebuild: the transient `waiting` status resolves to `cancelled`
+	// identically under both paths (EDR-007 §9 gap closes before the terminal event).
+	assertProjectionEquivalence(t, s, iid)
+}
+
 // ── Cancel during retry wait: the scheduled retry never re-dispatches ─────────
 
 func TestCancel_DuringRetryWait(t *testing.T) {

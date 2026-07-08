@@ -25,4 +25,28 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M07-signal-su
 - Cards C1r/etc., deviations, and verification results are appended here as they occur (EEOS §3.3).
 
 ## Execution record (appended during B-BUILD/C-VERIFY)
-- (empty — milestone staged; activates when M06 merges)
+- **C1 DONE `e223dc4`** (core-engineer). Deviations accepted by CE: (1) audit_log DDL as E0 per
+  CONTRA-4 — timestamp/event_type/actor/payload_summary + surrogate autoincrement id, no CHECK on
+  event types; (2) db_test head-version assertions 2→4 (inherent to new migrations); (3) namespace
+  isolation realized per-instance_id — frozen DDL carries no namespace column (NFR-S-04 spirit,
+  tested); (4) caller-supplied time semantics, clock stays engine-owned. Env note: golangci-lint
+  absent for the run (gofmt+vet clean); CE installed v2.12.2 (CI-matching) before C2 — lint runs
+  from C2 on and at V1.
+- **C2 DONE `142b684`** (core-engineer). B3 tx verbatim in storage/deliver.go; scan in
+  internal/signal; intake/enterWait/waits index in engine. Deviations accepted: (1) SignalDelivered
+  audit emitted in the Scanner — the literal delivery site; (2) timeout_at written NULL (Duration
+  has no frozen serialization) — resolved in C3r. **CE card-cutting defect logged (AEO §8.2):**
+  post-delivery step completion was in neither C2 nor C3; C2's honest delivery-only reading
+  surfaced it. Adjudication (E1, coordinates: EDR-011 L6 "M07 owns waiting-status semantics";
+  TDS-02 Transition.condition over step outputs; TDS-01 StepCompleted REPLAY; Blueprint §8 SETTLE):
+  the waiting step completes with the signal payload as outputs via the existing SETTLE path and
+  its wait_record is deleted on completion. C3 WITHDRAWN pre-dispatch; C3r carries the delta.
+- **Model substitution, founder-directed (2026-07-08):** C3r executes on **Sonnet** under the
+  awis-core-engineer identity (constraints unchanged). This is a downward substitution from the
+  IMP §28 M07 Opus row / EDR-004 binding — outside CE authority (AEO §20.1), directed by the
+  founder after C3r's Opus run hit the session limit. Mitigations unchanged: crash-injection
+  checkpoint (§20.M7), independent V1, CE deep review, human G2 verdict. G2 reviewers: weigh this
+  when judging the atomicity evidence.
+- **V1 DONE `6ac948a` verified / commit `7a360e9`** (awis-verifier). PASS — all 8 implementation
+  checks ✅; V-COMMON-1 procedural ❌ (pre-existing CLAUDE.md + STATE ledger write) resolved by
+  `7a360e9`. Delivery latency 1.72 ms/op (informational). D-CLOSE 2026-07-08.
