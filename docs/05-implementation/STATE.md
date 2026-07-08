@@ -4,15 +4,14 @@
 
 MILESTONE: M08-sdk-public-surface
 BRANCH: m08-sdk-public-surface
-PHASE: B-BUILD
+PHASE: C-VERIFY
 GATE: none
 CARDS:
   M08-C1   DONE         (7d23931)
-  M08-C2   READY   awis-builder
-  M08-V1   READY   awis-verifier
+  M08-C2   DONE         (92828e7)
+  M08-V1   DISPATCHED   awis-verifier
 BLOCKERS: none
-NEXT: dispatch M08-C2 to awis-builder
-LAST: 2026-07-08 M08-C1 DONE (7d23931): Runtime/Config/NewRuntime, RegisterHandler/RegisterWorkflow
-      (PRD §18 errors), WorkflowBuilder+semver, core shapes frozen, WorkflowRegistered audit (F-4)
+NEXT: dispatch M08-V1 to awis-verifier on clean tree → C-VERIFY
+LAST: 2026-07-08 M08-C2 DONE (92828e7): WorkflowRunner+RecallAPI+TriggerAPI(F-2)+example; FR-SDK-09 clean
 
 DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07   # history: git log + module HANDOFFs
