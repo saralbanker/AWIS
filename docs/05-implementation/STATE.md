@@ -4,15 +4,15 @@
 
 MILESTONE: M08-sdk-public-surface
 BRANCH: m08-sdk-public-surface
-PHASE: B-BUILD
+PHASE: C-VERIFY
 GATE: none
 CARDS:
   M08-C1   DONE         (7d23931)
   M08-C2   DONE         (92828e7)
-  M08-C2r  READY        awis-builder
-  M08-V1   READY        awis-verifier
+  M08-C2r  DONE         (e8aca86)
+  M08-V1   DISPATCHED   awis-verifier
 BLOCKERS: none
-NEXT: dispatch M08-C2r to awis-builder (5 V1 test gaps: Signal test, Cancel assertion, QueryHistory InstanceID, StepStats, audit_log direct SELECT)
-LAST: 2026-07-08 M08-V1 FAIL (5 test gaps — no code defects); C2r cut; STATE→B-BUILD
+NEXT: awis-verifier returns report → all-✅ → STATE→D-CLOSE
+LAST: 2026-07-08 M08-C2r DONE (e8aca86): 5 test gaps closed; V1 re-dispatched
 
 DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07   # history: git log + module HANDOFFs
