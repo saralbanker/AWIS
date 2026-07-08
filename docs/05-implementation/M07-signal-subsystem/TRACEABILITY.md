@@ -32,3 +32,12 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M07-signal-su
   tested); (4) caller-supplied time semantics, clock stays engine-owned. Env note: golangci-lint
   absent for the run (gofmt+vet clean); CE installed v2.12.2 (CI-matching) before C2 — lint runs
   from C2 on and at V1.
+- **C2 DONE `142b684`** (core-engineer). B3 tx verbatim in storage/deliver.go; scan in
+  internal/signal; intake/enterWait/waits index in engine. Deviations accepted: (1) SignalDelivered
+  audit emitted in the Scanner — the literal delivery site; (2) timeout_at written NULL (Duration
+  has no frozen serialization) — resolved in C3r. **CE card-cutting defect logged (AEO §8.2):**
+  post-delivery step completion was in neither C2 nor C3; C2's honest delivery-only reading
+  surfaced it. Adjudication (E1, coordinates: EDR-011 L6 "M07 owns waiting-status semantics";
+  TDS-02 Transition.condition over step outputs; TDS-01 StepCompleted REPLAY; Blueprint §8 SETTLE):
+  the waiting step completes with the signal payload as outputs via the existing SETTLE path and
+  its wait_record is deleted on completion. C3 WITHDRAWN pre-dispatch; C3r carries the delta.
