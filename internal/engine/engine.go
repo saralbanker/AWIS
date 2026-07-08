@@ -33,6 +33,9 @@ type Config struct {
 	WorkerID string
 	// Clock is the injectable time source (IMP §3 determinism rule); nil ⇒ time.Now.
 	Clock func() time.Time
+	// NewID is the injectable instance-id source (IMP §3 determinism rule);
+	// nil ⇒ crypto/rand UUIDv4 (newUUIDv4).
+	NewID func() string
 }
 
 // Runner executes one step. All runner kinds (native, intelligence, …) produce
@@ -124,13 +127,17 @@ func New(storage core.StoragePort, runners map[core.StepType]Runner, cfg Config,
 	if runners == nil {
 		runners = map[core.StepType]Runner{}
 	}
+	newIDFn := cfg.NewID
+	if newIDFn == nil {
+		newIDFn = newUUIDv4
+	}
 	return &Engine{
 		storage: storage,
 		runners: runners,
 		cfg:     cfg,
 		logger:  logger,
 		now:     cfg.Clock,
-		newID:   newUUIDv4,
+		newID:   newIDFn,
 		seq:     make(map[core.InstanceID]int),
 		ver:     make(map[core.InstanceID]int),
 		defs:    make(map[defKey]*defView),
