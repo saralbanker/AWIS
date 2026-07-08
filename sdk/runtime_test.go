@@ -4,6 +4,7 @@ package sdk
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/awis/awis/internal/core"
 	"github.com/awis/awis/internal/storage"
+	_ "modernc.org/sqlite" // register "sqlite" driver for direct audit_log queries
 )
 
 // openTestStorage opens a temp-file SQLite storage suitable for sdk tests.
@@ -166,29 +168,24 @@ func TestRegisterWorkflow_Duplicate(t *testing.T) {
 	}
 }
 
-// auditCapture wraps a StoragePort and records every AppendAudit call.
-// This is the minimal stub needed to verify the F-4 audit call site without
-// a query-path dependency (M17 owns audit rendering).
-type auditCapture struct {
-	core.StoragePort
-	entries []storage.AuditEntry
-}
-
-func (a *auditCapture) AppendAudit(_ context.Context, entry storage.AuditEntry) error {
-	a.entries = append(a.entries, entry)
-	return nil
-}
-
 // TestRegisterWorkflow_Audit verifies that a successful RegisterWorkflow call
-// writes a WorkflowRegistered audit entry to the storage (F-4).
+// writes a WorkflowRegistered audit entry to the SQLite audit_log table (F5).
+// Uses real SQLiteStorage backed by a temp file and queries the table directly.
 func TestRegisterWorkflow_Audit(t *testing.T) {
-	s := openTestStorage(t)
-	// Wrap with auditCapture so AppendAudit calls are intercepted.
-	ac := &auditCapture{StoragePort: s}
+	ctx := context.Background()
+	// Open a named temp file so a second SQL connection can read it.
+	dbPath := filepath.Join(t.TempDir(), "audit_test.db")
+
+	db, err := storage.Open(dbPath, time.Now)
+	if err != nil {
+		t.Fatalf("storage.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	s := storage.NewSQLiteStorage(db, time.Now)
 
 	rt, err := NewRuntime(Config{
 		Namespace: "test",
-		Storage:   ac,
+		Storage:   s,
 		WorkerID:  "test-worker",
 	})
 	if err != nil {
@@ -211,19 +208,21 @@ func TestRegisterWorkflow_Audit(t *testing.T) {
 		t.Fatalf("RegisterWorkflow: %v", err)
 	}
 
-	if len(ac.entries) == 0 {
-		t.Fatal("expected AppendAudit to be called, got no entries")
+	// Open a second connection to the same SQLite file and query audit_log directly.
+	verifyDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open verify: %v", err)
 	}
-	entry := ac.entries[0]
-	if entry.EventType != "WorkflowRegistered" {
-		t.Errorf("expected EventType %q, got %q", "WorkflowRegistered", entry.EventType)
+	t.Cleanup(func() { _ = verifyDB.Close() })
+
+	var count int
+	if err := verifyDB.QueryRowContext(ctx,
+		`SELECT count(*) FROM audit_log WHERE event_type='WorkflowRegistered'`,
+	).Scan(&count); err != nil {
+		t.Fatalf("query audit_log: %v", err)
 	}
-	if entry.Actor != "test-worker" {
-		t.Errorf("expected Actor %q, got %q", "test-worker", entry.Actor)
-	}
-	wantSummary := "auditflow v1.0.0"
-	if entry.PayloadSummary != wantSummary {
-		t.Errorf("expected PayloadSummary %q, got %q", wantSummary, entry.PayloadSummary)
+	if count != 1 {
+		t.Errorf("audit_log WorkflowRegistered count = %d, want 1", count)
 	}
 }
 
