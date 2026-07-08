@@ -50,6 +50,11 @@ type Waits interface {
 	// (instanceID, signalName): the engine advances its sequence/version cursors
 	// (the tx assigned seq MAX+1 and bumped version) and clears the in-memory wait.
 	OnDelivered(instanceID core.InstanceID, signalName string)
+	// CompleteStep is called at the delivery site after OnDelivered: the engine
+	// emits StepCompleted with the signal payload as outputs and deletes the
+	// wait_record (OUTPUT 0 post-delivery resumption completion; TDS-01 §2
+	// StepCompleted REPLAY carries outputs). Called only on Delivered outcome.
+	CompleteStep(ctx context.Context, instanceID core.InstanceID, stepID string, payload map[string]any) error
 }
 
 // signalReceivedPayload is the SignalReceived payload, field names transcribed
@@ -128,11 +133,18 @@ func (sc *Scanner) deliverOne(ctx context.Context, sig storage.Signal) error {
 
 	switch outcome {
 	case storage.Delivered:
-		// Delivery site: keep the engine's cursors in step, then record the
-		// SignalDelivered audit fact (F-4 first call site).
+		// Delivery site: keep the engine's cursors in step, then complete the
+		// waiting step (OUTPUT 0 post-delivery resumption), then audit.
 		sc.waits.OnDelivered(sig.InstanceID, sig.SignalName)
 		sc.logger.Info("signal delivered",
 			"instance_id", string(sig.InstanceID), "signal_name", sig.SignalName, "step_id", stepID)
+		// Post-delivery step completion (M07-C3r OUTPUT 0): emit StepCompleted
+		// with signal payload as outputs so the workflow can advance. The B3 tx
+		// already committed; a failure here is logged but does not undo delivery.
+		if err := sc.waits.CompleteStep(ctx, sig.InstanceID, stepID, payloadMap); err != nil {
+			sc.logger.Error("signal step completion after delivery",
+				"instance_id", string(sig.InstanceID), "step_id", stepID, "error", err.Error())
+		}
 		entry := storage.AuditEntry{
 			Timestamp:      sc.now(),
 			EventType:      "SignalDelivered",

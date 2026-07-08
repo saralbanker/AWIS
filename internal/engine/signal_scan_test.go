@@ -66,23 +66,32 @@ func TestSignalScan_WaitDeliverResume(t *testing.T) {
 		t.Fatalf("status = %q, want still waiting (no signal yet)", inst.Status)
 	}
 
-	// Intake the awaited signal, then the next SIGNAL_SCAN delivers it atomically.
+	// Intake the awaited signal, then the next SIGNAL_SCAN delivers it atomically
+	// and (OUTPUT 0) immediately completes the WAIT step with the payload as outputs.
 	if err := e.Signal(ctx, iid, "go", map[string]any{"by": "alice"}); err != nil {
 		t.Fatalf("Signal: %v", err)
 	}
 	if err := e.Tick(ctx); err != nil {
-		t.Fatalf("Tick 2 (deliver): %v", err)
+		t.Fatalf("Tick 2 (deliver+complete): %v", err)
 	}
 
+	// After delivery + step completion: instance is running with current_steps=[].
 	inst, _ = s.GetInstance(ctx, iid)
 	if inst.Status != core.InstanceStatusRunning {
 		t.Fatalf("after delivery status = %q, want running (resumed)", inst.Status)
 	}
+	if len(inst.CurrentSteps) != 0 {
+		t.Fatalf("after step completion current_steps = %v, want [] (step removed)", inst.CurrentSteps)
+	}
+
+	// Event sequence after Tick 2: WorkflowStarted, StepStarted("w"),
+	// SignalReceived, StepCompleted("w"). No WorkflowCompleted yet (next tick).
 	pairs, evs := eventPairs(t, s, iid)
 	assertPairs(t, pairs, []pair{
 		{core.EventTypeWorkflowStarted, ""},
 		{core.EventTypeStepStarted, "w"},
 		{core.EventTypeSignalReceived, ""},
+		{core.EventTypeStepCompleted, "w"}, // OUTPUT 0: step completes at delivery
 	})
 
 	// SignalReceived payload VERBATIM {signal_name, payload: map} (EVENTLOG §6).
@@ -97,16 +106,51 @@ func TestSignalScan_WaitDeliverResume(t *testing.T) {
 	}
 	assertJSONEqual(t, srp.Payload, map[string]any{"by": "alice"})
 
+	// StepCompleted outputs = signal payload (OUTPUT 0; TDS-01 StepCompleted REPLAY).
+	sc := findEvent(t, evs, core.EventTypeStepCompleted, "w")
+	var scp struct {
+		Outputs map[string]any `json:"outputs"`
+	}
+	decodePayload(t, sc, &scp)
+	assertJSONEqual(t, scp.Outputs, map[string]any{"by": "alice"})
+
+	// Wait_record must be gone after step completion (OUTPUT 0).
+	_, wrFound, err := s.GetWaitRecord(ctx, iid, "w")
+	if err != nil {
+		t.Fatalf("GetWaitRecord: %v", err)
+	}
+	if wrFound {
+		t.Fatalf("wait_record must be deleted on step completion (OUTPUT 0)")
+	}
+
+	// Tick 3: the signal step was the FinalStep; processInstance now sees
+	// current_steps=[] and the final completed → WorkflowCompleted.
+	if err := e.Tick(ctx); err != nil {
+		t.Fatalf("Tick 3 (workflow complete): %v", err)
+	}
+	inst, _ = s.GetInstance(ctx, iid)
+	if inst.Status != core.InstanceStatusCompleted {
+		t.Fatalf("after WorkflowCompleted status = %q, want completed", inst.Status)
+	}
+	pairs, _ = eventPairs(t, s, iid)
+	assertPairs(t, pairs, []pair{
+		{core.EventTypeWorkflowStarted, ""},
+		{core.EventTypeStepStarted, "w"},
+		{core.EventTypeSignalReceived, ""},
+		{core.EventTypeStepCompleted, "w"},
+		{core.EventTypeWorkflowCompleted, ""},
+	})
+
+	// forward ≡ rebuild (at completed state where forward and replay paths converge).
 	assertProjectionEquivalence(t, s, iid)
 
-	// Re-run the scan after delivery: the idempotency guard makes it a no-op —
-	// no second SignalReceived (NFR-R-04).
+	// Re-scan after completion: idempotent — no new events (NFR-R-04).
 	if err := e.Tick(ctx); err != nil {
-		t.Fatalf("Tick 3 (idempotent): %v", err)
+		t.Fatalf("Tick 4 (idempotent): %v", err)
 	}
 	pairs2, _ := eventPairs(t, s, iid)
-	if len(pairs2) != 3 {
-		t.Fatalf("re-scan changed the event count: %d, want 3 (idempotent)", len(pairs2))
+	if len(pairs2) != 5 {
+		t.Fatalf("re-scan changed the event count: %d, want 5 (idempotent)", len(pairs2))
 	}
 }
 
@@ -176,13 +220,17 @@ func TestSignalScan_ResumesExactStepAfterNativeStep(t *testing.T) {
 	if inst.Status != core.InstanceStatusRunning {
 		t.Fatalf("status = %q, want running after correct signal", inst.Status)
 	}
+	// After delivery tick: SignalReceived + StepCompleted("w") emitted (OUTPUT 0).
 	pairs, _ = eventPairs(t, s, iid)
 	assertPairs(t, pairs, []pair{
 		{core.EventTypeWorkflowStarted, ""},
 		{core.EventTypeStepStarted, "a"}, {core.EventTypeStepCompleted, "a"},
 		{core.EventTypeStepStarted, "w"},
 		{core.EventTypeSignalReceived, ""},
+		{core.EventTypeStepCompleted, "w"}, // OUTPUT 0: step completes at delivery
 	})
 
+	// forward ≡ rebuild: after StepCompleted, forward and rebuild both produce
+	// running with w in completed_steps. The waiting gap (EDR-007 §9) has resolved.
 	assertProjectionEquivalence(t, s, iid)
 }

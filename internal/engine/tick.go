@@ -45,8 +45,11 @@ func (e *Engine) Tick(ctx context.Context) error {
 		}
 	}
 
-	// SIGNAL_SCAN — STUB (M07).
+	// SIGNAL_SCAN — deliver undelivered inbox signals (M07-C2).
 	e.signalScan(ctx)
+
+	// SIGNAL_TIMEOUT_SCAN — expire timed-out wait_records (M07-C3r).
+	e.signalTimeoutScan(ctx)
 	return nil
 }
 
@@ -109,9 +112,12 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 	if err != nil {
 		return err
 	}
-	if len(items) == 0 {
-		return nil
-	}
+	// semantics-bearing (M07-C3r OUTPUT 0): do NOT early-return when items=0.
+	// SIGNAL_SCAN (or SIGNAL_TIMEOUT_SCAN) may have emitted StepCompleted for a
+	// signal step in this same tick, leaving the instance with current_steps=[].
+	// The completion check at the bottom of processInstance must run regardless of
+	// whether this tick dispatched new work; it re-reads the projection, so it
+	// safely handles the stall / join-wait case (current_steps≠[] → return nil).
 
 	// ── DISPATCH (concurrent, bounded) ────────────────────────────────────────
 	// Only handler execution is concurrent; every result index is written by a

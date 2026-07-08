@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/awis/awis/internal/core"
 	"github.com/awis/awis/internal/signal"
@@ -35,6 +36,13 @@ type signalIntakeStore interface {
 // signalWaitStore is the additive slice used by WAIT-step entry.
 type signalWaitStore interface {
 	CreateWaitRecord(ctx context.Context, wr storage.WaitRecord) error
+}
+
+// signalWaitDeleteStore is the additive storage slice for single wait_record
+// deletion: used at the delivery completion site (CompleteStep, OUTPUT 0) and
+// by the timeout scan (signal_timeout.go).
+type signalWaitDeleteStore interface {
+	DeleteWaitRecord(ctx context.Context, instanceID core.InstanceID, stepID string) error
 }
 
 // Signal records an external signal into the inbox (intake). A later tick's
@@ -77,10 +85,11 @@ func (e *Engine) Signal(ctx context.Context, instanceID core.InstanceID, name st
 // EDR-007 §9 waiting-entry gap: no event produces `waiting`), and records the
 // wait in the engine's in-memory index for the SIGNAL_SCAN to match.
 //
-// timeout_at is left NULL here: the WaitConfig.Timeout Duration has no frozen
-// serialization form (scalars.go — "the frozen corpus does not show a
-// serialization form"), and the timeout scan is C3's scope wall. TimeoutAction
-// is persisted VERBATIM for C3.
+// OUTPUT 0b: timeout_at is populated as an absolute RFC3339 timestamp
+// (engine clock + WaitConfig.Timeout); absent Timeout writes NULL. No new
+// Duration serialization form is introduced — core.Duration is parsed inline
+// via time.ParseDuration (the natural Go duration literal form, e.g. "1m30s").
+// Cite: Blueprint §9 L1410 (timeout_at column RFC3339 form).
 func (e *Engine) enterWait(ctx context.Context, inst core.WorkflowInstance, step core.Step) error {
 	wc := step.WaitSignal
 	if wc == nil {
@@ -94,12 +103,28 @@ func (e *Engine) enterWait(ctx context.Context, inst core.WorkflowInstance, step
 	}
 
 	now := e.now()
+
+	// OUTPUT 0b: compute timeout_at = engine clock + WaitConfig.Timeout.
+	// Blueprint §9 L1410: timeout_at stores an absolute RFC3339 timestamp.
+	// Parse core.Duration as a Go duration literal; absent Timeout → NULL.
+	var timeoutAt *time.Time
+	if string(wc.Timeout) != "" {
+		d, err := time.ParseDuration(string(wc.Timeout))
+		if err == nil {
+			t := now.Add(d)
+			timeoutAt = &t
+		} else {
+			e.logger.Warn("signal step: unparseable timeout; wait_record written with NULL timeout_at",
+				"step_id", step.ID, "timeout", string(wc.Timeout), "error", err.Error())
+		}
+	}
+
 	wr := storage.WaitRecord{
 		InstanceID:    inst.InstanceID,
 		StepID:        step.ID,
 		SignalName:    wc.SignalName,
 		CreatedAt:     now,
-		TimeoutAt:     nil, // Duration form undefined (scalars.go); timeout scan is C3.
+		TimeoutAt:     timeoutAt, // absolute RFC3339; NULL when no Timeout (Blueprint §9 L1410)
 		TimeoutAction: wc.TimeoutAction,
 	}
 	if err := store.CreateWaitRecord(ctx, wr); err != nil {
@@ -186,4 +211,50 @@ func (e *Engine) OnDelivered(iid core.InstanceID, signalName string) {
 			delete(e.waits, iid)
 		}
 	}
+}
+
+// clearWait removes the in-memory wait for (iid, signalName). Called by the
+// timeout scan (processTimeout) when a wait expires without delivery.
+func (e *Engine) clearWait(iid core.InstanceID, signalName string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if m := e.waits[iid]; m != nil {
+		delete(m, signalName)
+		if len(m) == 0 {
+			delete(e.waits, iid)
+		}
+	}
+}
+
+// CompleteStep implements signal.Waits: after the B3 delivery tx commits it
+// deletes the wait_record and emits StepCompleted with the signal payload as
+// outputs through the existing StepCompleted emission path (M07-C3r OUTPUT 0;
+// TDS-01 §2 StepCompleted REPLAY carries outputs; Blueprint §8 SETTLE →
+// transition evaluation).
+//
+// semantics-bearing: wait_record deleted on step completion (OUTPUT 0); an
+// open wait_record after delivery would misfire the timeout scan. attempt=1
+// always: a signal step enters wait on its first (only) activation.
+func (e *Engine) CompleteStep(ctx context.Context, iid core.InstanceID, stepID string, payload map[string]any) error {
+	// Delete wait_record first: the step is done; the timeout scan must not re-fire.
+	if ds, ok := e.storage.(signalWaitDeleteStore); ok {
+		if err := ds.DeleteWaitRecord(ctx, iid, stepID); err != nil {
+			return fmt.Errorf("engine: CompleteStep delete wait_record %s/%s: %w", iid, stepID, err)
+		}
+	}
+	// Read the current instance state (after B3 resume: status=running).
+	inst, found, err := e.getInstance(ctx, iid)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("engine: CompleteStep: instance %s vanished after delivery", iid)
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	// Emit StepCompleted with signal payload as outputs (TDS-01 §2).
+	// startedAt ≈ now: the WAIT step has no real execution time; duration_ms
+	// is informational for signal steps (delivery latency, not handler time).
+	return e.emitStepCompleted(ctx, inst, stepID, 1, payload, e.now())
 }

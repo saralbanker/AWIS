@@ -54,6 +54,10 @@ func (f *fakeWaits) OnDelivered(_ core.InstanceID, signalName string) {
 	f.delivered = append(f.delivered, signalName)
 }
 
+func (f *fakeWaits) CompleteStep(_ context.Context, _ core.InstanceID, _ string, _ map[string]any) error {
+	return nil // no-op stub: unit tests assert delivery behaviour, not step completion
+}
+
 func testScanner(store Store, waits Waits) *Scanner {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return NewScanner(store, waits, func() time.Time { return time.Unix(0, 0).UTC() },

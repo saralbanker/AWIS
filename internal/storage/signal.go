@@ -274,6 +274,19 @@ func (s *SQLiteStorage) DeleteWaitRecordsByInstance(ctx context.Context, instanc
 	return nil
 }
 
+// DeleteWaitRecord removes the wait_record for (instanceID, stepID). It is a
+// benign no-op when the record is absent: a record may have been cleared by a
+// concurrent timeout or cancellation before delivery completes (M07-C3r).
+func (s *SQLiteStorage) DeleteWaitRecord(ctx context.Context, instanceID core.InstanceID, stepID string) error {
+	if _, err := s.db.db.ExecContext(ctx,
+		`DELETE FROM wait_records WHERE instance_id = ? AND step_id = ?`,
+		string(instanceID), stepID,
+	); err != nil {
+		return fmt.Errorf("storage: DeleteWaitRecord delete: %w", err)
+	}
+	return nil
+}
+
 // scanWaitRecord scans a *sql.Rows cursor into a WaitRecord.
 func scanWaitRecord(rows *sql.Rows) (WaitRecord, error) {
 	var (
