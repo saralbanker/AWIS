@@ -29,4 +29,6 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M09-test-infr
   M06/M07 engine-level tests remain as-is (they are the §19 "engine-level precursors").
 
 ## Execution record (appended during B-BUILD/C-VERIFY)
-(empty — populated as cards complete)
+- M09-C1 DONE 2026-07-09 b64723d — T1/T2/T3/T4 all satisfied; make build test lint race e1 green;
+  6 test behaviors in sdk/deterministic_test.go; no existing tests modified; no exported identifiers
+  changed; only additive sdk exports: DeterministicMode, Config.Clock, Config.NewID.
