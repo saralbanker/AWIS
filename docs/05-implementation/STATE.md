@@ -29,15 +29,15 @@ BRANCH: m09-test-infrastructure  (create from main AFTER M08 squash-merges)
 PHASE: B-BUILD
 GATE: none
 CARDS:
-  M09-C1   READY   awis-builder
+  M09-C1   DONE    awis-builder   b64723d
   M09-C2   READY   awis-builder
   M09-C3   READY   awis-builder
   M09-V1   READY   awis-verifier
-BLOCKERS: M08 merge (branch prerequisite — do NOT start M09-C1 until M08 is squash-merged to main)
-NEXT: await M08 merge → create branch m09-test-infrastructure from main → dispatch M09-C1 to awis-builder
-LAST: 2026-07-08 D-CLOSE: M08 semantic review PASS (no drift); HANDOFF actuals + TRACEABILITY +
-      CHECKLIST closed; merge recommendation issued; M09 A-INIT complete (6 module files +
-      4 cards written READY, fused wake per EEOS phase machine)
+BLOCKERS: none
+NEXT: dispatch M09-C2 to awis-builder
+LAST: 2026-07-09 M09-C1 DONE (b64723d): engine.Config.NewID, sdk.Config.Clock/NewID, intelligence
+      wiring in NewRuntime, DeterministicMode(); 6 test behaviors in sdk/deterministic_test.go;
+      make build test lint race e1 all green
 
 DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07   # history: git log + module HANDOFFs
 # M08 moves to DONE-MILESTONES after founder squash-merge
