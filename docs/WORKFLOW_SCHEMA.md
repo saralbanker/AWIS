@@ -45,12 +45,12 @@ Type convention (§6): trailing `?` = optional; `T[]` = array of `T`; `map<K,V>`
 | `handler` | HandlerRef | required | `"handler-name"` (native); `"script.py"` (subprocess); etc. |
 | `inputs` | InputSchema | required | JSON Schema for expected inputs. |
 | `outputs` | OutputSchema | required | JSON Schema for produced outputs. |
-| `retry` | RetryPolicy? | optional | attempts, backoff, retryable_errors. |
+| `retry` | RetryPolicy? | optional | attempts; backoff (`immediate \| linear \| exponential`); initial_delay? (Duration, default 1s); max_delay? (Duration, default 30s); retryable_errors? — **full Blueprint §8 shape adopted by G1-amendment ADJ-6, founder-approved 2026-07-03** (CONTRA-8: §6 L287 listed 3 fields, §8 L521–528 specifies 5; additive optional fields, serialization-compatible; see §7 below). |
 | `timeout` | Duration? | optional | per-step timeout. |
 | `fallback` | string? | optional | step id to run if this step fails/capability unavailable. |
 | `compensation` | CompensationRef? | optional | undo action if workflow fails after this step completes. |
 | `wait_signal` | WaitConfig? | optional | for `type=signal`: signal name + timeout + timeout_action. |
-| `intelligence` | IntelReq? | optional | for `type=intelligence`: capability + model_hint + context_budget. |
+| `intelligence` | IntelReq? | optional | for `type=intelligence`: capability + model_hint + context_budget + required? (bool, default false) — **`required` added by G1-amendment ADJ-7, founder-approved 2026-07-03** (CONTRA-9: Blueprint §13 YAML and FR-IL-06/07 depend on it; §6 L292 omitted it; additive optional field; see §7 below). |
 
 ## 3. Transition (§6, lines 297–303)
 
@@ -94,6 +94,29 @@ G1 checklist (IMP §23 item 1) demands one. Resolved at G1 as an **additive comp
   registered.
 - The value changes only via a future amendment to this document; registered definitions
   serialized under version N are never rewritten.
+
+---
+
+## 7. G1 amendments adopted at M06 entry (ADJ-6, ADJ-7 — APPROVED 2026-07-03)
+
+Both are additive optional-field amendments (ADJ-5 pattern), founder-approved, recorded in the
+04-planning gate log and the M06 module TRACEABILITY:
+
+- **ADJ-6 (CONTRA-8) — RetryPolicy full §8 shape.** §6 L287 ("attempts, backoff,
+  retryable_errors") conflicts with §8 L521–528's five-field policy. Canonical shape:
+  `{attempts: int, backoff: "immediate"|"linear"|"exponential", initial_delay?: Duration,
+  max_delay?: Duration, retryable_errors?: string[]}`. Absent delays default to 1s / 30s
+  (mirroring §16 CloudRetryPolicy defaults). Definitions serialized under the 3-field shape
+  remain valid.
+- **ADJ-7 (CONTRA-9) — IntelReq `required`.** `required: bool` (optional, default `false`)
+  added to the intelligence block, matching Blueprint §13's YAML verbatim. `false` = route to
+  step fallback when no capable provider (FR-IL-06); `true` = fail the step with
+  CapabilityUnavailableError (FR-IL-07).
+- **CONTRA-10 (disposition by authority order, no format change).** Step `inputs` is a template
+  value-map resolved at execution time (Blueprint §7 example L362–364, PRD §18 DSL rule 1,
+  FR-WD-05) — §6 L284's "JSON Schema for expected inputs" tag is the single outlier
+  coordinate. The serialized type (`map<string, any>`) is unchanged; `outputs` remains
+  schema-shaped. Recorded here so the M10 round-trip oracle inherits one reading.
 
 ---
 
