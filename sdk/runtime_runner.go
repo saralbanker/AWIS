@@ -9,6 +9,9 @@ import (
 	"github.com/awis/awis/internal/core"
 )
 
+// compile-time assertion: *Runtime satisfies core.WorkflowRunner.
+var _ core.WorkflowRunner = (*Runtime)(nil)
+
 // Submit starts a new workflow instance. It looks up the latest registered
 // version for definitionID and delegates to engine.Submit.
 func (r *Runtime) Submit(ctx context.Context, definitionID string, inputs map[string]any) (core.InstanceID, error) {
