@@ -173,7 +173,26 @@ type RecallAPI interface {
 //
 // Shape completed at M08 (owning milestone); not part of the G1 format freeze
 // (IMP §13 — sdk surface mutable until M08).
-type WorkflowStatus struct{}
+type WorkflowStatus struct {
+	// InstanceID is the unique identity of the instance.
+	InstanceID InstanceID
+	// DefinitionID is the id of the workflow definition.
+	DefinitionID string
+	// Version is the SemVer of the workflow definition.
+	Version SemVer
+	// Status is the current lifecycle status.
+	Status InstanceStatus
+	// CurrentSteps are the active (running/waiting) step ids.
+	CurrentSteps []string
+	// Inputs are the workflow inputs (Variables snapshot).
+	Inputs map[string]any
+	// Outputs are the workflow outputs (Variables snapshot).
+	Outputs map[string]any
+	// CreatedAt is when the instance started.
+	CreatedAt time.Time
+	// UpdatedAt is when the instance was last updated.
+	UpdatedAt time.Time
+}
 
 // InstanceFilter selects instances for List/ListInstances (Blueprint §12/§20).
 //
@@ -192,14 +211,38 @@ type InstanceFilter struct {
 //
 // Shape completed at M08 (owning milestone); not part of the G1 format freeze
 // (IMP §13 — sdk surface mutable until M08).
-type HistoryQuery struct{}
+type HistoryQuery struct {
+	// Namespace restricts results to the given namespace.
+	Namespace string
+	// DefinitionID restricts results to the given definition; empty = all.
+	DefinitionID string
+	// Status restricts results to the given lifecycle status; zero = all.
+	Status InstanceStatus
+}
 
 // ExecutionRecord is a summarized history record returned by the RecallAPI
 // (Blueprint §12).
 //
 // Shape completed at M08 (owning milestone); not part of the G1 format freeze
 // (IMP §13 — sdk surface mutable until M08).
-type ExecutionRecord struct{}
+type ExecutionRecord struct {
+	// InstanceID is the unique identity of the instance.
+	InstanceID InstanceID
+	// DefinitionID is the id of the workflow definition.
+	DefinitionID string
+	// Version is the SemVer of the workflow definition.
+	Version SemVer
+	// Status is the lifecycle status.
+	Status InstanceStatus
+	// StartedAt is when the instance started.
+	StartedAt time.Time
+	// CompletedAt is when the instance completed; nil if still running.
+	CompletedAt *time.Time
+	// Inputs are the workflow inputs.
+	Inputs map[string]any
+	// Outputs are the workflow outputs.
+	Outputs map[string]any
+}
 
 // ReplayTrace is the trace produced by RecallAPI.ReplayInstance (Blueprint §12).
 //
@@ -211,4 +254,17 @@ type ReplayTrace struct{}
 //
 // Shape completed at M08 (owning milestone); not part of the G1 format freeze
 // (IMP §13 — sdk surface mutable until M08).
-type StepStatistics struct{}
+type StepStatistics struct {
+	// DefinitionID is the id of the workflow definition.
+	DefinitionID string
+	// StepID is the id of the step.
+	StepID string
+	// TotalRuns is the total number of times this step has been dispatched.
+	TotalRuns int
+	// SuccessCount is the number of successful runs.
+	SuccessCount int
+	// FailureCount is the number of failed runs.
+	FailureCount int
+	// AvgDurationMs is the average execution duration in milliseconds.
+	AvgDurationMs float64
+}
