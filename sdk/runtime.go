@@ -13,6 +13,7 @@ import (
 	"github.com/awis/awis/internal/core"
 	"github.com/awis/awis/internal/engine"
 	"github.com/awis/awis/internal/runner/native"
+	"github.com/awis/awis/internal/storage"
 )
 
 // Config is the configuration for a Runtime. Namespace and Storage are
@@ -87,9 +88,28 @@ func NewRuntime(cfg Config) (*Runtime, error) {
 	}, nil
 }
 
+// SQLiteStorage opens (or creates) a SQLite-backed StoragePort at path.
+// Blueprint §12 L934 authorizes this as a public sdk helper so the example
+// app and application code can open storage without importing internal/storage.
+// The returned StoragePort satisfies all additive interfaces (cancellation,
+// signals, triggers, audit) that the runtime expects via type assertion.
+func SQLiteStorage(path string) (core.StoragePort, error) {
+	db, err := storage.Open(path, time.Now)
+	if err != nil {
+		return nil, fmt.Errorf("sdk: SQLiteStorage: %w", err)
+	}
+	return storage.NewSQLiteStorage(db, time.Now), nil
+}
+
 // Start starts the engine pull loop. It blocks until ctx is cancelled.
 func (r *Runtime) Start(ctx context.Context) error {
 	return r.eng.Run(ctx)
+}
+
+// Tick runs one engine tick synchronously. Useful for tests and the example
+// app where a continuous Run loop is not desired.
+func (r *Runtime) Tick(ctx context.Context) error {
+	return r.eng.Tick(ctx)
 }
 
 // Runner returns this Runtime as a core.WorkflowRunner. The Runtime

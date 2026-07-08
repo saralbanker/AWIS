@@ -12,6 +12,9 @@ import (
 	"github.com/awis/awis/internal/core"
 )
 
+// compile-time assertion: *Runtime satisfies core.RecallAPI.
+var _ core.RecallAPI = (*Runtime)(nil)
+
 // QueryHistory returns execution records for instances matching the query.
 // It reads workflow_instances via ListInstances (filtered by HistoryQuery
 // fields) and derives StartedAt/CompletedAt from the instance fields.
