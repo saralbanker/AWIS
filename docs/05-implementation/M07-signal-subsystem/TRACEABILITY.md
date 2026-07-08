@@ -47,3 +47,6 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M07-signal-su
   founder after C3r's Opus run hit the session limit. Mitigations unchanged: crash-injection
   checkpoint (§20.M7), independent V1, CE deep review, human G2 verdict. G2 reviewers: weigh this
   when judging the atomicity evidence.
+- **V1 DONE `6ac948a` verified / commit `7a360e9`** (awis-verifier). PASS — all 8 implementation
+  checks ✅; V-COMMON-1 procedural ❌ (pre-existing CLAUDE.md + STATE ledger write) resolved by
+  `7a360e9`. Delivery latency 1.72 ms/op (informational). D-CLOSE 2026-07-08.
