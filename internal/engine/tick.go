@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/awis/awis/internal/core"
+	"github.com/awis/awis/internal/signal"
 )
 
 // Run drives the pull loop at Config.TickInterval until ctx is cancelled. A tick
@@ -49,9 +50,21 @@ func (e *Engine) Tick(ctx context.Context) error {
 	return nil
 }
 
-// signalScan is the SIGNAL_SCAN stage stub. M07 fills it with signal delivery /
-// waiting-status exit (EDR-007 §9 waiting-entry gap is M07's too).
-func (e *Engine) signalScan(_ context.Context) {}
+// signalScan is the SIGNAL_SCAN stage: it drives the delivery scan (internal/
+// signal) once per tick. A storage that does not support the signal tables
+// no-ops the stage (graceful degradation, mirroring cancellationStore /
+// triggerStore); a scan error is logged and never returned so a transient
+// signal-store fault cannot wedge the tick.
+func (e *Engine) signalScan(ctx context.Context) {
+	store, ok := e.storage.(signal.Store)
+	if !ok {
+		return
+	}
+	sc := signal.NewScanner(store, e, e.now, e.newID, e.cfg.WorkerID, e.logger)
+	if err := sc.Scan(ctx); err != nil {
+		e.logger.Warn("signal scan failed", "error", err.Error())
+	}
+}
 
 // dispatchItem is one claimed step awaiting dispatch within a tick.
 type dispatchItem struct {
@@ -215,6 +228,18 @@ func (e *Engine) gatherDispatch(ctx context.Context, dv *defView, inst core.Work
 			return nil, err
 		}
 		e.clearPending(inst.InstanceID, stepID)
+
+		// WAIT-step entry: a signal step activates through the existing step-entry
+		// path (StepStarted above) but does NOT dispatch to a runner. It parks the
+		// instance in `waiting` and records a wait_record; SIGNAL_SCAN resumes it
+		// atomically (Finalization B3) when the awaited signal arrives.
+		if step.Type == core.StepTypeSignal {
+			if err := e.enterWait(ctx, inst, step); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
 		e.logger.Info("dispatch", "instance_id", string(inst.InstanceID), "step_id", stepID)
 		items = append(items, dispatchItem{step: step, sc: sc, startedAt: startedAt})
 	}
