@@ -57,8 +57,59 @@ func TestQueryHistory_ReturnsRecordAfterCompletion(t *testing.T) {
 	}
 
 	rec := records[0]
+	// F3: InstanceID must be non-empty.
+	if rec.InstanceID == "" {
+		t.Error("record.InstanceID is empty, want non-empty")
+	}
 	if rec.DefinitionID != "recallflow" {
 		t.Errorf("record.DefinitionID = %q, want %q", rec.DefinitionID, "recallflow")
+	}
+}
+
+// TestStepStats_AfterCompletion verifies that StepStats returns TotalRuns >= 1
+// after a workflow completes (F4).
+func TestStepStats_AfterCompletion(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStorage(t)
+
+	rt, err := NewRuntime(Config{Namespace: "stats-ns", Storage: s, WorkerID: "w1"})
+	if err != nil {
+		t.Fatalf("NewRuntime: %v", err)
+	}
+
+	if err := rt.RegisterHandler(&greetHandler{}); err != nil {
+		t.Fatalf("RegisterHandler: %v", err)
+	}
+	def, _ := NewWorkflowBuilder("statsflow", "1.0.0").
+		SetNamespace("stats-ns").
+		AddStep(core.Step{
+			ID:      "greet",
+			Name:    "Greet",
+			Type:    core.StepTypeNative,
+			Handler: core.HandlerRef("greet"),
+		}).
+		SetInitialStep("greet").
+		AddFinalStep("greet").
+		Build()
+	if err := rt.RegisterWorkflow(def); err != nil {
+		t.Fatalf("RegisterWorkflow: %v", err)
+	}
+
+	if _, err := rt.Submit(ctx, "statsflow", nil); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	// Tick to run and complete the workflow.
+	if err := rt.Tick(ctx); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	stats, err := rt.StepStats(ctx, "statsflow", "greet")
+	if err != nil {
+		t.Fatalf("StepStats: %v", err)
+	}
+	if stats.TotalRuns < 1 {
+		t.Errorf("StepStats.TotalRuns = %d, want >= 1", stats.TotalRuns)
 	}
 }
 
