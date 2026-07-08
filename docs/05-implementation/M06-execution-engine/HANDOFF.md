@@ -29,4 +29,6 @@
 - Definition identity remains non-evented (EDR-007 §4 option (b) interim) — G2 decision.
 
 ## Actuals (filled at completion)
-- Merge commit: _
+- Merge commit: `b691965` (squash to main, 2026-07-08, founder-directed; tag `milestone/M06`).
+  Verified at `01d2f5c` (M06-V1r 15/15); delta to merge = docs/EEOS/CI-lint only (recorded in
+  merge message). Deviations: none beyond TRACEABILITY §Deviations (continuation cards, EDR-011 §8).
