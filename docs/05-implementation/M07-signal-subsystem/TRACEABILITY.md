@@ -25,4 +25,10 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M07-signal-su
 - Cards C1r/etc., deviations, and verification results are appended here as they occur (EEOS §3.3).
 
 ## Execution record (appended during B-BUILD/C-VERIFY)
-- (empty — milestone staged; activates when M06 merges)
+- **C1 DONE `e223dc4`** (core-engineer). Deviations accepted by CE: (1) audit_log DDL as E0 per
+  CONTRA-4 — timestamp/event_type/actor/payload_summary + surrogate autoincrement id, no CHECK on
+  event types; (2) db_test head-version assertions 2→4 (inherent to new migrations); (3) namespace
+  isolation realized per-instance_id — frozen DDL carries no namespace column (NFR-S-04 spirit,
+  tested); (4) caller-supplied time semantics, clock stays engine-owned. Env note: golangci-lint
+  absent for the run (gofmt+vet clean); CE installed v2.12.2 (CI-matching) before C2 — lint runs
+  from C2 on and at V1.
