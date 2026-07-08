@@ -27,6 +27,12 @@ type cancellationStore interface {
 	CancellationRequested(ctx context.Context, instanceID core.InstanceID) (bool, error)
 }
 
+// waitDeleteByInstanceStore is the additive storage slice for bulk wait_record
+// deletion per instance. Used by Cancel (Finalization B4 step 6).
+type waitDeleteByInstanceStore interface {
+	DeleteWaitRecordsByInstance(ctx context.Context, instanceID core.InstanceID) error
+}
+
 // Cancel requests cancellation of an instance (Finalization B4). Behavior by
 // current status:
 //
@@ -59,8 +65,52 @@ func (e *Engine) Cancel(ctx context.Context, instanceID core.InstanceID, reason 
 		return e.emitWorkflowCancelled(ctx, inst, reason)
 	}
 
-	// Running (or any non-terminal, non-pending status): flag it and remember the
-	// mode; the tick finalizes once in-flight work settles.
+	if inst.Status == core.InstanceStatusWaiting {
+		// A waiting instance has signal steps parked in current_steps but no
+		// in-flight runner execution. Cancel it immediately (like pending) after
+		// cleaning up the wait infrastructure.
+		//
+		// semantics-bearing: B4 step 6 (Finalization) — pending wait_records
+		// deleted on cancellation.
+		if ds, ok := e.storage.(waitDeleteByInstanceStore); ok {
+			if err := ds.DeleteWaitRecordsByInstance(ctx, instanceID); err != nil {
+				return fmt.Errorf("engine: Cancel waiting: delete wait_records (B4.6): %w", err)
+			}
+		}
+		e.mu.Lock()
+		delete(e.waits, instanceID) // clear in-memory waits (B4.6)
+		e.cancels[instanceID] = cancelIntent{reason: reason, compensate: compensate}
+		e.mu.Unlock()
+
+		// Emit StepFailed(cancelled) for each waiting step so current_steps drains
+		// to [] before WorkflowCancelled (the 12-type closed vocabulary has no
+		// dedicated "WaitCancelled" event; StepFailed{code:cancelled} removes the
+		// step from current_steps, matching the retry-wait cancellation pattern in
+		// handleCancellation — TDS-01 §2).
+		serr := core.StepError{Code: "cancelled", Message: "step cancelled while waiting for signal"}
+		for _, stepID := range inst.CurrentSteps {
+			if err := e.emitStepFailed(ctx, inst, stepID, 1, serr, false); err != nil {
+				return err
+			}
+		}
+
+		// Load defView and finalize (checks compensation plan).
+		dv, err := e.defViewFor(ctx, inst)
+		if err != nil {
+			return fmt.Errorf("engine: Cancel waiting: load defView: %w", err)
+		}
+		cur, found, err := e.getInstance(ctx, instanceID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return nil
+		}
+		return e.finalizeCancellation(ctx, dv, cur)
+	}
+
+	// Running (or any non-terminal, non-pending, non-waiting status): flag it
+	// and remember the mode; the tick finalizes once in-flight work settles.
 	store, ok := e.storage.(cancellationStore)
 	if !ok {
 		return fmt.Errorf("engine: Cancel: storage does not support the cancellation flag")
@@ -68,8 +118,17 @@ func (e *Engine) Cancel(ctx context.Context, instanceID core.InstanceID, reason 
 	if err := store.SetCancellationRequested(ctx, instanceID); err != nil {
 		return fmt.Errorf("engine: Cancel: set flag: %w", err)
 	}
+	// B4.6: delete wait_records alongside the cancellation flag write so the
+	// timeout scan cannot fire on a wait_record after cancellation is requested.
+	// semantics-bearing: B4 step 6 (Finalization).
+	if ds, ok := e.storage.(waitDeleteByInstanceStore); ok {
+		if err := ds.DeleteWaitRecordsByInstance(ctx, instanceID); err != nil {
+			return fmt.Errorf("engine: Cancel: delete wait_records (B4.6): %w", err)
+		}
+	}
 	e.mu.Lock()
 	e.cancels[instanceID] = cancelIntent{reason: reason, compensate: compensate}
+	delete(e.waits, instanceID) // clear in-memory waits (B4.6)
 	e.mu.Unlock()
 	return nil
 }
