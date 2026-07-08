@@ -71,9 +71,10 @@ type Engine struct {
 	// C2 (T4) in-memory bookkeeping — all V1 single-process, all reconstructible
 	// from the EventLog on restart (EDR-011 §8 documents the derivations; a crash
 	// loses these and the recovery derivation is not exercised at V1).
-	retries map[retryKey]retrySched             // scheduled retries by (instance, step) (ADJ-6/EDR-011 §3)
-	pending map[core.InstanceID]map[string]bool // failure-driven direct activations (EDR-011 §8)
-	cancels map[core.InstanceID]cancelIntent    // remembered Cancel reason+mode (Finalization B4)
+	retries map[retryKey]retrySched               // scheduled retries by (instance, step) (ADJ-6/EDR-011 §3)
+	pending map[core.InstanceID]map[string]bool   // failure-driven direct activations (EDR-011 §8)
+	cancels map[core.InstanceID]cancelIntent      // remembered Cancel reason+mode (Finalization B4)
+	waits   map[core.InstanceID]map[string]string // live signal waits: instance → signalName → stepID (M07; EDR-011 §8)
 }
 
 // retryKey identifies a per-instance per-step retry schedule.
@@ -136,6 +137,7 @@ func New(storage core.StoragePort, runners map[core.StepType]Runner, cfg Config,
 		retries: make(map[retryKey]retrySched),
 		pending: make(map[core.InstanceID]map[string]bool),
 		cancels: make(map[core.InstanceID]cancelIntent),
+		waits:   make(map[core.InstanceID]map[string]string),
 	}
 }
 
