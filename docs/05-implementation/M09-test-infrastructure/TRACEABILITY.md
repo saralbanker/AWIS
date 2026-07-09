@@ -43,3 +43,11 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M09-test-infr
 - M09-V1 DONE 2026-07-09 — 20/20 checklist rows ✅; V1-defect: sdk/events.go deleted (unspec'd
   export); Harness.storage field added so ReadEvents uses direct storage ref (no extra sdk export);
   make build test lint race e1 re-run green after fix.
+- D-CLOSE 2026-07-09 (Fable) — semantic review of full diff: no architectural drift; frozen
+  contracts intact (internal/core diff empty; EventLog format, port interfaces, F-1 alias targets,
+  StoragePort 12-method set untouched); sdk surface delta = exactly DeterministicMode +
+  Config.Clock + Config.NewID (IMP §13 additive justification recorded above); V1 correction
+  reviewed and endorsed — Runtime.ReadEvents was outside the Blueprint §12/§25 + FR-SDK surface,
+  its removal restores spec compliance while Harness.ReadEvents (awistesting-internal storage
+  read) legitimately serves the IMP §19 determinism proof; full suite re-run green at HEAD
+  9da8dd0. Recommendation: APPROVED FOR SQUASH MERGE.
