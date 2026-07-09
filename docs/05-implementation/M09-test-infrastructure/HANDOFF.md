@@ -30,7 +30,7 @@
 
 ## Actuals (filled at completion)
 - C1 commit: b64723d · C2 commit: 3764a3a · C3 commit: c8fc10b
-- V1 verification: PASS 20/20 (awis-verifier, 2026-07-09); V1 fix commit sha: see STATE
+- V1 verification: PASS 20/20 (awis-verifier, 2026-07-09); V1 fix commit sha: 7f700a8
 - Deviations (V1 fix): `sdk/events.go` deleted (was an unspec'd Runtime.ReadEvents export);
   replaced with `Harness.storage core.StoragePort` field in harness.go so `Harness.ReadEvents`
   reads storage directly — no new sdk package exports. All 20 checklist rows ✅.

@@ -32,7 +32,7 @@ CARDS:
   M09-C1   DONE    awis-builder   b64723d
   M09-C2   DONE    awis-builder   3764a3a
   M09-C3   DONE    awis-builder   c8fc10b
-  M09-V1   DONE    awis-verifier  (sha below)
+  M09-V1   DONE    awis-verifier  7f700a8
 BLOCKERS: none
 NEXT: D-CLOSE (Fable wake)
 LAST: 2026-07-09 M09-V1 DONE: PASS 20/20; V1-fix: sdk/events.go deleted (unspec'd export),
