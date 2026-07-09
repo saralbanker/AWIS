@@ -12,6 +12,9 @@ import (
 
 	"github.com/awis/awis/internal/core"
 	"github.com/awis/awis/internal/engine"
+	intel "github.com/awis/awis/internal/intelligence"
+	"github.com/awis/awis/internal/intelligence/adapters/null"
+	runintel "github.com/awis/awis/internal/runner/intelligence"
 	"github.com/awis/awis/internal/runner/native"
 	"github.com/awis/awis/internal/storage"
 )
@@ -31,6 +34,10 @@ type Config struct {
 	WorkerID string
 	// TickInterval is the pull-loop period. Defaults to engine default (100ms).
 	TickInterval time.Duration
+	// Clock is the injectable time source; nil ⇒ time.Now. Primarily for sdk/testing.
+	Clock func() time.Time
+	// NewID is the injectable instance-id source; nil ⇒ engine default (UUIDv4).
+	NewID func() string
 }
 
 // Runtime wraps the internal engine and exposes the application-facing sdk
@@ -68,13 +75,30 @@ func NewRuntime(cfg Config) (*Runtime, error) {
 
 	nr := native.New()
 
+	// Wire intelligence: nil cfg.Intelligence ⇒ NullAdapter (spec §1c).
+	port := cfg.Intelligence
+	if port == nil {
+		port = null.New()
+	}
+	router, err := intel.NewRouter(
+		[]intel.Registration{{Adapter: port, Locality: intel.LocalityLocal}},
+		[]string{port.ProviderName()},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("awis: NewRuntime: intelligence router: %w", err)
+	}
+	disp := intel.NewDispatcher(router)
+
 	runners := map[core.StepType]engine.Runner{
-		core.StepTypeNative: nr,
+		core.StepTypeNative:       nr,
+		core.StepTypeIntelligence: runintel.New(disp),
 	}
 
 	eng := engine.New(cfg.Storage, runners, engine.Config{
 		TickInterval: cfg.TickInterval,
 		WorkerID:     workerID,
+		Clock:        cfg.Clock,
+		NewID:        cfg.NewID,
 	}, nil)
 
 	return &Runtime{

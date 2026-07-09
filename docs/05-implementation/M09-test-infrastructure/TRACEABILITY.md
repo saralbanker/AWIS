@@ -29,4 +29,25 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M09-test-infr
   M06/M07 engine-level tests remain as-is (they are the §19 "engine-level precursors").
 
 ## Execution record (appended during B-BUILD/C-VERIFY)
-(empty — populated as cards complete)
+- M09-C1 DONE 2026-07-09 b64723d — T1/T2/T3/T4 all satisfied; make build test lint race e1 green;
+  6 test behaviors in sdk/deterministic_test.go; no existing tests modified; no exported identifiers
+  changed; only additive sdk exports: DeterministicMode, Config.Clock, Config.NewID.
+- M09-C2 DONE 2026-07-09 3764a3a — T5/T6 satisfied; sdk/testing/harness.go + mock.go + harness_test.go
+  + mock_test.go; package awistesting; import path github.com/awis/awis/sdk/testing; all 7 test
+  behaviors; no re-implementation of engine semantics; make build test lint race e1 green.
+- M09-C3 DONE 2026-07-09 c8fc10b — T7/T8/T9/T10 satisfied; internal/fixtures/fixtures.go (8 shapes:
+  Linear, FanOutJoin, RetryExhaustionFallback, Compensation, Cancellation, CancellationWithCompensate,
+  WaitSignal, TimeoutAction); sdk/testing/integration_test.go (7 §19 shape tests + determinism proof);
+  sdk/testing/qg5_test.go (QG-5 WAIT/signal < 1s); sdk/testing/checkpoint_m9_test.go (M9 OIP-shaped
+  < 1s); harness.go ReadEvents additive (storage field direct); make build test lint race e1 green.
+- M09-V1 DONE 2026-07-09 — 20/20 checklist rows ✅; V1-defect: sdk/events.go deleted (unspec'd
+  export); Harness.storage field added so ReadEvents uses direct storage ref (no extra sdk export);
+  make build test lint race e1 re-run green after fix.
+- D-CLOSE 2026-07-09 (Fable) — semantic review of full diff: no architectural drift; frozen
+  contracts intact (internal/core diff empty; EventLog format, port interfaces, F-1 alias targets,
+  StoragePort 12-method set untouched); sdk surface delta = exactly DeterministicMode +
+  Config.Clock + Config.NewID (IMP §13 additive justification recorded above); V1 correction
+  reviewed and endorsed — Runtime.ReadEvents was outside the Blueprint §12/§25 + FR-SDK surface,
+  its removal restores spec compliance while Harness.ReadEvents (awistesting-internal storage
+  read) legitimately serves the IMP §19 determinism proof; full suite re-run green at HEAD
+  9da8dd0. Recommendation: APPROVED FOR SQUASH MERGE.
