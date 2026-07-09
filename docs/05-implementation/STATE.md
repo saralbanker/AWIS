@@ -41,11 +41,12 @@ BRANCH: m10-yaml-dsl  (create from main AFTER M09 squash-merges)
 PHASE: A-INIT done (fused at M09 D-CLOSE, non-gated boundary); B-BUILD starts at M09 merge
 GATE: none
 CARDS:
-  M10-C1   READY   awis-builder   (internal/dsl parser, yaml.v3, TDS-02 fields, file/line errors)
+  M10-C1   DONE    awis-builder   a575113
   M10-C2   READY   awis-builder   (ValidateFile + PRD §18 rendering + Discover; runtime-free)
   M10-C3   READY   awis-builder   (FR-WD-02 keystone + harness oracle + 5 YAML fixtures + docs/DSL.md)
   M10-V1   READY   awis-verifier
-BLOCKERS: M09 merge (branch-from-main discipline)
+BLOCKERS: none
+NEXT: M10-C2
 
 LAST: 2026-07-09 M09 D-CLOSE (Fable): semantic review PASS, no drift; HANDOFF/TRACEABILITY
       actuals finalized; merge recommendation APPROVED FOR SQUASH MERGE; M08 confirmed merged

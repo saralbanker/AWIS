@@ -31,6 +31,6 @@
 - OIP YAML fixtures parse/validate only; they cannot run until M13 (plugin) + M15 (handlers).
 
 ## Actuals (filled at completion)
-- C1 commit: — · C2 commit: — · C3 commit: —
+- C1 commit: a575113 · C2 commit: — · C3 commit: —
 - V1 verification: —
 - Deviations: —
