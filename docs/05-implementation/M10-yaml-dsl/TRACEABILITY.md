@@ -26,4 +26,6 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M10-yaml-dsl/
   `core.WorkflowDefinition`; consumed via registration. dsl imports nothing from cmd/.
 
 ## Execution record (appended during B-BUILD/C-VERIFY)
-- (empty — filled as cards complete)
+- C1 (a575113, 2026-07-09): internal/dsl package created. ParseFile/Parse (yaml.v3 KnownFields),
+  lineMap, rawToCore. go.mod: yaml.v3 v3.0.1 (only new dep). 6/6 tests pass incl. oracle parse
+  + validate.Validate zero-issues check. make build/test/lint/race/e1 all green. No deviations.
