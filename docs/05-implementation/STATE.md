@@ -31,13 +31,14 @@ GATE: none
 CARDS:
   M09-C1   DONE    awis-builder   b64723d
   M09-C2   DONE    awis-builder   3764a3a
-  M09-C3   READY   awis-builder
+  M09-C3   DONE    awis-builder   c8fc10b
   M09-V1   READY   awis-verifier
 BLOCKERS: none
-NEXT: dispatch M09-C3 to awis-builder
-LAST: 2026-07-09 M09-C2 DONE (3764a3a): sdk/testing package (awistesting) — WorkflowTestHarness,
-      MockIntelligence (OnDraft/OnEmbed/OnClassify), harness_test.go + mock_test.go; all 7 test
-      behaviors; make build test lint race e1 all green
+NEXT: dispatch M09-V1 to awis-verifier
+LAST: 2026-07-09 M09-C3 DONE (c8fc10b): internal/fixtures (8 workflow shapes), sdk/testing/
+      integration_test.go (7 §19 shape tests + determinism proof), qg5_test.go (QG-5 < 1s),
+      checkpoint_m9_test.go (M9 OIP-shaped < 1s); sdk/events.go + harness.go ReadEvents additive;
+      make build test lint race e1 all green
 
 DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07   # history: git log + module HANDOFFs
 # M08 moves to DONE-MILESTONES after founder squash-merge

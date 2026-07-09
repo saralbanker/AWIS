@@ -29,4 +29,8 @@
 - `Classify` is fixture-complete but not runtime-invoked (FR-IL-10 placeholder).
 
 ## Actuals (filled at completion)
-- Merge commit: _ · Verification: _ · Deviations: _
+- C1 commit: b64723d · C2 commit: 3764a3a · C3 commit: c8fc10b
+- Verification: pending M09-V1 (awis-verifier)
+- Deviations (C3): added `sdk/events.go` (Runtime.ReadEvents, additive) and
+  `Harness.ReadEvents` delegate in harness.go to expose raw event streams for the
+  determinism proof test; not in the C2 surface spec but additive and freeze-compliant.
