@@ -35,3 +35,8 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M09-test-infr
 - M09-C2 DONE 2026-07-09 3764a3a — T5/T6 satisfied; sdk/testing/harness.go + mock.go + harness_test.go
   + mock_test.go; package awistesting; import path github.com/awis/awis/sdk/testing; all 7 test
   behaviors; no re-implementation of engine semantics; make build test lint race e1 green.
+- M09-C3 DONE 2026-07-09 c8fc10b — T7/T8/T9/T10 satisfied; internal/fixtures/fixtures.go (8 shapes:
+  Linear, FanOutJoin, RetryExhaustionFallback, Compensation, Cancellation, CancellationWithCompensate,
+  WaitSignal, TimeoutAction); sdk/testing/integration_test.go (7 §19 shape tests + determinism proof);
+  sdk/testing/qg5_test.go (QG-5 WAIT/signal < 1s); sdk/testing/checkpoint_m9_test.go (M9 OIP-shaped
+  < 1s); sdk/events.go + harness.go ReadEvents additive; make build test lint race e1 green.
