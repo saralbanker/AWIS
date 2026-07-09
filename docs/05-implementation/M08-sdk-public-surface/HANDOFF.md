@@ -44,7 +44,7 @@
   workaround); adequate for V1 data volumes.
 
 ## Actuals (filled at completion)
-- Merge commit: _pending E-MERGE (squash; fill-at-merge policy per M05 precedent)_
+- Merge commit: 87c1632 (founder squash-merge to main; recorded at M09 D-CLOSE, 2026-07-09)
 - Verification: **M08-V1 PASS 21/21** (awis-verifier, 2026-07-08, HEAD 728cfed) — first V1 run
   FAILED with 5 test gaps (6dd2bb5); revision card M08-C2r closed them at e8aca86; re-verified.
 - Deviations:
