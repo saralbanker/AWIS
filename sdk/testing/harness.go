@@ -223,3 +223,10 @@ func (h *Harness) GetOutput(id core.InstanceID, key string) any {
 	}
 	return st.Outputs[key]
 }
+
+// ReadEvents returns all raw execution events for id in emission order.
+// Used by determinism proof tests to compare event-type/step-id sequences
+// across independent harness runs (IMP §19 test-data policy).
+func (h *Harness) ReadEvents(id core.InstanceID) ([]core.ExecutionEvent, error) {
+	return h.rt.ReadEvents(h.ctx, id)
+}
