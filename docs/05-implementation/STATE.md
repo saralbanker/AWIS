@@ -26,19 +26,18 @@ M08-PENDING-MERGE:
 # ── M09 active milestone ──────────────────────────────────────────────────────
 MILESTONE: M09-test-infrastructure
 BRANCH: m09-test-infrastructure  (create from main AFTER M08 squash-merges)
-PHASE: B-BUILD
+PHASE: C-VERIFY
 GATE: none
 CARDS:
   M09-C1   DONE    awis-builder   b64723d
   M09-C2   DONE    awis-builder   3764a3a
   M09-C3   DONE    awis-builder   c8fc10b
-  M09-V1   READY   awis-verifier
+  M09-V1   DONE    awis-verifier  (sha below)
 BLOCKERS: none
-NEXT: dispatch M09-V1 to awis-verifier
-LAST: 2026-07-09 M09-C3 DONE (c8fc10b): internal/fixtures (8 workflow shapes), sdk/testing/
-      integration_test.go (7 §19 shape tests + determinism proof), qg5_test.go (QG-5 < 1s),
-      checkpoint_m9_test.go (M9 OIP-shaped < 1s); sdk/events.go + harness.go ReadEvents additive;
-      make build test lint race e1 all green
+NEXT: D-CLOSE (Fable wake)
+LAST: 2026-07-09 M09-V1 DONE: PASS 20/20; V1-fix: sdk/events.go deleted (unspec'd export),
+      Harness.storage field direct; all suite re-run green; VALIDATION_CHECKLIST ticked;
+      HANDOFF + TRACEABILITY actuals filled; STATE → C-VERIFY
 
 DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07   # history: git log + module HANDOFFs
 # M08 moves to DONE-MILESTONES after founder squash-merge
