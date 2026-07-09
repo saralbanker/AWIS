@@ -30,7 +30,7 @@
 
 ## Actuals (filled at completion)
 - C1 commit: b64723d · C2 commit: 3764a3a · C3 commit: c8fc10b
-- Verification: pending M09-V1 (awis-verifier)
-- Deviations (C3): added `sdk/events.go` (Runtime.ReadEvents, additive) and
-  `Harness.ReadEvents` delegate in harness.go to expose raw event streams for the
-  determinism proof test; not in the C2 surface spec but additive and freeze-compliant.
+- V1 verification: PASS 20/20 (awis-verifier, 2026-07-09); V1 fix commit sha: see STATE
+- Deviations (V1 fix): `sdk/events.go` deleted (was an unspec'd Runtime.ReadEvents export);
+  replaced with `Harness.storage core.StoragePort` field in harness.go so `Harness.ReadEvents`
+  reads storage directly — no new sdk package exports. All 20 checklist rows ✅.

@@ -56,9 +56,10 @@ func WithIDSource(fn func() string) Option {
 // a poll interval — tests advance execution manually via Tick (Blueprint §27).
 // Construct via NewHarness; never copy.
 type Harness struct {
-	t   *testing.T
-	rt  *sdk.Runtime
-	ctx context.Context
+	t       *testing.T
+	rt      *sdk.Runtime
+	storage core.StoragePort
+	ctx     context.Context
 }
 
 // NewHarness builds a Harness backed by an in-memory SQLite storage and the
@@ -103,9 +104,10 @@ func NewHarness(t *testing.T, opts ...Option) *Harness {
 	}
 
 	return &Harness{
-		t:   t,
-		rt:  rt,
-		ctx: context.Background(),
+		t:       t,
+		rt:      rt,
+		storage: store,
+		ctx:     context.Background(),
 	}
 }
 
@@ -228,5 +230,5 @@ func (h *Harness) GetOutput(id core.InstanceID, key string) any {
 // Used by determinism proof tests to compare event-type/step-id sequences
 // across independent harness runs (IMP §19 test-data policy).
 func (h *Harness) ReadEvents(id core.InstanceID) ([]core.ExecutionEvent, error) {
-	return h.rt.ReadEvents(h.ctx, id)
+	return h.storage.ReadEvents(h.ctx, id, 0)
 }

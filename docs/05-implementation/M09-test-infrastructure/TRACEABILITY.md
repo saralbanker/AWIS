@@ -39,4 +39,7 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M09-test-infr
   Linear, FanOutJoin, RetryExhaustionFallback, Compensation, Cancellation, CancellationWithCompensate,
   WaitSignal, TimeoutAction); sdk/testing/integration_test.go (7 §19 shape tests + determinism proof);
   sdk/testing/qg5_test.go (QG-5 WAIT/signal < 1s); sdk/testing/checkpoint_m9_test.go (M9 OIP-shaped
-  < 1s); sdk/events.go + harness.go ReadEvents additive; make build test lint race e1 green.
+  < 1s); harness.go ReadEvents additive (storage field direct); make build test lint race e1 green.
+- M09-V1 DONE 2026-07-09 — 20/20 checklist rows ✅; V1-defect: sdk/events.go deleted (unspec'd
+  export); Harness.storage field added so ReadEvents uses direct storage ref (no extra sdk export);
+  make build test lint race e1 re-run green after fix.
