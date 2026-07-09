@@ -32,3 +32,6 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M09-test-infr
 - M09-C1 DONE 2026-07-09 b64723d — T1/T2/T3/T4 all satisfied; make build test lint race e1 green;
   6 test behaviors in sdk/deterministic_test.go; no existing tests modified; no exported identifiers
   changed; only additive sdk exports: DeterministicMode, Config.Clock, Config.NewID.
+- M09-C2 DONE 2026-07-09 3764a3a — T5/T6 satisfied; sdk/testing/harness.go + mock.go + harness_test.go
+  + mock_test.go; package awistesting; import path github.com/awis/awis/sdk/testing; all 7 test
+  behaviors; no re-implementation of engine semantics; make build test lint race e1 green.
