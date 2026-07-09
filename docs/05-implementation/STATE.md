@@ -30,14 +30,14 @@ PHASE: B-BUILD
 GATE: none
 CARDS:
   M09-C1   DONE    awis-builder   b64723d
-  M09-C2   READY   awis-builder
+  M09-C2   DONE    awis-builder   3764a3a
   M09-C3   READY   awis-builder
   M09-V1   READY   awis-verifier
 BLOCKERS: none
-NEXT: dispatch M09-C2 to awis-builder
-LAST: 2026-07-09 M09-C1 DONE (b64723d): engine.Config.NewID, sdk.Config.Clock/NewID, intelligence
-      wiring in NewRuntime, DeterministicMode(); 6 test behaviors in sdk/deterministic_test.go;
-      make build test lint race e1 all green
+NEXT: dispatch M09-C3 to awis-builder
+LAST: 2026-07-09 M09-C2 DONE (3764a3a): sdk/testing package (awistesting) — WorkflowTestHarness,
+      MockIntelligence (OnDraft/OnEmbed/OnClassify), harness_test.go + mock_test.go; all 7 test
+      behaviors; make build test lint race e1 all green
 
 DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07   # history: git log + module HANDOFFs
 # M08 moves to DONE-MILESTONES after founder squash-merge
