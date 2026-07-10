@@ -19,3 +19,6 @@
 - C1 (76574ff, 2026-07-10): git_context_plugin package (2 capabilities, zero deps, argv git);
   manifest Blueprint-verbatim modulo python3 delta; 17 offline pytest vs temp git repo; README
   with PR-5 venv path; Makefile third suite. pytest 41 total green; all gates green.
+- C2 (080a367, 2026-07-10): e2e_gitcontext_test.go — plugin-name resolution form proven against
+  THIS repo's history (context.sha/message real); capability-id diff form proven (1503-byte
+  diff HEAD~1..HEAD). Diff = one new test file. All gates green. No deviations.
