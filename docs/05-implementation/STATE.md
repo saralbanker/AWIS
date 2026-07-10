@@ -65,11 +65,14 @@ NEXT: founder squash-merge; M13 proceeds stacked on m12-plugin-system
 # ── M13 active ────────────────────────────────────────────────────────────────
 MILESTONE: M13-git-context-plugin
 BRANCH: m13-git-context-plugin (stacked on m12-plugin-system)
-PHASE: A-INIT (in progress, Fable)
+PHASE: B-BUILD
 GATE: none
-CARDS: (cut during A-INIT)
+CARDS:
+  M13-C1   DISPATCHED   awis-builder
+  M13-C2   READY   awis-builder
+  M13-V1   READY   awis-verifier
 BLOCKERS: none
-NEXT: complete A-INIT → B-BUILD
+NEXT: M13-C1 (dispatch P1 → awis-builder)
 
 LAST: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
       HEAD 03d5045 IS the founder's M09 squash-merge ("M09 — Test Infrastructure") and
