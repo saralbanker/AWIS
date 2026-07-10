@@ -40,3 +40,8 @@ Every task below has a card; every AC row maps to a checklist row. Primary: IMP 
 - C1 (5e6eebb, 2026-07-10): TDS-05 authored (all CE pins verbatim); 7 goldens; manifest.go
   (KnownFields, 5 validation rules, file+line errors); 14/14 tests incl. Blueprint §11
   manifest verbatim oracle. make build/test/lint/race/e1 green; go.mod empty. No deviations.
+- C2 (58902ff, 2026-07-10): 0005_plugins.sql (Blueprint §11 SQL verbatim); PluginStore additive
+  interface + SQLite impl (register upsert + capability replace + PluginRegistered audit in one
+  tx, F-4); 11 tests incl. v4→v5 upgrade path. Deviation (CE-ENDORSED): schema-head version
+  constants in db_test.go/signal_test.go advanced 4→5 — mechanically required by any new
+  migration, same as prior 2→4 advances; no test logic weakened. All gates green.
