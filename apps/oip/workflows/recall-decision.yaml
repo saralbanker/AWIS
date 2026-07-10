@@ -1,0 +1,51 @@
+schema_version: 1
+id: recall-decision
+version: 1.0.0
+namespace: oip
+name: Recall Decision
+description: Search and synthesize decision entries from the OIP record
+
+triggers:
+  - type: manual
+
+steps:
+  - id: fts-search
+    name: Full-Text Search
+    type: native
+    handler: oip.index.fts
+    inputs:
+      query: "{{workflow.inputs.query}}"
+    outputs:
+      results: {type: array}
+
+  - id: semantic-rank
+    name: Semantic Rank
+    type: native
+    handler: oip.index.semantic
+    inputs:
+      query: "{{workflow.inputs.query}}"
+      candidates: "{{steps.fts-search.outputs.results}}"
+    outputs:
+      ranked: {type: array}
+
+  - id: synthesize-answer
+    name: Synthesize Answer
+    type: intelligence
+    intelligence:
+      capability: synthesize
+      context_budget: 4000
+    inputs:
+      query: "{{workflow.inputs.query}}"
+      entries: "{{steps.semantic-rank.outputs.ranked}}"
+    outputs:
+      answer: {type: string}
+
+initial_step: fts-search
+
+transitions:
+  - from: fts-search
+    to: semantic-rank
+  - from: semantic-rank
+    to: synthesize-answer
+
+final_steps: [synthesize-answer]
