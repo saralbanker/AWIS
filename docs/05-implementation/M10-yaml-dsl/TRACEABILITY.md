@@ -53,3 +53,10 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M10-yaml-dsl/
   TDS-02/TDS-03/PRD §18. No existing test modified. sdk/expr/validate/core surfaces unchanged.
   5 godoc spot-check pass. COMPAT: schema_version default + wait_signal.name alias are parse-layer
   only, no runtime surface — strictly additive, no architectural drift.
+- D-CLOSE (Fable, 2026-07-10, at ef35aed): semantic review PASS. Frozen-surface diffs EMPTY
+  (internal/core, engine, storage, validate, expr, sdk). Purely additive milestone: internal/dsl
+  (parser/validate-report/render/discover), 5 fixtures, docs/DSL.md, gopkg.in/yaml.v3. No graph
+  semantics re-implemented (validate.Validate is the single authority; dsl only resolves lines
+  and renders). Deviations (schema_version default, wait_signal.name alias) endorsed as
+  parse-layer compatibility with Blueprint §7 — no drift. Gates at HEAD: build/test/lint(0
+  issues)/race/e1/docs-lint green. Merge recommendation: APPROVED FOR SQUASH MERGE.
