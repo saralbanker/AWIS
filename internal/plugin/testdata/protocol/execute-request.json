@@ -1,0 +1,14 @@
+{
+  "jsonrpc": "2.0",
+  "id": "req-2",
+  "method": "execute",
+  "params": {
+    "capability": "git.context.assemble",
+    "step_id": "assemble-context",
+    "inputs": {
+      "repo_path": "/path/to/repo",
+      "ref": "abc123"
+    },
+    "timeout_ms": 30000
+  }
+}

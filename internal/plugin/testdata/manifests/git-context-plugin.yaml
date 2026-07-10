@@ -1,0 +1,30 @@
+# awis-plugin.yaml
+name: git-context-plugin
+version: 1.0.0
+description: Assembles git context for capture workflows
+author: awis
+
+capabilities:
+  - id: git.context.assemble
+    inputs:
+      repo_path: string
+      ref: string
+    outputs:
+      context: object
+    timeout_ms: 30000
+
+  - id: git.diff.fetch
+    inputs:
+      repo_path: string
+      from_ref: string
+      to_ref: string
+    outputs:
+      diff: string
+    timeout_ms: 10000
+
+runtime:
+  command: "python"
+  args: ["-m", "git_context_plugin"]
+  env:
+    GIT_TERMINAL_PROMPT: "0"
+  idle_timeout_s: 300
