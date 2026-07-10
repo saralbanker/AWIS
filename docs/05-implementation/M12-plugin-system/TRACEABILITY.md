@@ -45,3 +45,9 @@ Every task below has a card; every AC row maps to a checklist row. Primary: IMP 
   tx, F-4); 11 tests incl. v4→v5 upgrade path. Deviation (CE-ENDORSED): schema-head version
   constants in db_test.go/signal_test.go advanced 4→5 — mechanically required by any new
   migration, same as prior 2→4 advances; no test logic weakened. All gates green.
+- C3 (72496b8, 2026-07-10): transport.go (NDJSON JSON-RPC, id correlation, pgroup kill, 4KiB
+  stderr tail); manager.go (pinned FSM verbatim; two-lock model callMu/mu, mu never held over
+  blocking I/O; intentional-kill flag separates controlled kills from crashes); runner.go
+  (resolution rule + typed errors); sdk wiring (nil-safe noPluginStoreRunner + Stop shutdown).
+  38 tests in 1.4s incl. §20.M12 checkpoint (SIGKILL mid-call → restart → retry OK) with real
+  engine harness. Race clean. No deviations.
