@@ -79,6 +79,7 @@ type ymlRetryPolicy struct {
 
 type ymlWaitConfig struct {
 	SignalName    string `yaml:"signal_name"`
+	Name          string `yaml:"name"`           // Blueprint §7 alias for signal_name
 	Timeout       string `yaml:"timeout"`
 	TimeoutAction string `yaml:"timeout_action"`
 }
@@ -233,7 +234,12 @@ func yamlMappingValue(node *yaml.Node, key string) string {
 
 // rawToCore converts the intermediate YAML struct to a core.WorkflowDefinition
 // and enforces schema_version and semver constraints (TDS-02 §1/§5/§6).
+// schema_version absent (0) is treated as 1 — the Blueprint §7 example omits it
+// (parse-oracle mandate; M10-C3 CONSTRAINTS DELTA).
 func rawToCore(raw ymlWorkflowDef, filename string) (*core.WorkflowDefinition, error) {
+	if raw.SchemaVersion == 0 {
+		raw.SchemaVersion = 1 // absent → default to the only supported version
+	}
 	if raw.SchemaVersion != 1 {
 		return nil, fmt.Errorf("%s: schema_version must be 1, got %d", filename, raw.SchemaVersion)
 	}
@@ -275,8 +281,13 @@ func rawToCore(raw ymlWorkflowDef, filename string) (*core.WorkflowDefinition, e
 			}
 		}
 		if s.WaitSignal != nil {
+			// Accept both signal_name (TDS-02) and name (Blueprint §7 alias).
+			sigName := s.WaitSignal.SignalName
+			if sigName == "" {
+				sigName = s.WaitSignal.Name
+			}
 			step.WaitSignal = &core.WaitConfig{
-				SignalName:    s.WaitSignal.SignalName,
+				SignalName:    sigName,
 				Timeout:       core.Duration(s.WaitSignal.Timeout),
 				TimeoutAction: s.WaitSignal.TimeoutAction,
 			}
