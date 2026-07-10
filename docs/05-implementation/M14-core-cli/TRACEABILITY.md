@@ -25,3 +25,7 @@
 - **`status --watch`** is a re-poll loop, not a TUI (PRD §20 scope for V1 CLI).
 
 ## Execution record (appended during B-BUILD/C-VERIFY)
+- C1 (709ce0e, 2026-07-10): TDS-07 authored (F-3/CONTRA-5 verbatim; 9 command contracts; M17
+  tree marked; taxonomy template); cmd/awis skeleton (mux, cliErr, OpenStorage, version cmd,
+  golden harness). WAL busy_timeout=5000 confirmed already set by storage layer. 5/5 tests;
+  all gates green. No deviations.
