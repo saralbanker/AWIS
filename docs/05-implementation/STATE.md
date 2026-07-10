@@ -30,11 +30,15 @@ NEXT: founder squash-merge (E-MERGE, human-only); M11 proceeds stacked on m10-ya
 # ── M11 active ────────────────────────────────────────────────────────────────
 MILESTONE: M11-subprocess-runner
 BRANCH: m11-subprocess-runner (stacked on m10-yaml-dsl until M10 merges)
-PHASE: A-INIT (in progress, Fable)
+PHASE: B-BUILD
 GATE: none
-CARDS: (cut during A-INIT)
+CARDS:
+  M11-C1   READY   awis-builder
+  M11-C2   READY   awis-builder
+  M11-C3   READY   awis-builder
+  M11-V1   READY   awis-verifier
 BLOCKERS: none
-NEXT: complete A-INIT (materialize module per IKB §3/§4; write cards READY) → B-BUILD
+NEXT: M11-C1 (dispatch P1 → awis-builder)
 
 LAST: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
       HEAD 03d5045 IS the founder's M09 squash-merge ("M09 — Test Infrastructure") and
