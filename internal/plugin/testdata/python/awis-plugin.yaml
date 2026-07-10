@@ -1,0 +1,17 @@
+name: echo-python-plugin
+version: 1.0.0
+description: Echo capability implemented in Python (M12-C4 e2e fixture)
+author: test
+
+capabilities:
+  - id: echo.call
+    inputs:
+      message: string
+    outputs:
+      reply: string
+    timeout_ms: 10000
+
+runtime:
+  command: python3
+  args: ["PLACEHOLDER_MODULE_PATH"]
+  idle_timeout_s: 300
