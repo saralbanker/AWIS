@@ -29,3 +29,8 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M10-yaml-dsl/
 - C1 (a575113, 2026-07-09): internal/dsl package created. ParseFile/Parse (yaml.v3 KnownFields),
   lineMap, rawToCore. go.mod: yaml.v3 v3.0.1 (only new dep). 6/6 tests pass incl. oracle parse
   + validate.Validate zero-issues check. make build/test/lint/race/e1 all green. No deviations.
+- C2 (b958c79, 2026-07-10): validate.go (ValidateFile, Report, ReportIssue, resolveLines, lineFor,
+  indexFromField, fallbackOf); render.go (Render, renderValid, renderInvalid, hintFor covering all
+  16 validate codes + parse-error); discover.go (Discover via filepath.Glob). T4/T5/T6 delivered.
+  FR-WD-15: zero runtime/storage/sdk imports in validate.go. 15/15 tests pass (12 ValidateFile +
+  3 Discover + 5 render golden). make build/test/lint/race/e1 all green, 0 lint issues. No deviations.
