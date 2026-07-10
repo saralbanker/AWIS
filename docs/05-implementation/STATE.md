@@ -36,17 +36,17 @@ PR-BODY: diff = main...m09-test-infrastructure (16 files, +1929/−34 before D-C
 NEXT: founder squash-merge (E-MERGE, human-only); then M10 B-BUILD
 
 # ── M10 staged (A-INIT complete; activates at M09 merge) ─────────────────────
-MILESTONE-NEXT: M10-yaml-dsl
-BRANCH: m10-yaml-dsl  (create from main AFTER M09 squash-merges)
-PHASE: A-INIT done (fused at M09 D-CLOSE, non-gated boundary); B-BUILD starts at M09 merge
+MILESTONE: M10-yaml-dsl
+BRANCH: m10-yaml-dsl
+PHASE: C-VERIFY complete → D-CLOSE (Fable-grade; blocked on CE/founder invocation)
 GATE: none
 CARDS:
   M10-C1   DONE    awis-builder   a575113
   M10-C2   DONE    awis-builder   b958c79
   M10-C3   DONE    awis-builder   872974b
-  M10-V1   READY   awis-verifier
+  M10-V1   DONE    awis-verifier  (V1 ledger commit sha fills at this commit)
 BLOCKERS: none
-NEXT: M10-V1
+NEXT: D-CLOSE (Fable wake: semantic review + HANDOFF actuals + PR; fuse M11 A-INIT if non-gated)
 
 LAST: 2026-07-09 M09 D-CLOSE (Fable): semantic review PASS, no drift; HANDOFF/TRACEABILITY
       actuals finalized; merge recommendation APPROVED FOR SQUASH MERGE; M08 confirmed merged

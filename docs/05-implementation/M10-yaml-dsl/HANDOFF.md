@@ -32,7 +32,9 @@
 
 ## Actuals (filled at completion)
 - C1 commit: a575113 · C2 commit: b958c79 · C3 commit: 872974b
-- V1 verification: —
+- V1 verification: PASS 17/17 (awis-verifier, 2026-07-10, at cd2429b). Full record in
+  module TRACEABILITY execution record + ticked VALIDATION_CHECKLIST.
 - Deviations: dsl.go (a) schema_version absent defaults to 1 (Blueprint §7 omits field);
   (b) wait_signal.name: accepted as alias for signal_name: (Blueprint §7 uses name:, TDS-02
   uses signal_name:). Both additive dsl.go-only fixes; no frozen interfaces touched.
+  V1 confirmed: both compatibility adapters are parse-layer only, strictly additive, no drift.
