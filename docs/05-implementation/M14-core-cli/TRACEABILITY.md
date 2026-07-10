@@ -34,3 +34,5 @@
   (submit/signal/cancel/trace/workflow validate|list|show) + goldens + F-3 second-process
   proof. cmd/awis suite green 22.6s. Housekeeping: stray built binary `awis` (committed by
   accident in the C1 ledger commit) removed + gitignored.
+- C4 (51c2575, 2026-07-10): plugin install/list (F-5) + 14 tests + goldens + docs/CLI.md.
+  All gates + pytest green. No deviations.
