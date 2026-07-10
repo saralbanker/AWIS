@@ -44,20 +44,32 @@ MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE (Fable, 2026-07-10):
 EVIDENCE: module TRACEABILITY execution record + ticked VALIDATION_CHECKLIST + HANDOFF actuals.
 NEXT: founder squash-merge; M12 proceeds stacked on m11-subprocess-runner
 
-# ── M12 active ────────────────────────────────────────────────────────────────
+# ── M12 awaiting founder merge ────────────────────────────────────────────────
 MILESTONE: M12-plugin-system
 BRANCH: m12-plugin-system (stacked on m11-subprocess-runner)
-PHASE: B-BUILD
-GATE: none
+PHASE: E-MERGE (blocked on founder)
+GATE: none (non-gated boundary)
 CARDS:
   M12-C1   DONE    awis-builder   5e6eebb
   M12-C2   DONE    awis-builder   58902ff
   M12-C3   DONE    awis-builder   72496b8
   M12-C4   DONE    awis-builder   c9566c6
-  M12-V1   DISPATCHED   awis-verifier
+  M12-V1   DONE    awis-verifier  (report 2026-07-10 at 147920c; PASS 27/27)
 BLOCKERS: none
-PHASE-NOTE: B-BUILD complete → C-VERIFY
-NEXT: M12-V1 (dispatch P1 → awis-verifier, clean tree)
+MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE (Fable, 2026-07-10) incl. the
+  Opus-designated adversarial FSM review (upward substitution): invariants 1-5 verified;
+  frozen surfaces untouched; gates + pytest green at HEAD.
+EVIDENCE: module TRACEABILITY + ticked VALIDATION_CHECKLIST + HANDOFF actuals.
+NEXT: founder squash-merge; M13 proceeds stacked on m12-plugin-system
+
+# ── M13 active ────────────────────────────────────────────────────────────────
+MILESTONE: M13-git-context-plugin
+BRANCH: m13-git-context-plugin (stacked on m12-plugin-system)
+PHASE: A-INIT (in progress, Fable)
+GATE: none
+CARDS: (cut during A-INIT)
+BLOCKERS: none
+NEXT: complete A-INIT → B-BUILD
 
 LAST: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
       HEAD 03d5045 IS the founder's M09 squash-merge ("M09 — Test Infrastructure") and

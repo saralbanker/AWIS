@@ -1,5 +1,5 @@
 # M12 → M13/M14/M15 Handoff
-**Status: STAGED — actuals filled at M12 completion.**
+**Status: COMPLETE — D-CLOSE (incl. Fable adversarial FSM review) passed 2026-07-10.**
 
 ## Guaranteed outputs (contract — to be confirmed as actuals)
 - `docs/PLUGIN_PROTOCOL.md` (TDS-05) + goldens at `internal/plugin/testdata/protocol/`.
@@ -31,6 +31,12 @@
 - CLI surface arrives M14 (F-5 minimal) / M17 (full); no venv management until M13 (PR-5).
 
 ## Actuals (filled at completion)
-- C1 commit: · C2 commit: · C3 commit: · C4 commit:
-- V1 verification:
-- Deviations:
+- C1 commit: 5e6eebb · C2 commit: 58902ff · C3 commit: 72496b8 · C4 commit: c9566c6
+- V1 verification: PASS 27/27 (awis-verifier, 2026-07-10, at 147920c; §20.M12 checkpoint 3×
+  flake-free; idle 0.39s / timeout 0.23s vs 2s budgets).
+- Deviations (all CE-endorsed, module TRACEABILITY): schema-head test constants 4→5 (C2,
+  mechanically required); manifest lookup via entry-module dir + dual pytest invocation (C4).
+- Fable adversarial FSM review (D-CLOSE): invariants 1–5 verified in source — handshake-death,
+  shutdown-mid-call, monitor-vs-caller races resolve via handle-identity + intentional-kill
+  discipline; -race clean. Benign edge: Shutdown during an in-flight call surfaces as
+  plugin_crash to that call (engine is stopping; acceptable V1).

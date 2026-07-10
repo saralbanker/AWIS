@@ -56,3 +56,13 @@ Every task below has a card; every AC row maps to a checklist row. Primary: IMP 
   plugin through harness workflow; docs/PLUGIN_GUIDE.md; Makefile pytest runs both suites.
   All gates + pytest green. Minor deviations (manifest lookup via entry-module dir; two pytest
   invocations for rootdir isolation) — implementation details, no protocol deviation.
+- V1 (awis-verifier, 2026-07-10, at 147920c): PASS 27/27, zero failures. §20.M12 checkpoint
+  3× consecutive clean; NFR-S-02 env-isolation proven; SQL/YAML verbatim rows byte-checked.
+- D-CLOSE (Fable, 2026-07-10): adversarial FSM review PASS — Call four-phase lock discipline
+  (callMu whole-call; mu never over execute I/O; handshake I/O under mu is deadlock-free since
+  child EOF unblocks doHandshake's own 5s deadline); monitor crash-count races resolved by
+  handle-identity checks; controlled kills fenced by intentional flag; shutdownOnce + double
+  monitorDone wait satisfies invariant 5. Benign edge recorded in HANDOFF. Frozen surfaces:
+  StoragePort set untouched (PluginStore additive), engine untouched, sdk wiring-only.
+  Gates re-run at HEAD: build/test/lint(0)/race/e1/pytest(8+16) green.
+  Merge recommendation: APPROVED FOR SQUASH MERGE.
