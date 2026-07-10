@@ -1,0 +1,23 @@
+schema_version: 1
+id: render-bad-fallback
+version: 1.0.0
+namespace: test
+name: Bad Fallback Test
+metadata: {}
+triggers:
+  - type: manual
+steps:
+  - id: step-a
+    name: Step A
+    type: native
+    handler: my-handler
+    fallback: no-such-step
+  - id: step-b
+    name: Step B
+    type: native
+    handler: my-handler
+initial_step: step-a
+transitions:
+  - from: step-a
+    to: step-b
+final_steps: [step-b]
