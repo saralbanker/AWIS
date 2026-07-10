@@ -16,3 +16,6 @@
   in the frozen fixture), so the shape is not frozen surface.
 
 ## Execution record (appended during B-BUILD/C-VERIFY)
+- C1 (76574ff, 2026-07-10): git_context_plugin package (2 capabilities, zero deps, argv git);
+  manifest Blueprint-verbatim modulo python3 delta; 17 offline pytest vs temp git repo; README
+  with PR-5 venv path; Makefile third suite. pytest 41 total green; all gates green.
