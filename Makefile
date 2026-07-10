@@ -29,4 +29,5 @@ release-dry:
 	@echo "NOT-YET (wired at M02/M06/M18): release-dry"
 
 pytest:
-	python3 -m pytest python/awis-step/tests -q
+	python3 -m pytest --rootdir=python/awis-step python/awis-step/tests -q
+	python3 -m pytest --rootdir=python/awis-plugin python/awis-plugin/tests -q
