@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "git-context-plugin"
+version = "0.1.0"
+description = "AWIS reference plugin — git context assembly and diff fetch"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["git_context_plugin*"]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    ".",
+    "../../python/awis-plugin",
+]
+testpaths = ["tests"]
