@@ -86,12 +86,12 @@ CARDS:
   M14-C1   DONE    awis-builder   709ce0e
   M14-C2   DONE    awis-builder   73435f7
   M14-C3   DONE    awis-builder   add54dd
-  M14-C4   DISPATCHED   awis-builder
-  M14-V1   READY   awis-verifier
+  M14-C4   DONE    awis-builder   51c2575
+  M14-V1   DISPATCHED   awis-verifier
 BLOCKERS: none
 NOTE: F-3 decided at A-INIT (Fable): direct SQLite WAL + PID/SIGTERM; CONTRA-5 recorded in
   module SPEC/TRACEABILITY; TDS-07 transcribes it (C1).
-NEXT: M14-C4 (dispatch P1 → awis-builder)
+NEXT: M14-V1 (dispatch → awis-verifier, clean tree)
 
 LAST: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
       HEAD 03d5045 IS the founder's M09 squash-merge ("M09 — Test Infrastructure") and
