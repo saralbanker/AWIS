@@ -45,3 +45,16 @@ Every task below has a card; every AC row maps to a checklist row. Primary: IMP 
   (IMP §27.M11 Val: "outputs flow to the next step" — no native qualifier in the IMP) is
   satisfied; the "(native)" qualifier was compilation prose, not IMP text. Verifier should
   treat the pair as the row's evidence.
+- V1 (awis-verifier, 2026-07-10, at 5cc1a51): PASS 18/19 rows clean; row 12 ❌ adjudicated by
+  CE as a V-card wording gap, not a defect — VALIDATION_CHECKLIST row reads "sdk/runtime.go
+  diff = the one runners-map entry" (TRUE: +entry +import); the new
+  sdk/testing/subprocess_route_test.go is SPEC §2-sanctioned (added file, not a modification).
+  Adjudicated verdict: PASS. Evidence: timeout 0.208s vs 2s gate; pytest 8/8; goldens single
+  location both suites; frozen-surface diffs empty; e2e pair (Python→Python + subprocess→native)
+  per CE disposition.
+- D-CLOSE (Fable, 2026-07-10): semantic review of m10-yaml-dsl...HEAD PASS. Frozen-surface
+  diffs EMPTY (core/engine/storage/expr/validate/dsl/runner-native; sdk = wiring line + new
+  test file only). Runner code reviewed line-by-line: process-group SIGKILL watcher correct;
+  stdout ReadAll-before-Wait ordering correct; envelope-wins mapping matches TDS-04 §7; timeout
+  check precedes exit-code mapping (correct precedence). Accepted edge recorded in HANDOFF
+  (ctx cancellation → subprocess_error -1). Merge recommendation: APPROVED FOR SQUASH MERGE.
