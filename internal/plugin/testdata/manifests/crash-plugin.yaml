@@ -1,0 +1,17 @@
+name: crash-plugin
+version: 1.0.0
+description: Crashes on execute — tests plugin_crash and respawn
+author: test
+
+capabilities:
+  - id: test.cap
+    inputs:
+      value: string
+    outputs:
+      result: string
+    timeout_ms: 5000
+
+runtime:
+  command: sh
+  args: ["testdata/bin/crash-on-call-plugin.sh"]
+  idle_timeout_s: 300

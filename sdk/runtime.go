@@ -14,6 +14,7 @@ import (
 	"github.com/awis/awis/internal/engine"
 	intel "github.com/awis/awis/internal/intelligence"
 	"github.com/awis/awis/internal/intelligence/adapters/null"
+	"github.com/awis/awis/internal/plugin"
 	runintel "github.com/awis/awis/internal/runner/intelligence"
 	"github.com/awis/awis/internal/runner/native"
 	"github.com/awis/awis/internal/runner/subprocess"
@@ -44,11 +45,12 @@ type Config struct {
 // Runtime wraps the internal engine and exposes the application-facing sdk
 // surface (Blueprint §12). Construct via NewRuntime.
 type Runtime struct {
-	eng       *engine.Engine
-	nr        *native.NativeRunner
-	storage   core.StoragePort
-	namespace string
-	workerID  string
+	eng          *engine.Engine
+	nr           *native.NativeRunner
+	storage      core.StoragePort
+	namespace    string
+	workerID     string
+	pluginMgr    *plugin.Manager // nil when storage lacks PluginStore
 
 	mu       sync.Mutex
 	defs     map[string]core.SemVer // id → latest registered version
@@ -90,10 +92,26 @@ func NewRuntime(cfg Config) (*Runtime, error) {
 	}
 	disp := intel.NewDispatcher(router)
 
+	// Wire plugin manager: type-assert PluginStore from storage (additive
+	// interface — SPEC §3; StoragePort 12-method set is NOT changed).
+	// If storage does not implement PluginStore, the plugin runner always
+	// returns plugin_error "storage does not support plugins" (SPEC §3).
+	var pluginMgr *plugin.Manager
+	var pluginRunner engine.Runner
+	if ps, ok := cfg.Storage.(storage.PluginStore); ok {
+		pluginMgr = plugin.NewManager(ps, plugin.ManagerConfig{
+			Clock: cfg.Clock,
+		})
+		pluginRunner = plugin.NewPluginRunner(pluginMgr)
+	} else {
+		pluginRunner = &noPluginStoreRunner{}
+	}
+
 	runners := map[core.StepType]engine.Runner{
 		core.StepTypeNative:       nr,
 		core.StepTypeIntelligence: runintel.New(disp),
 		core.StepTypeSubprocess:   subprocess.New(),
+		core.StepTypePlugin:       pluginRunner,
 	}
 
 	eng := engine.New(cfg.Storage, runners, engine.Config{
@@ -109,9 +127,21 @@ func NewRuntime(cfg Config) (*Runtime, error) {
 		storage:   cfg.Storage,
 		namespace: cfg.Namespace,
 		workerID:  workerID,
+		pluginMgr: pluginMgr,
 		defs:      make(map[string]core.SemVer),
 		handlers:  make(map[string]bool),
 	}, nil
+}
+
+// noPluginStoreRunner is the plugin runner used when the storage does not
+// implement PluginStore (SPEC §3 nil-safe wiring).
+type noPluginStoreRunner struct{}
+
+func (r *noPluginStoreRunner) Run(_ context.Context, _ core.StepContext, _ core.Step) (core.StepResult, *core.StepError) {
+	return core.StepResult{}, &core.StepError{
+		Code:    "plugin_error",
+		Message: "storage does not support plugins",
+	}
 }
 
 // SQLiteStorage opens (or creates) a SQLite-backed StoragePort at path.
@@ -128,8 +158,16 @@ func SQLiteStorage(path string) (core.StoragePort, error) {
 }
 
 // Start starts the engine pull loop. It blocks until ctx is cancelled.
+// On return (Stop path) it shuts down the plugin manager if one was wired.
 func (r *Runtime) Start(ctx context.Context) error {
-	return r.eng.Run(ctx)
+	err := r.eng.Run(ctx)
+	// Stop path: shut down plugin manager to reap all plugin goroutines
+	// (TDS-05 §7 Shutdown; SPEC §3 wiring; invariant 5 no goroutine leaks).
+	if r.pluginMgr != nil {
+		// Use a background context: the original ctx is already cancelled.
+		r.pluginMgr.Shutdown(context.Background())
+	}
+	return err
 }
 
 // Tick runs one engine tick synchronously. Useful for tests and the example

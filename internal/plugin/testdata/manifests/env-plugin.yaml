@@ -1,0 +1,17 @@
+name: env-plugin
+version: 1.0.0
+description: Echoes environment variable — tests NFR-S-02 env isolation
+author: test
+
+capabilities:
+  - id: test.env
+    inputs:
+      check: string
+    outputs:
+      env_var: string
+    timeout_ms: 5000
+
+runtime:
+  command: sh
+  args: ["testdata/bin/env-echo-plugin.sh"]
+  idle_timeout_s: 300
