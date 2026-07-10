@@ -1,4 +1,4 @@
-.PHONY: build test lint race contract e1 bench release-dry
+.PHONY: build test lint race contract e1 bench release-dry pytest
 
 build:
 	go build ./...
@@ -27,3 +27,6 @@ bench:
 
 release-dry:
 	@echo "NOT-YET (wired at M02/M06/M18): release-dry"
+
+pytest:
+	python3 -m pytest python/awis-step/tests -q
