@@ -22,3 +22,8 @@
 - C2 (080a367, 2026-07-10): e2e_gitcontext_test.go — plugin-name resolution form proven against
   THIS repo's history (context.sha/message real); capability-id diff form proven (1503-byte
   diff HEAD~1..HEAD). Diff = one new test file. All gates green. No deviations.
+- V1 (awis-verifier, 2026-07-10, at d120ade): PASS all rows; manifest field-by-field verbatim
+  modulo python3 delta; 41 pytest green; both e2e forms proven against real history.
+- D-CLOSE (Fable, 2026-07-10): consumer-only milestone confirmed (no platform file touched —
+  verifier path-list evidence); the OIP capture-decision plugin dependency now exists (Repo
+  row). Merge recommendation: APPROVED FOR SQUASH MERGE.

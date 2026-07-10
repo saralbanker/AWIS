@@ -1,5 +1,5 @@
 # M13 → M15 Handoff
-**Status: STAGED — actuals filled at M13 completion.**
+**Status: COMPLETE — D-CLOSE passed 2026-07-10.**
 
 ## Guaranteed outputs (contract — to be confirmed as actuals)
 - `plugins/git-context-plugin/`: manifest (Blueprint §11 form), `git_context_plugin` package
@@ -20,6 +20,6 @@
 - Shallow clones may lack `HEAD~1` — diff e2e skips.
 
 ## Actuals (filled at completion)
-- C1 commit: · C2 commit:
-- V1 verification:
-- Deviations:
+- C1 commit: 76574ff · C2 commit: 080a367
+- V1 verification: PASS all rows (awis-verifier, 2026-07-10, at d120ade).
+- Deviations: manifest command python3 (recorded disposition); none other.
