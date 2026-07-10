@@ -51,3 +51,8 @@ Every task below has a card; every AC row maps to a checklist row. Primary: IMP 
   (resolution rule + typed errors); sdk wiring (nil-safe noPluginStoreRunner + Stop shutdown).
   38 tests in 1.4s incl. §20.M12 checkpoint (SIGKILL mid-call → restart → retry OK) with real
   engine harness. Race clean. No deviations.
+- C4 (c9566c6, 2026-07-10): awis_plugin lib (@plugin.capability/serve NDJSON loop/testing.
+  mock_request sharing serve's _dispatch); 16 pytest vs shared goldens; Go e2e real Python
+  plugin through harness workflow; docs/PLUGIN_GUIDE.md; Makefile pytest runs both suites.
+  All gates + pytest green. Minor deviations (manifest lookup via entry-module dir; two pytest
+  invocations for rootdir isolation) — implementation details, no protocol deviation.
