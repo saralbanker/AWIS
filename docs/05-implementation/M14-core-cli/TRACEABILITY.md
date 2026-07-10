@@ -29,3 +29,8 @@
   tree marked; taxonomy template); cmd/awis skeleton (mux, cliErr, OpenStorage, version cmd,
   golden harness). WAL busy_timeout=5000 confirmed already set by storage layer. 5/5 tests;
   all gates green. No deviations.
+- C2 (73435f7) / C3 (add54dd), 2026-07-10: lifecycle cmds (start/stop/status incl. --watch,
+  PID/SIGTERM, WorkflowRegistered audit) + system tests w/ crash recovery; execution cmds
+  (submit/signal/cancel/trace/workflow validate|list|show) + goldens + F-3 second-process
+  proof. cmd/awis suite green 22.6s. Housekeeping: stray built binary `awis` (committed by
+  accident in the C1 ledger commit) removed + gitignored.
