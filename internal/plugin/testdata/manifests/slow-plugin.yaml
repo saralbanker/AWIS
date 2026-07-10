@@ -1,0 +1,17 @@
+name: slow-plugin
+version: 1.0.0
+description: Delays execute response indefinitely — tests timeout kill
+author: test
+
+capabilities:
+  - id: test.slow
+    inputs:
+      value: string
+    outputs:
+      result: string
+    timeout_ms: 30000
+
+runtime:
+  command: sh
+  args: ["testdata/bin/slow-plugin.sh"]
+  idle_timeout_s: 300
