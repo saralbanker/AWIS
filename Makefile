@@ -31,3 +31,4 @@ release-dry:
 pytest:
 	python3 -m pytest --rootdir=python/awis-step python/awis-step/tests -q
 	python3 -m pytest --rootdir=python/awis-plugin python/awis-plugin/tests -q
+	python3 -m pytest --rootdir=plugins/git-context-plugin plugins/git-context-plugin/tests -q
