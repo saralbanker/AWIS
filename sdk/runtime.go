@@ -16,6 +16,7 @@ import (
 	"github.com/awis/awis/internal/intelligence/adapters/null"
 	runintel "github.com/awis/awis/internal/runner/intelligence"
 	"github.com/awis/awis/internal/runner/native"
+	"github.com/awis/awis/internal/runner/subprocess"
 	"github.com/awis/awis/internal/storage"
 )
 
@@ -92,6 +93,7 @@ func NewRuntime(cfg Config) (*Runtime, error) {
 	runners := map[core.StepType]engine.Runner{
 		core.StepTypeNative:       nr,
 		core.StepTypeIntelligence: runintel.New(disp),
+		core.StepTypeSubprocess:   subprocess.New(),
 	}
 
 	eng := engine.New(cfg.Storage, runners, engine.Config{
