@@ -43,10 +43,10 @@ GATE: none
 CARDS:
   M10-C1   DONE    awis-builder   a575113
   M10-C2   DONE    awis-builder   b958c79
-  M10-C3   READY   awis-builder   (FR-WD-02 keystone + harness oracle + 5 YAML fixtures + docs/DSL.md)
+  M10-C3   DONE    awis-builder   872974b
   M10-V1   READY   awis-verifier
 BLOCKERS: none
-NEXT: M10-C3
+NEXT: M10-V1
 
 LAST: 2026-07-09 M09 D-CLOSE (Fable): semantic review PASS, no drift; HANDOFF/TRACEABILITY
       actuals finalized; merge recommendation APPROVED FOR SQUASH MERGE; M08 confirmed merged

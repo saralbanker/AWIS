@@ -34,3 +34,12 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M10-yaml-dsl/
   16 validate codes + parse-error); discover.go (Discover via filepath.Glob). T4/T5/T6 delivered.
   FR-WD-15: zero runtime/storage/sdk imports in validate.go. 15/15 tests pass (12 ValidateFile +
   3 Discover + 5 render golden). make build/test/lint/race/e1 all green, 0 lint issues. No deviations.
+- C3 (872974b, 2026-07-10): equivalence_test.go (TestKeystoneDeepEqual + TestHarnessOracle dsl_test
+  pkg); testdata/keystone.yaml (5-step: retry, fan-out, signal WAIT, conditioned transition);
+  5 YAML fixtures (hello-world, with-signal, with-intelligence, capture-decision verbatim §7,
+  recall-decision §29 shape); fixtures_test.go (TestFixturesParse + TestFixturesValidate 5/5);
+  docs/DSL.md (annotated capture-decision, field-ref→TDS-02, expr-rules→TDS-03, validation→PRD§18).
+  T7/T8/T9/T10 delivered. dsl.go deviations: (a) schema_version absent→defaults 1 (Blueprint §7
+  omits it); (b) wait_signal.name: alias for signal_name: (Blueprint §7 uses name:, TDS-02 uses
+  signal_name:). Both dsl.go only; no frozen interfaces touched. make build/test/lint/race/e1
+  all green. 20 dsl tests pass (15 prior unmodified + 5 new). No fixture edits.
