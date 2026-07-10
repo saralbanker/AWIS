@@ -1,0 +1,10 @@
+{
+  "jsonrpc": "2.0",
+  "id": "req-2",
+  "result": {
+    "outputs": {
+      "context": {}
+    },
+    "duration_ms": 450
+  }
+}
