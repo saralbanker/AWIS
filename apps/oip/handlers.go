@@ -55,12 +55,25 @@ func (h *RecordAppendHandler) Execute(ctx sdk.StepContext) (sdk.StepResult, erro
 	inputs := ctx.Inputs
 
 	// Support both flat inputs and nested "entry" map (from workflow variable).
+	// When the AWIS template engine stringifies a map value, the entry arrives
+	// as a JSON-encoded string (the signal payload carries confirmed_entry as a
+	// pre-encoded JSON string so stringify passes it through).  Try map first,
+	// then JSON-string decode.
 	if entryRaw, ok := inputs["entry"]; ok {
-		if entryMap, ok := entryRaw.(map[string]any); ok {
-			// Merge entry fields into inputs.
-			for k, v := range entryMap {
+		switch et := entryRaw.(type) {
+		case map[string]any:
+			for k, v := range et {
 				if _, exists := inputs[k]; !exists {
 					inputs[k] = v
+				}
+			}
+		case string:
+			var entryMap map[string]any
+			if err := json.Unmarshal([]byte(et), &entryMap); err == nil {
+				for k, v := range entryMap {
+					if _, exists := inputs[k]; !exists {
+						inputs[k] = v
+					}
 				}
 			}
 		}

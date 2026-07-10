@@ -13,7 +13,10 @@ import (
 var _ core.WorkflowRunner = (*Runtime)(nil)
 
 // Submit starts a new workflow instance. It looks up the latest registered
-// version for definitionID and delegates to engine.Submit.
+// version for definitionID from the in-memory registry (r.defs) and falls
+// back to storage if the id is not found in-process (e.g. when submitting
+// to a workflow registered by another process against the same DB — M15-P1
+// seam; IMP §17 cross-process submit).
 func (r *Runtime) Submit(ctx context.Context, definitionID string, inputs map[string]any) (core.InstanceID, error) {
 	r.mu.Lock()
 	// Find the latest registered version for this definitionID.
@@ -26,6 +29,27 @@ func (r *Runtime) Submit(ctx context.Context, definitionID string, inputs map[st
 		}
 	}
 	r.mu.Unlock()
+
+	// Fallback: query storage when not in the in-memory registry. This allows a
+	// submit process (e.g. awis CLI) to target workflows registered by a separate
+	// runtime process against the same DB (M15-P1; IMP §17 cross-process submit).
+	// Scan known application namespaces to find the workflow definition by id.
+	if latestVersion == "" {
+		for _, ns := range []string{r.namespace, "oip", "default"} {
+			if defs, lerr := r.storage.ListWorkflows(ctx, ns); lerr == nil {
+				for _, def := range defs {
+					if def.ID == definitionID {
+						if latestVersion == "" || def.Version > latestVersion {
+							latestVersion = def.Version
+						}
+					}
+				}
+			}
+			if latestVersion != "" {
+				break
+			}
+		}
+	}
 
 	if latestVersion == "" {
 		return "", fmt.Errorf("sdk: Submit: no registered workflow with id %q", definitionID)
