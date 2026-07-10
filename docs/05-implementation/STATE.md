@@ -34,11 +34,11 @@ PHASE: B-BUILD
 GATE: none
 CARDS:
   M11-C1   DONE    awis-builder   5f3cb87
-  M11-C2   DISPATCHED   awis-builder
-  M11-C3   READY   awis-builder
+  M11-C2   DONE    awis-builder   febae93
+  M11-C3   DISPATCHED   awis-builder
   M11-V1   READY   awis-verifier
 BLOCKERS: none
-NEXT: M11-C2 (dispatch P1 → awis-builder)
+NEXT: M11-C3 (dispatch P1 → awis-builder)
 
 LAST: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
       HEAD 03d5045 IS the founder's M09 squash-merge ("M09 — Test Infrastructure") and

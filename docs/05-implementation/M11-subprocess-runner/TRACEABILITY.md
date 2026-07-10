@@ -28,3 +28,9 @@ Every task below has a card; every AC row maps to a checklist row. Primary: IMP 
 - C1 (5f3cb87, 2026-07-10): docs/SUBPROCESS_PROTOCOL.md (TDS-04) authored — SPEC §1 pins
   transcribed verbatim; 6 goldens at internal/runner/subprocess/testdata/protocol/; doc.go
   package stub. make build/test/lint/race/e1 + docs-lint green. No deviations.
+- C2 (febae93, 2026-07-10): internal/runner/subprocess SubprocessRunner (whitespace argv, Setpgid
+  process group + SIGKILL watcher, one-shot exchange, full TDS-04 error mapping). 13 tests: 6
+  golden-conformance + 7 behavior (timeout kill ≤200ms). sdk/runtime.go = one runners-map line
+  + import. Harness route test in sdk/testing/subprocess_route_test.go (NEW file; SPEC §2
+  sanctioned alternative — import cycle). deadlineFormat fixed 9-digit nanos (RFC3339Nano trims
+  zeros vs golden literal). make build/test/lint/race/e1 green; go.mod diff empty.
