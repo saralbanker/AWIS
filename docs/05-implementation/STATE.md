@@ -44,7 +44,7 @@ CARDS:
   M10-C1   DONE    awis-builder   a575113
   M10-C2   DONE    awis-builder   b958c79
   M10-C3   DONE    awis-builder   872974b
-  M10-V1   DONE    awis-verifier  (V1 ledger commit sha fills at this commit)
+  M10-V1   DONE    awis-verifier  f76b6ac
 BLOCKERS: none
 NEXT: D-CLOSE (Fable wake: semantic review + HANDOFF actuals + PR; fuse M11 A-INIT if non-gated)
 
