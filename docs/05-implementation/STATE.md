@@ -98,10 +98,16 @@ NEXT: founder squash-merge; M15 proceeds stacked on m14-core-cli
 # ── M15 active ────────────────────────────────────────────────────────────────
 MILESTONE: M15-oip-on-awis
 BRANCH: m15-oip-on-awis (stacked on m14-core-cli)
-PHASE: A-INIT (in progress, Fable)
-GATE: G3 (human platform-boundary verdict) + TDS-06 human sign-off BEFORE handlers
+PHASE: B-BUILD
+GATE: G3 + TDS-06 sign-off (FOUNDER-ONLY, at E-MERGE; built at-risk per directive)
+CARDS:
+  M15-P0   DISPATCHED   awis-builder   (disclosed platform seam: sdk.LoadWorkflowFile)
+  M15-C1   READY   awis-builder
+  M15-C2   READY   awis-builder
+  M15-C3   READY   awis-builder
+  M15-V1   READY   awis-verifier
 BLOCKERS: none
-NEXT: A-INIT; NOTE TDS-06 sign-off + G3 verdict are FOUNDER-ONLY — build to the gate, brief, stop
+NEXT: M15-P0 then C1..C3 (P1) -> V1
 
 LAST: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
       HEAD 03d5045 IS the founder's M09 squash-merge ("M09 — Test Infrastructure") and
