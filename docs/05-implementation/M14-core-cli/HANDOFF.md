@@ -1,5 +1,5 @@
 # M14 → M15/M17/M18 Handoff
-**Status: STAGED — actuals filled at M14 completion.**
+**Status: COMPLETE — D-CLOSE passed 2026-07-10.**
 
 ## Guaranteed outputs (contract — to be confirmed as actuals)
 - `docs/CLI_CONTRACT.md` (TDS-07) incl. the F-3 interaction-model decision (CONTRA-5).
@@ -26,6 +26,8 @@
   automation — M17/PR-5 docs). ConfigChanged audit site deferred to M17 config commands.
 
 ## Actuals (filled at completion)
-- C1: · C2: · C3: · C4:
-- V1 verification:
-- Deviations:
+- C1: 709ce0e · C2: 73435f7 · C3: add54dd · C4: 51c2575 · C3r: 234a935
+- V1 verification: 21/22 PASS at 08982be; row 9 (JSON goldens) ❌ → revision card C3r closed
+  it (13/13 goldens; CE targeted re-verification green). V1 notes: --json global-flag synopsis
+  ambiguity fixed in C3r; stop-test log line is a harness pipe artifact, not a defect.
+- Deviations: stray built binary removed+gitignored (housekeeping).
