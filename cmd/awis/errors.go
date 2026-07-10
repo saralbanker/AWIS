@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 )
@@ -34,6 +35,16 @@ func cliErr(what, where, whatNow string) {
 func fail(code int, what, where, whatNow string) {
 	cliErr(what, where, whatNow)
 	os.Exit(code)
+}
+
+// newFlagSet creates a flag.FlagSet for a subcommand using ExitOnError.
+func newFlagSet(name string) *flag.FlagSet {
+	return flag.NewFlagSet(name, flag.ExitOnError)
+}
+
+// mustParse parses args with fs; on error ExitOnError handles os.Exit(2).
+func mustParse(fs *flag.FlagSet, args []string) {
+	_ = fs.Parse(args) // ExitOnError handles parse failures.
 }
 
 // usageText returns the global usage string printed on usage errors (exit 2).
