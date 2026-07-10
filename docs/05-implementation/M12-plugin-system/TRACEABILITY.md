@@ -37,3 +37,6 @@ Every task below has a card; every AC row maps to a checklist row. Primary: IMP 
   do.
 
 ## Execution record (appended during B-BUILD/C-VERIFY)
+- C1 (5e6eebb, 2026-07-10): TDS-05 authored (all CE pins verbatim); 7 goldens; manifest.go
+  (KnownFields, 5 validation rules, file+line errors); 14/14 tests incl. Blueprint §11
+  manifest verbatim oracle. make build/test/lint/race/e1 green; go.mod empty. No deviations.
