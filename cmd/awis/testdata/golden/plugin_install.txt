@@ -1,0 +1,3 @@
+Plugin installed: git-context-plugin  v1.0.0
+  Path:     <plugin-path>
+  Provides: git.context.assemble, git.diff.fetch
