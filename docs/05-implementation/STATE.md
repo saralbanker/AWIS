@@ -27,19 +27,31 @@ PR-BODY: diff = main...m10-yaml-dsl (26 files, +2542/−30 incl. ledger docs;
 NEXT: founder squash-merge (E-MERGE, human-only); M11 proceeds stacked on m10-yaml-dsl
   per founder directive 2026-07-10 ("complete all milestones")
 
-# ── M11 active ────────────────────────────────────────────────────────────────
+# ── M11 awaiting founder merge ────────────────────────────────────────────────
 MILESTONE: M11-subprocess-runner
-BRANCH: m11-subprocess-runner (stacked on m10-yaml-dsl until M10 merges)
-PHASE: B-BUILD
-GATE: none
+BRANCH: m11-subprocess-runner (stacked on m10-yaml-dsl)
+PHASE: E-MERGE (blocked on founder)
+GATE: none (non-gated boundary)
 CARDS:
   M11-C1   DONE    awis-builder   5f3cb87
   M11-C2   DONE    awis-builder   febae93
   M11-C3   DONE    awis-builder   145a266
-  M11-V1   DISPATCHED   awis-verifier
+  M11-V1   DONE    awis-verifier  (report 2026-07-10 at 5cc1a51; PASS, 1 row CE-adjudicated)
 BLOCKERS: none
-PHASE-NOTE: B-BUILD complete → C-VERIFY
-NEXT: M11-V1 (dispatch P1 → awis-verifier, clean tree)
+MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE (Fable, 2026-07-10): frozen surfaces
+  untouched; runner reviewed line-by-line (process-group kill, envelope-wins, ReadAll/Wait
+  ordering all correct); TDS-04 finalized (DoD); pytest in CI; e2e keystone green.
+EVIDENCE: module TRACEABILITY execution record + ticked VALIDATION_CHECKLIST + HANDOFF actuals.
+NEXT: founder squash-merge; M12 proceeds stacked on m11-subprocess-runner
+
+# ── M12 active ────────────────────────────────────────────────────────────────
+MILESTONE: M12-plugin-system
+BRANCH: m12-plugin-system (stacked on m11-subprocess-runner)
+PHASE: A-INIT (in progress, Fable)
+GATE: none
+CARDS: (cut during A-INIT)
+BLOCKERS: none
+NEXT: complete A-INIT (materialize module per IKB §3/§4; TDS-05 pins; cards READY) → B-BUILD
 
 LAST: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
       HEAD 03d5045 IS the founder's M09 squash-merge ("M09 — Test Infrastructure") and

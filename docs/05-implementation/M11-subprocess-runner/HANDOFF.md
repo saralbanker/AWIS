@@ -1,5 +1,5 @@
 # M11 → M12/M15 Handoff
-**Status: STAGED — actuals filled at M11 completion.**
+**Status: COMPLETE — D-CLOSE review passed 2026-07-10; merge sha fills at founder merge.**
 
 ## Guaranteed outputs (contract — to be confirmed as actuals)
 - `docs/SUBPROCESS_PROTOCOL.md` (TDS-04, finalized per DoD) + golden wire files at
@@ -28,6 +28,13 @@
 - `awis-step` is repo-local (pip install from path); PyPI is a release-day nicety, not a gate.
 
 ## Actuals (filled at completion)
-- C1 commit: · C2 commit: · C3 commit:
-- V1 verification:
-- Deviations:
+- C1 commit: 5f3cb87 · C2 commit: febae93 · C3 commit: 145a266
+- V1 verification: PASS (awis-verifier, 2026-07-10, at 5cc1a51; 18/19 clean + 1 CE-adjudicated
+  V-card wording gap — record in module TRACEABILITY).
+- Deviations: harness route test lives in sdk/testing/subprocess_route_test.go (new file,
+  SPEC-sanctioned; import cycle); deadline wire format is fixed 9-digit nanoseconds (goldens
+  keep trailing zeros; RFC3339Nano trims); e2e chains Python→Python with subprocess→native
+  proven by the route test (CE disposition).
+- Known edge (accepted at D-CLOSE): engine ctx CANCELLATION (not timeout) surfaces as
+  subprocess_error exit code -1 rather than a dedicated cancelled code — acceptable for V1;
+  revisit only if M14 cancel UX needs the distinction.
