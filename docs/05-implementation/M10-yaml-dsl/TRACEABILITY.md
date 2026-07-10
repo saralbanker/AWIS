@@ -43,3 +43,13 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M10-yaml-dsl/
   omits it); (b) wait_signal.name: alias for signal_name: (Blueprint §7 uses name:, TDS-02 uses
   signal_name:). Both dsl.go only; no frozen interfaces touched. make build/test/lint/race/e1
   all green. 20 dsl tests pass (15 prior unmodified + 5 new). No fixture edits.
+- V1 (awis-verifier, 2026-07-10): PASS 17/17 checklist rows (26 evidence points). V-COMMON block
+  green (build/test/lint/race/e1). go.mod: yaml.v3 only new direct dep (check.v1 transitive of
+  yaml.v3, expected). Blueprint §7 parse oracle green. Unknown-key rejection + file/line precision
+  confirmed. Runtime-free dep scan empty (no engine/storage/sdk runtime in dsl). PRD §18 rendering
+  golden pass (valid + invalid). All 13 ValidateFile check-class tests pass. Discover sorted + nil
+  on missing dir confirmed. FR-WD-02 keystone deep-equal: PASS (no normalization). Harness oracle
+  PASS. 5/5 fixtures parse+validate. apps/oip diff: ONLY workflows/*.yaml. docs/DSL.md cites
+  TDS-02/TDS-03/PRD §18. No existing test modified. sdk/expr/validate/core surfaces unchanged.
+  5 godoc spot-check pass. COMPAT: schema_version default + wait_signal.name alias are parse-layer
+  only, no runtime surface — strictly additive, no architectural drift.
