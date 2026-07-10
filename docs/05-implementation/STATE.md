@@ -101,9 +101,9 @@ BRANCH: m15-oip-on-awis (stacked on m14-core-cli)
 PHASE: B-BUILD
 GATE: G3 + TDS-06 sign-off (FOUNDER-ONLY, at E-MERGE; built at-risk per directive)
 CARDS:
-  M15-P0   DISPATCHED   awis-builder   (disclosed platform seam: sdk.LoadWorkflowFile)
-  M15-C1   READY   awis-builder
-  M15-C2   READY   awis-builder
+  M15-P0   DONE    awis-builder   c3fba29   (disclosed platform seam)
+  M15-C1   DONE    awis-builder   80ef917
+  M15-C2   DISPATCHED   awis-builder   (run died; salvage P2)
   M15-C3   READY   awis-builder
   M15-V1   READY   awis-verifier
 BLOCKERS: none
