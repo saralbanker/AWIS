@@ -36,3 +36,9 @@
   accident in the C1 ledger commit) removed + gitignored.
 - C4 (51c2575, 2026-07-10): plugin install/list (F-5) + 14 tests + goldens + docs/CLI.md.
   All gates + pytest green. No deviations.
+- V1 (awis-verifier, 2026-07-10, at 08982be): 21/22 PASS; row 9 FAIL (10 missing JSON goldens).
+- C3r (234a935): 10 JSON goldens added (13 total, byte-stable); TDS-07 §4 global-flags synopsis
+  fixed. CE targeted re-verification: 13 goldens present, GoldenJSON tests + e1 green.
+- D-CLOSE (Fable, 2026-07-10): scope clean (cmd/awis + docs only; frozen layers untouched per
+  V1 row 21); F-3 model proven live (second-process submit/trace; crash-recovery 2×); CONTRA-5
+  recorded in TDS-07. Merge recommendation: APPROVED FOR SQUASH MERGE.

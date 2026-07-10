@@ -77,21 +77,31 @@ MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE (Fable, 2026-07-10):
 EVIDENCE: module TRACEABILITY + ticked VALIDATION_CHECKLIST + HANDOFF actuals.
 NEXT: founder squash-merge; M14 proceeds stacked on m13-git-context-plugin
 
-# ── M14 active ────────────────────────────────────────────────────────────────
+# ── M14 awaiting founder merge ────────────────────────────────────────────────
 MILESTONE: M14-core-cli
 BRANCH: m14-core-cli (stacked on m13-git-context-plugin)
-PHASE: B-BUILD
-GATE: none
+PHASE: E-MERGE (blocked on founder)
+GATE: none (non-gated boundary)
 CARDS:
   M14-C1   DONE    awis-builder   709ce0e
   M14-C2   DONE    awis-builder   73435f7
   M14-C3   DONE    awis-builder   add54dd
   M14-C4   DONE    awis-builder   51c2575
-  M14-V1   DISPATCHED   awis-verifier
+  M14-V1   DONE    awis-verifier  (21/22 at 08982be; row 9 → C3r 234a935; CE re-verify green)
+  M14-C3r  DONE    awis-builder   234a935
 BLOCKERS: none
-NOTE: F-3 decided at A-INIT (Fable): direct SQLite WAL + PID/SIGTERM; CONTRA-5 recorded in
-  module SPEC/TRACEABILITY; TDS-07 transcribes it (C1).
-NEXT: M14-V1 (dispatch → awis-verifier, clean tree)
+MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE (Fable, 2026-07-10): F-3/CONTRA-5
+  settled + proven live; dev loop (submit->status->trace->signal) real-binary tested incl.
+  crash recovery; frozen layers untouched.
+NEXT: founder squash-merge; M15 proceeds stacked on m14-core-cli
+
+# ── M15 active ────────────────────────────────────────────────────────────────
+MILESTONE: M15-oip-on-awis
+BRANCH: m15-oip-on-awis (stacked on m14-core-cli)
+PHASE: A-INIT (in progress, Fable)
+GATE: G3 (human platform-boundary verdict) + TDS-06 human sign-off BEFORE handlers
+BLOCKERS: none
+NEXT: A-INIT; NOTE TDS-06 sign-off + G3 verdict are FOUNDER-ONLY — build to the gate, brief, stop
 
 LAST: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
       HEAD 03d5045 IS the founder's M09 squash-merge ("M09 — Test Infrastructure") and
