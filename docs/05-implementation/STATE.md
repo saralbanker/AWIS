@@ -62,18 +62,29 @@ MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE (Fable, 2026-07-10) 
 EVIDENCE: module TRACEABILITY + ticked VALIDATION_CHECKLIST + HANDOFF actuals.
 NEXT: founder squash-merge; M13 proceeds stacked on m12-plugin-system
 
-# ── M13 active ────────────────────────────────────────────────────────────────
+# ── M13 awaiting founder merge ────────────────────────────────────────────────
 MILESTONE: M13-git-context-plugin
 BRANCH: m13-git-context-plugin (stacked on m12-plugin-system)
-PHASE: B-BUILD
-GATE: none
+PHASE: E-MERGE (blocked on founder)
+GATE: none (non-gated boundary)
 CARDS:
   M13-C1   DONE    awis-builder   76574ff
   M13-C2   DONE    awis-builder   080a367
-  M13-V1   DISPATCHED   awis-verifier
+  M13-V1   DONE    awis-verifier  (report 2026-07-10 at d120ade; PASS all rows)
 BLOCKERS: none
-PHASE-NOTE: B-BUILD complete → C-VERIFY
-NEXT: M13-V1 (dispatch P1 → awis-verifier, clean tree)
+MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE (Fable, 2026-07-10): consumer-only
+  milestone; OIP plugin dependency exists; manifest Blueprint-verbatim (python3 delta recorded).
+EVIDENCE: module TRACEABILITY + ticked VALIDATION_CHECKLIST + HANDOFF actuals.
+NEXT: founder squash-merge; M14 proceeds stacked on m13-git-context-plugin
+
+# ── M14 active ────────────────────────────────────────────────────────────────
+MILESTONE: M14-core-cli
+BRANCH: m14-core-cli (stacked on m13-git-context-plugin)
+PHASE: A-INIT (in progress, Fable)
+GATE: none
+CARDS: (cut during A-INIT)
+BLOCKERS: none
+NEXT: complete A-INIT (TDS-07 day-1 per F-3; F-5 minimal plugin cmds) → B-BUILD
 
 LAST: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
       HEAD 03d5045 IS the founder's M09 squash-merge ("M09 — Test Infrastructure") and
