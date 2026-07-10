@@ -25,3 +25,6 @@ Every task below has a card; every AC row maps to a checklist row. Primary: IMP 
   (IMP §18 L325).
 
 ## Execution record (appended during B-BUILD/C-VERIFY)
+- C1 (5f3cb87, 2026-07-10): docs/SUBPROCESS_PROTOCOL.md (TDS-04) authored — SPEC §1 pins
+  transcribed verbatim; 6 goldens at internal/runner/subprocess/testdata/protocol/; doc.go
+  package stub. make build/test/lint/race/e1 + docs-lint green. No deviations.
