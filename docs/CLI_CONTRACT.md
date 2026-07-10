@@ -154,6 +154,10 @@ awis
 
 ## §4 Per-Command Contracts (M14 Commands)
 
+> **Global flags:** every command accepts `--json` and `--data-dir` as global
+> flags preceding the subcommand name: `awis [--json] [--data-dir D] <cmd> …`.
+> Per-command synopses below omit these global flags for brevity.
+
 ### version
 
 **Synopsis:** `awis version`
@@ -467,12 +471,11 @@ With `--compensate`:
 
 ### trace
 
-**Synopsis:** `awis trace <instance-id> [--json] [--full]`
+**Synopsis:** `awis trace <instance-id> [--full]`
 
 Full execution trace for one instance. Reads events from the EventLog in chronological order.
 
 **Flags:**
-- `--json` — output complete WorkflowTrace object (also inherited from global --json)
 - `--full` — do not truncate step outputs (default: truncated to 120 chars)
 
 **Human output:**
