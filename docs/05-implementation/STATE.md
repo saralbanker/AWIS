@@ -103,8 +103,8 @@ GATE: G3 + TDS-06 sign-off (FOUNDER-ONLY, at E-MERGE; built at-risk per directiv
 CARDS:
   M15-P0   DONE    awis-builder   c3fba29   (disclosed platform seam)
   M15-C1   DONE    awis-builder   80ef917
-  M15-C2   DISPATCHED   awis-builder   (run died; salvage P2)
-  M15-C3   READY   awis-builder
+  M15-C2   DONE    awis-builder   6731297   (P2 salvage OK)
+  M15-C3   DISPATCHED   awis-builder
   M15-V1   READY   awis-verifier
 BLOCKERS: none
 NEXT: M15-P0 then C1..C3 (P1) -> V1

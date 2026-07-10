@@ -28,3 +28,7 @@
   TDS-06 DRAFT + OIP_DB.md + apps/oip scaffolding (modernc sqlite dep, OIP-internal stubs,
   .decisions/.index gitignore). C2 run interrupted mid-card; uncommitted partials on tree →
   P2 salvage re-dispatch (EEOS §15 D2).
+- C2 (6731297, 2026-07-11, P2 salvage): record writer (TDS-06, per-day NNN, append-only) +
+  FTS/pass-through + 4 handlers + rebuild-index.yaml + cmd/oip entrypoint (sdk-only, P0 seam)
+  + 8 QG-3 tests (NullAdapter; signal payload flat-field pattern — engine stringifies template
+  values; app-side accommodation, no platform change). Fixtures byte-unchanged. Gates green.
