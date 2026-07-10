@@ -34,3 +34,14 @@ Every task below has a card; every AC row maps to a checklist row. Primary: IMP 
   + import. Harness route test in sdk/testing/subprocess_route_test.go (NEW file; SPEC §2
   sanctioned alternative — import cycle). deadlineFormat fixed 9-digit nanos (RFC3339Nano trims
   zeros vs golden literal). make build/test/lint/race/e1 green; go.mod diff empty.
+- C3 (145a266, 2026-07-10): awis_step lib (step registry/@step/StepContext/StepResult/StepError/
+  serve one-shot; stdlib only, py>=3.10); pytest 8/8 vs the shared goldens (conftest repo-root
+  traversal, no copies); make pytest target; e2e_python_test.go TestE2E_PythonStepOutputsFlow.
+  make build/test/lint/race/e1 + pytest green; go.mod diff empty. Deviation none per report;
+  pyproject pytest pythonpath config noted (config, not a dep).
+- CE disposition (Fable, 2026-07-10): checklist row "outputs flow to the next (native) step" —
+  C3's e2e chains Python→Python; the subprocess→NATIVE flow is proven by C2's harness route
+  test (sdk/testing/subprocess_route_test.go). Jointly the row's FR-SE-02/FR-SDK-10 intent
+  (IMP §27.M11 Val: "outputs flow to the next step" — no native qualifier in the IMP) is
+  satisfied; the "(native)" qualifier was compilation prose, not IMP text. Verifier should
+  treat the pair as the row's evidence.
