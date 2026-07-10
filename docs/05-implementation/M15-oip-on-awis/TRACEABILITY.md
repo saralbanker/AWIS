@@ -24,3 +24,7 @@
   through unchanged.
 
 ## Execution record
+- P0 (c3fba29) / C1 (80ef917), 2026-07-10: sdk.LoadWorkflowFile seam (2 files, disclosed);
+  TDS-06 DRAFT + OIP_DB.md + apps/oip scaffolding (modernc sqlite dep, OIP-internal stubs,
+  .decisions/.index gitignore). C2 run interrupted mid-card; uncommitted partials on tree →
+  P2 salvage re-dispatch (EEOS §15 D2).
