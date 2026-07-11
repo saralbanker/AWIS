@@ -129,9 +129,9 @@ MILESTONE: M17-full-cli-init
 BRANCH: m17-full-cli-init (stacked on m16-anthropic-adapter)
 PHASE: B-BUILD
 CARDS:
-  M17-C1   DISPATCHED   awis-builder
-  M17-C2   READY   awis-builder
-  M17-C3   READY   awis-builder
+  M17-C1   DONE    awis-builder   a342394
+  M17-C2   DONE    awis-builder   744d3d0
+  M17-C3   DISPATCHED   awis-builder
   M17-V1   READY   awis-verifier
 NEXT: C1->C2->C3->V1
 
