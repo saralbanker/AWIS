@@ -20,15 +20,6 @@ func init() {
 	commands["logs"] = command{fn: runLogs, summary: "Structured log stream from awis.log"}
 }
 
-// logLineJSON represents a parsed structured log line.
-type logLineJSON struct {
-	Time    string `json:"time,omitempty"`
-	Level   string `json:"level,omitempty"`
-	Message string `json:"msg,omitempty"`
-	// Extra carries any remaining fields from the structured log line.
-	Extra map[string]any `json:"-"`
-}
-
 // logsOutputJSON is the JSON output for 'awis logs --json'.
 type logsOutputJSON struct {
 	LogFile string        `json:"log_file"`

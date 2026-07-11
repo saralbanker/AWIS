@@ -81,10 +81,12 @@ Commands (M17-C1 — live):
   export              Export execution history to JSON
   prune-events        Prune EventLog (dry-run only in V1)
 
+Commands (M17-C2 — live):
+  config              Configuration sub-commands (show, set, validate, edit)
+  rebuild-state       Rebuild workflow_instances projection from EventLog
+
 Commands (M17 — planned):
   init                Initialize project structure and config
-  rebuild-state       Rebuild StateStore from EventLog
-  config              Configuration sub-commands (show, set, validate, edit)
 
 Run 'awis <command> --help' for per-command usage.
 `
