@@ -116,12 +116,19 @@ NEXT: founder G3 + merge; M16 proceeds stacked
 # ── M16 active ────────────────────────────────────────────────────────────────
 MILESTONE: M16-anthropic-adapter
 BRANCH: m16-anthropic-adapter (stacked on m15-oip-on-awis)
-PHASE: B-BUILD
+PHASE: E-MERGE (blocked on founder)
 GATE: none
 CARDS:
-  M16-C1   DISPATCHED   awis-builder
-  M16-V1   READY   awis-verifier
-NEXT: M16-C1 -> V1
+  M16-C1   DONE    awis-builder   3b12689
+  M16-V1   DONE    awis-verifier  (PASS all rows at 3b12689)
+MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE (D-CLOSE Fable 2026-07-11)
+NEXT: founder merge; M17 proceeds stacked
+
+# ── M17 active ────────────────────────────────────────────────────────────────
+MILESTONE: M17-full-cli-init
+BRANCH: m17-full-cli-init (stacked on m16-anthropic-adapter)
+PHASE: A-INIT (in progress, Fable)
+NEXT: A-INIT -> B-BUILD
 
 LAST: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
       HEAD 03d5045 IS the founder's M09 squash-merge ("M09 — Test Infrastructure") and
