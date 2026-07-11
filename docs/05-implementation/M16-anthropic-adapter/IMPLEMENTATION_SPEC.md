@@ -40,3 +40,8 @@ C1 (everything above) → V1.
 ## Non-scope
 Embed/OpenAI (V2); config file + `config show` masking UX (M17); streaming; caching.
 No engine/storage/sdk/core changes at all.
+
+## Execution record
+- C1 (3b12689, 2026-07-11): full milestone, no deviations. V1 (at 3b12689): PASS all rows.
+- D-CLOSE (Fable, 2026-07-11): scope exact (new adapter pkg + start wiring + docs); frozen
+  port untouched; zero-AI path proven unchanged (E1 8/8). APPROVED FOR SQUASH MERGE.
