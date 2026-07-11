@@ -32,3 +32,10 @@
   FTS/pass-through + 4 handlers + rebuild-index.yaml + cmd/oip entrypoint (sdk-only, P0 seam)
   + 8 QG-3 tests (NullAdapter; signal payload flat-field pattern — engine stringifies template
   values; app-side accommodation, no platform change). Fixtures byte-unchanged. Gates green.
+- C3 (0ef33c8) + C3r (0e452f8), 2026-07-11: CLI e2e + BOUNDARY_EVIDENCE + G3_BRIEF. CE
+  adjudications: fixture edit REJECTED->restored byte-identical (e2e walks manual-entry path);
+  sdk.RegisterPlugin ACCEPTED as P1 seam; Submit fallback ACCEPTED after removing hardcoded
+  "oip" (namespace-scoped only; CLI gained --namespace); ENGINE FIX (emit.go+rebuild.go
+  fallback-join sentinel) ACCEPTED as P2 scoped platform fix — the frozen Blueprint §7 fixture
+  exposed a real AND-join defect on fallback convergence; exactly the R2/PR-7 finding G3
+  exists to surface; EDR-007 forward≡rebuild preserved; disclosed in G3_BRIEF.
