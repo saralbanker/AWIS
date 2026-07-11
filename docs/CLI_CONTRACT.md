@@ -154,8 +154,11 @@ awis
 
 ## §4 Per-Command Contracts (M14 Commands)
 
-> **Global flags:** every command accepts `--json` and `--data-dir` as global
-> flags preceding the subcommand name: `awis [--json] [--data-dir D] <cmd> …`.
+> **Global flags:** every command accepts `--json`, `--data-dir`, and
+> `--namespace` as global flags preceding the subcommand name:
+> `awis [--json] [--data-dir D] [--namespace NS] <cmd> …`.
+> `--namespace` (default `"default"`) targets the workflow namespace for
+> submit/signal/cancel/status/trace; it is ignored by version/start/stop/workflow/plugin.
 > Per-command synopses below omit these global flags for brevity.
 
 ### version

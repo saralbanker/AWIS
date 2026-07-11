@@ -18,8 +18,9 @@ const version = "0.1.0-dev"
 
 // Global flags — parsed before the subcommand name.
 var (
-	globalDataDir string
-	globalJSON    bool
+	globalDataDir  string
+	globalJSON     bool
+	globalNamespace string
 )
 
 // command is a registered subcommand.
@@ -39,6 +40,7 @@ func main() {
 	// Global flags parsed before subcommand name.
 	flag.StringVar(&globalDataDir, "data-dir", "./.awis/", "Data directory (runtime.db, awis.pid, logs)")
 	flag.BoolVar(&globalJSON, "json", false, "Output machine-readable JSON")
+	flag.StringVar(&globalNamespace, "namespace", "default", "Namespace to target (default: \"default\")")
 
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, usageText())

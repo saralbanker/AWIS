@@ -188,11 +188,11 @@ func waitForOIPStartup(t *testing.T, buf *syncBuffer, timeout time.Duration) boo
 	return false
 }
 
-// awisRun runs the awis binary with the given data-dir and subcommand+args.
+// awisRun runs the awis binary with the given data-dir, namespace, and subcommand+args.
 // Returns stdout output and any error. Stderr is discarded (engine slog output).
-func awisRun(t *testing.T, awisBin, dataDir string, args ...string) (string, error) {
+func awisRun(t *testing.T, awisBin, dataDir, namespace string, args ...string) (string, error) {
 	t.Helper()
-	fullArgs := append([]string{"--data-dir=" + dataDir, "--json"}, args...)
+	fullArgs := append([]string{"--data-dir=" + dataDir, "--json", "--namespace=" + namespace}, args...)
 	cmd := exec.Command(awisBin, fullArgs...)
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf
@@ -209,7 +209,7 @@ func awisRun(t *testing.T, awisBin, dataDir string, args ...string) (string, err
 func pollInstanceStatus(
 	t *testing.T,
 	ctx context.Context,
-	awisBin, dataDir, instanceID string,
+	awisBin, dataDir, namespace, instanceID string,
 	wantStatus string,
 	timeout time.Duration,
 ) string {
@@ -222,12 +222,13 @@ func pollInstanceStatus(
 			return lastStatus
 		default:
 		}
-		out, err := awisRun(t, awisBin, dataDir, "status", instanceID)
+		out, err := awisRun(t, awisBin, dataDir, namespace, "status", instanceID)
 		if err == nil {
 			// 'awis status <id> --json' returns a statusActiveJSON object.
 			var detail struct {
-				InstanceID string `json:"instance_id"`
-				Status     string `json:"status"`
+				InstanceID  string  `json:"instance_id"`
+				Status      string  `json:"status"`
+				CurrentStep *string `json:"current_step"`
 			}
 			if jerr := json.Unmarshal([]byte(out), &detail); jerr == nil && detail.Status != "" {
 				lastStatus = detail.Status
@@ -239,6 +240,46 @@ func pollInstanceStatus(
 		time.Sleep(200 * time.Millisecond)
 	}
 	return lastStatus
+}
+
+// pollInstanceStep polls the awis status <instance-id> command until the
+// instance reaches wantStep (current_step field) with wantStatus, or timeout.
+// Returns the last current_step seen.
+func pollInstanceStep(
+	t *testing.T,
+	ctx context.Context,
+	awisBin, dataDir, namespace, instanceID string,
+	wantStatus, wantStep string,
+	timeout time.Duration,
+) (string, string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var lastStatus, lastStep string
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return lastStatus, lastStep
+		default:
+		}
+		out, err := awisRun(t, awisBin, dataDir, namespace, "status", instanceID)
+		if err == nil {
+			var detail struct {
+				Status      string  `json:"status"`
+				CurrentStep *string `json:"current_step"`
+			}
+			if jerr := json.Unmarshal([]byte(out), &detail); jerr == nil && detail.Status != "" {
+				lastStatus = detail.Status
+				if detail.CurrentStep != nil {
+					lastStep = *detail.CurrentStep
+				}
+				if detail.Status == wantStatus && lastStep == wantStep {
+					return lastStatus, lastStep
+				}
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return lastStatus, lastStep
 }
 
 // pollEntryFile polls until at least one .md file appears under
@@ -278,14 +319,15 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// TestOIPSystemE2E is the M15-C3 T8 real-binary e2e test.
+// TestOIPSystemE2E is the M15-C3r real-binary e2e test.
 //
 // Flow: build oip + awis binaries; start oip in a temp dir with copies of the
 // OIP YAML fixtures and the git-context-plugin (or stub); submit
-// capture-decision via awis CLI; signal manual_draft_provided (intelligence
-// falls back under NullAdapter); signal entry_confirmed with confirmed_entry
-// JSON payload; poll until entry .md appended; submit recall-decision with a
-// word from the entry; verify the entry id appears in the instance variables.
+// capture-decision via awis CLI; signal manual_draft_provided (NullAdapter
+// triggers fallback → manual-entry WAIT per restored fixture); then signal
+// entry_confirmed with confirmed_entry JSON payload; poll until entry .md
+// appended; submit recall-decision with a word from the entry; verify the
+// entry id appears in the instance variables.
 //
 // Skipped under -short.
 func TestOIPSystemE2E(t *testing.T) {
@@ -327,12 +369,14 @@ func TestOIPSystemE2E(t *testing.T) {
 	python3Path, _ := exec.LookPath("python3")
 	writePluginManifest(t, pluginsDir, python3Path, root)
 
-	// Start the oip binary.
-	// --namespace=default so that awis CLI (which uses "default" namespace) can submit.
+	// Start the oip binary using its natural namespace "oip" (the YAML fixture default).
+	// The awis CLI targets this namespace via --namespace=oip (M15-C3r fix: the
+	// --namespace global flag allows the CLI to reach any namespace without
+	// embedding application names in platform code).
 	startCmd := exec.Command(oipBin,
 		"--data-dir="+dataDir,
 		"--record-root="+recordRoot,
-		"--namespace=default",
+		"--namespace=oip",
 		"--plugins-dir="+pluginsDir,
 	)
 	startCmd.Dir = projDir // workflow files discovered relative to cwd
@@ -358,10 +402,14 @@ func TestOIPSystemE2E(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
+	// All awis CLI calls target the "oip" namespace (--namespace=oip) so that the
+	// CLI can find workflows registered by the oip binary in the "oip" namespace.
+	const oipNS = "oip"
+
 	// ── Submit capture-decision ───────────────────────────────────────────────
 	// NOTE: --input flags must appear BEFORE the positional workflow-id argument
 	// because flag.FlagSet.Parse stops at the first non-flag positional arg.
-	submitOut, err := awisRun(t, awisBin, dataDir, "submit",
+	submitOut, err := awisRun(t, awisBin, dataDir, oipNS, "submit",
 		"--input", "repo_path="+root,
 		"--input", "ref=HEAD",
 		"capture-decision",
@@ -380,13 +428,49 @@ func TestOIPSystemE2E(t *testing.T) {
 	instanceID := submitJSON.InstanceID
 	t.Logf("submitted capture-decision; instance_id=%s", instanceID)
 
-	// ── Wait for entry_confirmed ──────────────────────────────────────────────
-	// The NullAdapter triggers capability_fallback on draft-entry, which goes
-	// directly to confirm-entry (fallback: confirm-entry in capture-decision.yaml).
-	// confirm-entry waits for the entry_confirmed signal.
-	status := pollInstanceStatus(t, ctx, awisBin, dataDir, instanceID, "waiting", 45*time.Second)
+	// ── Wait for manual_draft_provided (manual-entry WAIT) ───────────────────
+	// The NullAdapter triggers capability_fallback on draft-entry.
+	// The restored fixture routes fallback → manual-entry (signal wait), which
+	// waits for manual_draft_provided before proceeding to confirm-entry.
+	status := pollInstanceStatus(t, ctx, awisBin, dataDir, oipNS, instanceID, "waiting", 45*time.Second)
 	if status != "waiting" {
-		t.Fatalf("instance did not reach waiting state for entry_confirmed; last status=%q\noip output:\n%s", status, oipOut.String())
+		t.Fatalf("instance did not reach waiting state for manual_draft_provided; last status=%q\noip output:\n%s", status, oipOut.String())
+	}
+	t.Log("instance waiting for manual_draft_provided")
+
+	// Send manual_draft_provided with the draft content fields.
+	// The card specifies: payload = the draft fields.
+	manualPayload := map[string]any{
+		"title":                 "E2E Test Decision",
+		"decision":              "Adopt real binary e2e testing for OIP.",
+		"rationale":             "Binary-level tests catch integration failures.",
+		"rejected_alternatives": "Unit tests alone are insufficient.",
+		"unknowns":              "Long-term maintenance cost.",
+		"provenance_origin":     "manual",
+		"provenance_authority":  "e2e-test",
+		"provenance_confidence": "high",
+	}
+	manualPayloadBytes, _ := json.Marshal(manualPayload)
+	manualPayloadFile := filepath.Join(t.TempDir(), "manual_payload.json")
+	if err := os.WriteFile(manualPayloadFile, manualPayloadBytes, 0o644); err != nil {
+		t.Fatalf("write manual payload: %v", err)
+	}
+
+	manualOut, err := awisRun(t, awisBin, dataDir, oipNS, "signal",
+		"--payload", "@"+manualPayloadFile,
+		instanceID, "manual_draft_provided",
+	)
+	if err != nil {
+		t.Fatalf("signal manual_draft_provided: %v\noutput: %s", err, manualOut)
+	}
+	t.Logf("signaled manual_draft_provided: %s", manualOut)
+
+	// ── Wait for entry_confirmed (confirm-entry WAIT) ─────────────────────────
+	// After manual_draft_provided, the engine advances from manual-entry to
+	// confirm-entry. Poll until current_step == "confirm-entry" with status "waiting".
+	confirmStatus, confirmStep := pollInstanceStep(t, ctx, awisBin, dataDir, oipNS, instanceID, "waiting", "confirm-entry", 30*time.Second)
+	if confirmStatus != "waiting" || confirmStep != "confirm-entry" {
+		t.Fatalf("instance did not reach confirm-entry waiting state; last status=%q step=%q\noip output:\n%s", confirmStatus, confirmStep, oipOut.String())
 	}
 	t.Log("instance waiting for entry_confirmed")
 
@@ -422,7 +506,7 @@ func TestOIPSystemE2E(t *testing.T) {
 
 	// NOTE: --payload flag must precede positional args (flag.FlagSet.Parse stops at
 	// first non-flag positional argument).
-	signalOut, err := awisRun(t, awisBin, dataDir, "signal",
+	signalOut, err := awisRun(t, awisBin, dataDir, oipNS, "signal",
 		"--payload", "@"+entryPayloadFile,
 		instanceID, "entry_confirmed",
 	)
@@ -435,7 +519,7 @@ func TestOIPSystemE2E(t *testing.T) {
 	entryID, found := pollEntryFile(recordRoot, 30*time.Second)
 	if !found {
 		// Dump final state for debugging.
-		traceOut, _ := awisRun(t, awisBin, dataDir, "trace", "--full", instanceID)
+		traceOut, _ := awisRun(t, awisBin, dataDir, oipNS, "trace", "--full", instanceID)
 		t.Logf("final trace:\n%s", traceOut)
 		t.Fatalf("entry .md not created within 30s\noip output:\n%s", oipOut.String())
 	}
@@ -444,7 +528,7 @@ func TestOIPSystemE2E(t *testing.T) {
 	// ── Submit recall-decision ────────────────────────────────────────────────
 	// Use a word from the entry title as the query.
 	// NOTE: --input before positional id (flag.FlagSet stops at first non-flag).
-	recallSubmitOut, err := awisRun(t, awisBin, dataDir, "submit",
+	recallSubmitOut, err := awisRun(t, awisBin, dataDir, oipNS, "submit",
 		"--input", "query=E2E Test Decision",
 		"recall-decision",
 	)
@@ -462,14 +546,14 @@ func TestOIPSystemE2E(t *testing.T) {
 	t.Logf("submitted recall-decision; instance_id=%s", recallInstanceID)
 
 	// Poll recall instance to completion (intelligence step uses NullAdapter → degrades gracefully).
-	recallStatus := pollInstanceStatus(t, ctx, awisBin, dataDir, recallInstanceID, "completed", 30*time.Second)
+	recallStatus := pollInstanceStatus(t, ctx, awisBin, dataDir, oipNS, recallInstanceID, "completed", 30*time.Second)
 	// Recall uses an intelligence step (synthesize) that degrades with NullAdapter;
 	// the instance may complete or fail at the intelligence step.
 	// Core assertion: FTS step must have found the entry — check via trace.
 	t.Logf("recall instance status: %s", recallStatus)
 
 	// Use --full to get complete trace payloads (avoid 120-char truncation).
-	traceOut, _ := awisRun(t, awisBin, dataDir, "trace", "--full", recallInstanceID)
+	traceOut, _ := awisRun(t, awisBin, dataDir, oipNS, "trace", "--full", recallInstanceID)
 	t.Logf("recall trace (full):\n%s", traceOut)
 
 	// The FTS step (oip.index.fts) runs and its StepCompleted payload contains

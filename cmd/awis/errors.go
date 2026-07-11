@@ -52,11 +52,12 @@ func usageText() string {
 	return `awis — AWIS workflow runtime CLI
 
 Usage:
-  awis [--data-dir <path>] [--json] <command> [flags]
+  awis [--data-dir <path>] [--json] [--namespace <ns>] <command> [flags]
 
 Global flags:
   --data-dir <path>   Data directory (default: ./.awis/)
   --json              Output machine-readable JSON
+  --namespace <ns>    Namespace to target for submit/signal/cancel/status/trace (default: "default")
 
 Commands (M14 — live):
   version             Show version and build info

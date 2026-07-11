@@ -33,20 +33,16 @@ func (r *Runtime) Submit(ctx context.Context, definitionID string, inputs map[st
 	// Fallback: query storage when not in the in-memory registry. This allows a
 	// submit process (e.g. awis CLI) to target workflows registered by a separate
 	// runtime process against the same DB (M15-P1; IMP §17 cross-process submit).
-	// Scan known application namespaces to find the workflow definition by id.
+	// Scan only r.namespace — callers must set the correct namespace; no
+	// application names may appear in platform code (QG-4 boundary).
 	if latestVersion == "" {
-		for _, ns := range []string{r.namespace, "oip", "default"} {
-			if defs, lerr := r.storage.ListWorkflows(ctx, ns); lerr == nil {
-				for _, def := range defs {
-					if def.ID == definitionID {
-						if latestVersion == "" || def.Version > latestVersion {
-							latestVersion = def.Version
-						}
+		if defs, lerr := r.storage.ListWorkflows(ctx, r.namespace); lerr == nil {
+			for _, def := range defs {
+				if def.ID == definitionID {
+					if latestVersion == "" || def.Version > latestVersion {
+						latestVersion = def.Version
 					}
 				}
-			}
-			if latestVersion != "" {
-				break
 			}
 		}
 	}

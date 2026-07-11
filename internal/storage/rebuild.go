@@ -315,13 +315,17 @@ func projectInstance(rows *sql.Rows) (instanceProjection, error) {
 			}
 
 		case core.EventTypeStepFallbackActivated:
-			// remove payload.step_id from current_steps
+			// remove payload.step_id from current_steps; record a sentinel in
+			// variables so convergent join gates treat the fallback step as done.
 			var pid string
 			if err := unmarshalField(payload, "step_id", &pid); err != nil {
 				return instanceProjection{}, fmt.Errorf("StepFallbackActivated.step_id: %w", err)
 			}
 			if pid != "" {
 				p.currentSteps = removeStep(p.currentSteps, pid)
+				if _, exists := p.variables[pid]; !exists {
+					p.variables[pid] = map[string]any{}
+				}
 			}
 
 		case core.EventTypeSignalReceived:

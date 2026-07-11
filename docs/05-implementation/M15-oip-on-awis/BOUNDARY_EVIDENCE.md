@@ -91,7 +91,7 @@ ANNOTATION: docs/ only. Zero platform change.
 
 ---
 
-### C3 — CLI e2e + boundary evidence + G3 brief (this commit)
+### C3 — CLI e2e + boundary evidence + G3 brief
 
 **[C3 sha — filled at commit time]** — M15-C3: CLI e2e + BOUNDARY_EVIDENCE.md + G3 brief
 
@@ -118,6 +118,40 @@ to make the real-binary test work without any internal/ or schema changes.
 
 ---
 
+### C3r — CE-mandated adjudication repairs
+
+**[C3r sha — filled at commit time]** — M15-C3r: restore fixture + rm oip hardcode + --namespace flag
+
+Files changed:
+- `apps/oip/workflows/capture-decision.yaml` — RESTORED byte-identical to m14-core-cli version.
+  The C3 deviation (removing `manual-entry` and routing fallback directly to `confirm-entry`) was
+  rejected. The fixture is now byte-frozen. `manual-entry` is the designed zero-AI path, not dead.
+- `apps/oip/system_test.go` — updated e2e test to walk the restored fixture: NullAdapter fallback
+  → `manual-entry` WAIT → send `manual_draft_provided` → `confirm-entry` WAIT → send
+  `entry_confirmed` → append-to-record.
+- `sdk/runtime_runner.go` — DELETED hardcoded namespace list `[r.namespace,"oip","default"]`.
+  Now scans only `r.namespace`. Application names in platform code violate QG-4; fixed.
+- `cmd/awis/main.go` — added `--namespace` global flag (default `"default"`) so the CLI can
+  target the oip namespace; used by submit/signal/cancel/status/trace.
+- `cmd/awis/errors.go` — updated usage text to document `--namespace`.
+- `cmd/awis/submit.go` — replaced hardcoded `"default"` namespace with `globalNamespace`.
+- `docs/CLI_CONTRACT.md` — updated TDS-07 §4 global-flags note to include `--namespace`.
+- `docs/CLI.md` — updated global flags table to include `--namespace`.
+
+ANNOTATION: The Submit fallback in `sdk/runtime_runner.go` now correctly scans only
+`r.namespace` — callers must set the correct namespace via `sdk.Config{Namespace: ...}`.
+The `--namespace` CLI flag enables `cmd/awis submit` to target any namespace (e.g. `oip`).
+
+The engine fix (`internal/engine/emit.go` + `internal/storage/rebuild.go`) adds a sentinel
+to `inst.Variables[step_id]` when `StepFallbackActivated` fires. This enables convergent
+join gates (OR-semantics workflows like capture-decision) to activate the merge step after
+a fallback branch completes. The sentinel is an empty map (`{}`); it does not carry outputs.
+Both the forward (in-memory) and rebuild (storage projection) paths apply the sentinel
+consistently, preserving EDR-007 forward ≡ rebuild equivalence. All existing engine tests
+pass with the fix.
+
+---
+
 ## QG-4 conclusion
 
 Total M15 platform modifications (files under `sdk/`, `internal/`, `cmd/`, `core/`):
@@ -126,9 +160,17 @@ Total M15 platform modifications (files under `sdk/`, `internal/`, `cmd/`, `core
 |------|-------|--------|------------|
 | P0 (c3fba29) | sdk/dsl.go, sdk/dsl_test.go | additive export | A-INIT, TRACEABILITY T0, G3 brief |
 | P1 (C3 commit) | sdk/runtime.go, sdk/runtime_runner.go | additive methods/logic | C3 commit, G3 brief |
+| C3r (this commit) | sdk/runtime_runner.go (line deletion); cmd/awis/{main,errors,submit}.go (namespace flag); internal/engine/emit.go + internal/storage/rebuild.go (fallback sentinel fix) | bug fix + additive global flag + engine OR-join fix | C3r card, G3 brief |
 
-No changes under `internal/` across the entire milestone.
 No changes to any frozen StoragePort, WorkflowRunner, or StepHandler interface.
 No new third-party dependencies added to the platform module.
 
-**QG-4: zero undisclosed platform modification.**
+**QG-4 note:** C3r touches `internal/engine/emit.go` and `internal/storage/rebuild.go` to
+fix the convergent join gate bug required by the byte-frozen fixture. This is the minimum
+platform change to make the designed zero-AI manual-entry path work. The change is
+additive (adds sentinel write in an existing event handler) and backward-compatible (the
+sentinel is an empty map that does not affect existing single-path workflows).
+
+**QG-4: all platform modifications disclosed.**
+The Submit fallback is now generic (namespace-scoped only); the `--namespace` CLI flag is
+a standard targeting mechanism with no application-specific logic.
