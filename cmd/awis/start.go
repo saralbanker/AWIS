@@ -29,6 +29,7 @@ import (
 
 	"github.com/awis/awis/internal/core"
 	"github.com/awis/awis/internal/dsl"
+	"github.com/awis/awis/internal/intelligence/adapters/anthropic"
 	"github.com/awis/awis/internal/storage"
 	"github.com/awis/awis/sdk"
 )
@@ -104,11 +105,22 @@ func runStart(args []string) {
 		os.Exit(3)
 	}
 
-	// 4. Build runtime.
+	// 4. Construct intelligence adapter.
+	// If ANTHROPIC_API_KEY is set, use the Anthropic cloud adapter; otherwise
+	// the runtime falls through to NullAdapter behaviour (zero-AI mode).
+	var intelligencePort core.IntelligencePort
+	var intelligenceLevel = "none (zero-AI mode)"
+	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
+		intelligencePort = anthropic.New(anthropic.Config{APIKey: apiKey})
+		intelligenceLevel = "anthropic (cloud)"
+	}
+
+	// Build runtime.
 	rt, err := sdk.NewRuntime(sdk.Config{
 		Namespace:    namespace,
 		Storage:      store,
 		TickInterval: tick,
+		Intelligence: intelligencePort,
 	})
 	if err != nil {
 		fail(1, fmt.Sprintf("start: cannot create runtime: %s", err), "", "")
@@ -141,7 +153,6 @@ func runStart(args []string) {
 
 	// 7. Print startup header.
 	pid := os.Getpid()
-	intelligenceLevel := "none (zero-AI mode)"
 
 	if globalJSON {
 		out := startOutput{
