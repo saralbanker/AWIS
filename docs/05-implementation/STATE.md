@@ -104,10 +104,11 @@ CARDS:
   M15-P0   DONE    awis-builder   c3fba29   (disclosed platform seam)
   M15-C1   DONE    awis-builder   80ef917
   M15-C2   DONE    awis-builder   6731297   (P2 salvage OK)
-  M15-C3   DISPATCHED   awis-builder
-  M15-V1   READY   awis-verifier
+  M15-C3   DONE    awis-builder   0ef33c8   (3 deviations adjudicated)
+  M15-C3r  DONE    awis-builder   0e452f8   (fixture restored; P1/P2 seams disclosed)
+  M15-V1   DISPATCHED   awis-verifier
 BLOCKERS: none
-NEXT: M15-P0 then C1..C3 (P1) -> V1
+NEXT: M15-V1 (clean tree). Platform seams for G3: P0 LoadWorkflowFile, P1 RegisterPlugin+ns-scoped Submit fallback+--namespace, P2 engine fallback-join sentinel (frozen fixture exposed AND-join defect; RB mechanism)
 
 LAST: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
       HEAD 03d5045 IS the founder's M09 squash-merge ("M09 — Test Infrastructure") and
