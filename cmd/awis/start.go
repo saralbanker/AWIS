@@ -183,7 +183,13 @@ func runStart(args []string) {
 		fmt.Printf("● running  PID %d\n", pid)
 	}
 
-	// 8. Write PID file.
+	// 8. Open file-sink log (sanctioned M17-C1 addition; SPEC §CE pins).
+	// Creates <data-dir>/awis.log on startup (append); 'awis logs' reads this file.
+	// Best-effort: errors do not abort start.
+	logPath := filepath.Join(dataDir, "awis.log")
+	openFileSink(logPath, pid, version, intelligenceLevel, workflowIDs)
+
+	// 9. Write PID file.
 	pidPath := filepath.Join(dataDir, "awis.pid")
 	if err := writePIDFile(pidPath, pid); err != nil {
 		fail(1, fmt.Sprintf("start: cannot write PID file: %s", err), pidPath, "check file permissions")
@@ -308,4 +314,26 @@ func formatPluginSummary(names []string) string {
 		return ""
 	}
 	return "(" + strings.Join(names, ", ") + ")"
+}
+
+// openFileSink creates/appends to <data-dir>/awis.log and writes a structured
+// startup JSON line. Best-effort: any error is silently ignored (start must not
+// fail due to a log write). Called by runStart after the startup header is printed.
+func openFileSink(logPath string, pid int, ver, intelligence string, workflows []string) {
+	lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer func() { _ = lf.Close() }()
+
+	line, _ := json.Marshal(map[string]any{
+		"time":         time.Now().UTC().Format(time.RFC3339),
+		"level":        "info",
+		"msg":          "runtime started",
+		"pid":          pid,
+		"version":      ver,
+		"intelligence": intelligence,
+		"workflows":    workflows,
+	})
+	_, _ = fmt.Fprintf(lf, "%s\n", line)
 }

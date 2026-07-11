@@ -1,0 +1,4 @@
+No log file found at <log-path>
+
+  What: awis.log does not exist yet
+  What now: awis start  (the runtime writes awis.log on startup)

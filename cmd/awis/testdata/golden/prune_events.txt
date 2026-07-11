@@ -1,0 +1,8 @@
+PRUNE-EVENTS (dry-run)
+
+  Cutoff:         <cutoff>
+  Events scanned: 0
+  Eligible:       0  (would be pruned)
+
+  NOTE: Destructive prune is post-V1. No data was deleted.
+        Re-run without --dry-run when the feature ships.

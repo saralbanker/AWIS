@@ -19,6 +19,13 @@ import (
 	"time"
 )
 
+// AuditAppender is the additive interface for writing audit_log rows.
+// It is type-asserted from the storage implementation — the same pattern as
+// RecallStore and PluginStore (additive; StoragePort method set untouched).
+type AuditAppender interface {
+	AppendAudit(ctx context.Context, entry AuditEntry) error
+}
+
 // AuditEntry is one row appended to audit_log. Its fields realise the PRD §26
 // render shape (FR-OB-08 / §15): timestamp, event type, actor, payload summary.
 // It is a storage-package projection, not a frozen core type.

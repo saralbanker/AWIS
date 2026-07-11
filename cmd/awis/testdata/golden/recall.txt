@@ -1,0 +1,4 @@
+No results for "no-match-xyz-abc"
+
+  What: no FTS matches found in execution_events
+  What now: try a broader query term, or 'awis history' to browse instances

@@ -1,0 +1,4 @@
+No completed instances found.
+
+  What: no completed or failed workflow instances in storage
+  What now: awis submit <workflow-id>

@@ -71,17 +71,19 @@ Commands (M14 — live):
   workflow            Workflow sub-commands (validate, list, show)
   plugin              Plugin sub-commands (install, list)
 
-Commands (M17 — planned):
-  init                Initialize project structure and config
+Commands (M17-C1 — live):
   history             Recent completed instances
   logs                Structured log stream
   metrics             Aggregate execution statistics
-  recall              Query execution history
+  recall              Query execution history (FTS)
   replay              Re-run completed instance (dry-run)
   audit               View audit log entries
+  export              Export execution history to JSON
+  prune-events        Prune EventLog (dry-run only in V1)
+
+Commands (M17 — planned):
+  init                Initialize project structure and config
   rebuild-state       Rebuild StateStore from EventLog
-  export              Export execution history
-  prune-events        Prune EventLog
   config              Configuration sub-commands (show, set, validate, edit)
 
 Run 'awis <command> --help' for per-command usage.
