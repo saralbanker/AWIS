@@ -1,0 +1,4 @@
+Export complete  <timestamp>
+
+  Instances:   0 → <out-dir>/instances.json
+  Definitions: 0 → <out-dir>/definitions.json
