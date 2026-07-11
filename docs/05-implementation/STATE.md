@@ -127,8 +127,13 @@ NEXT: founder merge; M17 proceeds stacked
 # ── M17 active ────────────────────────────────────────────────────────────────
 MILESTONE: M17-full-cli-init
 BRANCH: m17-full-cli-init (stacked on m16-anthropic-adapter)
-PHASE: A-INIT (in progress, Fable)
-NEXT: A-INIT -> B-BUILD
+PHASE: B-BUILD
+CARDS:
+  M17-C1   DISPATCHED   awis-builder
+  M17-C2   READY   awis-builder
+  M17-C3   READY   awis-builder
+  M17-V1   READY   awis-verifier
+NEXT: C1->C2->C3->V1
 
 LAST: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
       HEAD 03d5045 IS the founder's M09 squash-merge ("M09 — Test Infrastructure") and
