@@ -1,0 +1,3 @@
+Plugin removed: example-plugin
+  Status set to: removed
+  Audit row written: PluginRemoved

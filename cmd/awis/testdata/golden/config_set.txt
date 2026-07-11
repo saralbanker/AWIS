@@ -1,0 +1,2 @@
+Set: namespace = staging
+Written to: .awis/config.yaml

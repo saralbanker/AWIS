@@ -1,0 +1,5 @@
+rebuild-state: projection rebuilt from EventLog
+  Mode:    all
+  DB:      .awis/runtime.db
+
+  What now: awis start  (resume engine; rebuild is safe before start)

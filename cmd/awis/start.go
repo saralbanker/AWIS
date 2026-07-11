@@ -204,11 +204,99 @@ func runStart(args []string) {
 		cancel()
 	}()
 
-	// 10. Block until engine returns.
+	// 10. Start cron scanner goroutine (F-2).
+	// Scans definitions with type:schedule triggers on a per-minute cadence.
+	// Engine and core are NOT touched (SPEC non-scope); scanner lives here only.
+	cronDefs := defsToCronDefs(defs)
+	cronEntries := buildCronEntries(cronDefs, func(id, expr string, err error) {
+		fmt.Fprintf(os.Stderr, "awis cron: workflow %q schedule %q invalid: %s\n", id, expr, err)
+	})
+	if len(cronEntries) > 0 {
+		go runCronScanner(ctx, rt, cronEntries, time.Now)
+	}
+
+	// 11. Block until engine returns.
 	_ = rt.Start(ctx)
 
 	// Clean up PID file on graceful exit.
 	_ = os.Remove(pidPath)
+}
+
+// defsToCronDefs converts parsed *core.WorkflowDefinition slices to the minimal
+// cronWorkflowDef representation used by the cron scanner.
+func defsToCronDefs(defs []*core.WorkflowDefinition) []cronWorkflowDef {
+	result := make([]cronWorkflowDef, 0, len(defs))
+	for _, d := range defs {
+		triggers := make([]cronWorkflowTrigger, 0, len(d.Triggers))
+		for _, t := range d.Triggers {
+			triggers = append(triggers, cronWorkflowTrigger{
+				triggerType: string(t.Type),
+				config:      t.Config,
+			})
+		}
+		result = append(result, cronWorkflowDef{
+			id:        d.ID,
+			namespace: d.Namespace,
+			triggers:  triggers,
+		})
+	}
+	return result
+}
+
+// cronSubmitter is the interface the cron scanner uses to enqueue workflow instances.
+// Matches *sdk.Runtime so tests can inject a fake.
+type cronSubmitter interface {
+	Submit(ctx context.Context, definitionID string, inputs map[string]any) (core.InstanceID, error)
+}
+
+// runCronScanner is the cron trigger goroutine (F-2; SPEC: stdlib only, engine untouched).
+// It fires when ctx is cancelled and sleeps until the next minute boundary on each cycle.
+// now is injectable for deterministic fake-clock tests.
+// afterFn is injectable for testing; pass nil to use time.After.
+func runCronScanner(ctx context.Context, rt cronSubmitter, entries []cronEntry, now func() time.Time) {
+	runCronScannerWith(ctx, rt, entries, now, nil)
+}
+
+// runCronScannerWith is the testable variant that accepts an injectable afterFn.
+// afterFn(d) returns a channel that fires after d — same contract as time.After.
+// If afterFn is nil, time.After is used (production path).
+func runCronScannerWith(ctx context.Context, rt cronSubmitter, entries []cronEntry, now func() time.Time, afterFn func(time.Duration) <-chan time.Time) {
+	if afterFn == nil {
+		afterFn = time.After
+	}
+
+	// Align to the next minute boundary before starting the main loop.
+	// This ensures the scanner fires at :00 of each minute.
+	sleepUntilNextMinuteWith(ctx, now, afterFn)
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		t := now().Truncate(time.Minute)
+		for _, e := range entries {
+			if e.schedule.Matches(t) {
+				// Enqueue the instance through the same intake path as 'awis submit'.
+				// Fire-and-forget: cron enqueue errors are best-effort (start must not fail).
+				_, _ = rt.Submit(ctx, e.workflowID, nil)
+			}
+		}
+		sleepUntilNextMinuteWith(ctx, now, afterFn)
+	}
+}
+
+// sleepUntilNextMinuteWith is the injectable variant for tests.
+func sleepUntilNextMinuteWith(ctx context.Context, now func() time.Time, afterFn func(time.Duration) <-chan time.Time) {
+	t := now()
+	next := t.Truncate(time.Minute).Add(time.Minute)
+	d := next.Sub(t)
+	if d <= 0 {
+		d = time.Minute
+	}
+	select {
+	case <-ctx.Done():
+	case <-afterFn(d):
+	}
 }
 
 // discoverPlugins finds plugins/*/awis-plugin.yaml files and registers them.
