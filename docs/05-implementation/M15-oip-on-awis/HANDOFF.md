@@ -14,5 +14,10 @@
 - `awis init` scaffolding can cite OIP as the reference app; QG-3 artifacts exist for G4.
 
 ## Actuals (filled at completion)
-- P0: · C1: · C2: · C3:
-- V1: · Deviations:
+- P0: c3fba29 · C1: 80ef917 · C2: 6731297 · C3: 0ef33c8 · C3r: 0e452f8
+- V1: PASS all rows (2026-07-11 at 9973a3f); QG-3 8/8; QG-4 diff = exactly P0+P1+P2 seams;
+  fixtures byte-identical; e2e 32s green.
+- Deviations/adjudications: fixture edit rejected+restored; P1 (RegisterPlugin, ns-scoped
+  Submit fallback, --namespace) and P2 (engine fallback-join sentinel — frozen fixture
+  exposed real AND-join defect) accepted as disclosed RB-mechanism seams. G3 verdict +
+  TDS-06 sign-off PENDING FOUNDER (G3_BRIEF.md).

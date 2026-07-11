@@ -39,3 +39,8 @@
   fallback-join sentinel) ACCEPTED as P2 scoped platform fix — the frozen Blueprint §7 fixture
   exposed a real AND-join defect on fallback convergence; exactly the R2/PR-7 finding G3
   exists to surface; EDR-007 forward≡rebuild preserved; disclosed in G3_BRIEF.
+- V1 (2026-07-11, 9973a3f): PASS all rows; QG-4 seam-exact; fixtures sha-identical; QG-3 8/8;
+  e2e green. Minor doc note: G3 brief test-name table drift (cosmetic).
+- D-CLOSE (Fable, 2026-07-11): P2 engine fix reviewed (sentinel guarded, no output clobber;
+  EDR-007 parity mirrored in rebuild) — sound minimal fix; the validation event did its job.
+  APPROVED FOR SQUASH MERGE **subject to G3 verdict + TDS-06 sign-off (founder)**.

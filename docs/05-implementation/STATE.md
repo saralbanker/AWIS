@@ -98,17 +98,27 @@ NEXT: founder squash-merge; M15 proceeds stacked on m14-core-cli
 # ── M15 active ────────────────────────────────────────────────────────────────
 MILESTONE: M15-oip-on-awis
 BRANCH: m15-oip-on-awis (stacked on m14-core-cli)
-PHASE: B-BUILD
-GATE: G3 + TDS-06 sign-off (FOUNDER-ONLY, at E-MERGE; built at-risk per directive)
+PHASE: E-MERGE (blocked on founder: G3 VERDICT + TDS-06 SIGN-OFF — see G3_BRIEF.md)
+GATE: G3 + TDS-06 sign-off (FOUNDER-ONLY)
 CARDS:
   M15-P0   DONE    awis-builder   c3fba29   (disclosed platform seam)
   M15-C1   DONE    awis-builder   80ef917
   M15-C2   DONE    awis-builder   6731297   (P2 salvage OK)
   M15-C3   DONE    awis-builder   0ef33c8   (3 deviations adjudicated)
   M15-C3r  DONE    awis-builder   0e452f8   (fixture restored; P1/P2 seams disclosed)
-  M15-V1   DISPATCHED   awis-verifier
+  M15-V1   DONE    awis-verifier  (PASS all rows, 2026-07-11 at 9973a3f)
 BLOCKERS: none
-NEXT: M15-V1 (clean tree). Platform seams for G3: P0 LoadWorkflowFile, P1 RegisterPlugin+ns-scoped Submit fallback+--namespace, P2 engine fallback-join sentinel (frozen fixture exposed AND-join defect; RB mechanism)
+MERGE-RECOMMENDATION: APPROVED subject to G3 verdict + TDS-06 sign-off. Seams disclosed:
+  P0 LoadWorkflowFile, P1 RegisterPlugin/ns-scoped Submit fallback/--namespace, P2 engine
+  fallback-join sentinel (frozen fixture exposed AND-join defect; RB mechanism).
+NEXT: founder G3 + merge; M16 proceeds stacked
+
+# ── M16 active ────────────────────────────────────────────────────────────────
+MILESTONE: M16-anthropic-adapter
+BRANCH: m16-anthropic-adapter (stacked on m15-oip-on-awis)
+PHASE: A-INIT (in progress, Fable)
+GATE: none
+NEXT: A-INIT -> B-BUILD
 
 LAST: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
       HEAD 03d5045 IS the founder's M09 squash-merge ("M09 — Test Infrastructure") and
