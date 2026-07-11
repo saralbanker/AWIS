@@ -22,6 +22,7 @@ awis [--data-dir <path>] [--json] <command> [flags]
 |------|---------|-------------|
 | `--data-dir <path>` | `./.awis/` | Data directory (runtime.db, awis.pid, logs) |
 | `--json` | false | Output machine-readable JSON (PP-6; all M14 commands) |
+| `--namespace <ns>` | `"default"` | Namespace for submit/signal/cancel/status/trace |
 
 The data directory is created with `os.MkdirAll` on first use. PRD §25
 local-first: the path is relative to the working directory unless absolute.

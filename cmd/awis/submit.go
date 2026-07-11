@@ -73,7 +73,7 @@ func runSubmit(args []string) {
 	// sdk.NewRuntime + Submit inserts the instance row exactly as an embedded app would.
 	// The running engine picks it up on the next 100ms tick (F-3).
 	rt, err := sdk.NewRuntime(sdk.Config{
-		Namespace: "default",
+		Namespace: globalNamespace,
 		Storage:   store,
 	})
 	if err != nil {

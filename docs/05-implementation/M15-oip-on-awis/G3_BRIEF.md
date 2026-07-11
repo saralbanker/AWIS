@@ -36,22 +36,25 @@ Test file: `apps/oip/qg3_test.go`
 
 All 8 tests pass: `ok github.com/awis/oip` (confirmed by `make test`).
 
-### CLI e2e transcript (M15-C3 output 1)
+### CLI e2e transcript (M15-C3r — restored fixture flow)
 
 Test: `apps/oip/system_test.go::TestOIPSystemE2E`
 
-Execution summary:
+Execution summary (updated for restored capture-decision.yaml with manual-entry path):
 1. Build `cmd/oip` and `cmd/awis` binaries from source.
 2. Start oip binary with temp `--data-dir` and `--record-root`; wait for startup.
 3. `awis submit --input repo_path=<repo> --input ref=HEAD capture-decision` → instance in `running`
-4. Engine: assemble-context (git-context-plugin stub) → draft-entry (intelligence fallback, NullAdapter) → StepFallbackActivated(confirm-entry) → confirm-entry WAIT
-5. `awis signal --payload @entry_payload.json <iid> entry_confirmed` → `delivered: true`
-6. Engine: SignalReceived → StepCompleted(confirm-entry, outputs={confirmed_entry: "..."}) → append-to-record → StepCompleted(append-to-record, outputs={entry_id: "D-YYYY-MM-DD-001"}) → WorkflowCompleted
-7. Poll `recordRoot/.decisions/entries/D-*.md` → found within 30s
-8. `awis submit --input query=<word-from-title> recall-decision` → fts-search finds entry_id in trace
-9. `strings.Contains(recallTrace, entryID)` → true
+4. Engine: assemble-context (git-context-plugin stub) → draft-entry (intelligence fallback, NullAdapter) → StepFallbackActivated(manual-entry) → manual-entry WAIT
+5. `awis signal --payload @manual_payload.json <iid> manual_draft_provided` → `delivered: true`
+6. Engine: SignalReceived → manual-entry transitions → confirm-entry WAIT
+7. `awis signal --payload @entry_payload.json <iid> entry_confirmed` → `delivered: true`
+8. Engine: SignalReceived → StepCompleted(confirm-entry, outputs={confirmed_entry: "..."}) → append-to-record → StepCompleted(append-to-record, outputs={entry_id: "D-YYYY-MM-DD-001"}) → WorkflowCompleted
+9. Poll `recordRoot/.decisions/entries/D-*.md` → found within 30s
+10. `awis submit --input query=<word-from-title> recall-decision` → fts-search finds entry_id in trace
+11. `strings.Contains(recallTrace, entryID)` → true
 
-Result: `PASS (TestOIPSystemE2E, ~32s)` with `-race` flag.
+Note: C3 had routed fallback directly to confirm-entry and removed manual-entry. C3r restores
+the byte-frozen m14-core-cli fixture and walks the full manual-entry path in the e2e test.
 
 ### Boundary artifact
 
@@ -77,6 +80,21 @@ the milestone's own RB mechanism: one function, sdk surface layer only, zero int
 IMP §17 also specifies: "plugin tier in SDK rollout" (RegisterPlugin) and "cross-process
 submit" (Submit fallback to storage). Both were absent. Both are additive sdk-surface additions
 with no internal/ touch. Disclosed here and in BOUNDARY_EVIDENCE.md.
+
+The C3r repair removed the hardcoded namespace list `[r.namespace,"oip","default"]` from
+`sdk/runtime_runner.go`; the Submit fallback now scans only `r.namespace` (generic, namespace-
+scoped). The `--namespace` global flag on `cmd/awis` (default `"default"`) allows callers to
+target any namespace without embedding application names in platform code. Fixture restored
+after the C3 deviation was rejected by the CE.
+
+An engine fix was also required: `internal/engine/emit.go` and `internal/storage/rebuild.go`
+now write a sentinel `{}` to `inst.Variables[step_id]` when `StepFallbackActivated` fires.
+This enables the join gate to see the fallback-originated step as "done" in convergent
+(OR-semantics) workflows like capture-decision, where `confirm-entry` has two inbound
+paths (`draft-entry → confirm-entry` and `manual-entry → confirm-entry`). Without the
+sentinel, the AND-join gate blocks `confirm-entry` from activating after the fallback path
+completes. Both forward (in-memory) and rebuild (storage projection) paths apply the
+sentinel consistently (EDR-007 equivalence preserved).
 
 All four sdk files are in the public surface layer (`sdk/`), not under `internal/`. StoragePort
 (12 methods, Blueprint §20) is unchanged. The Go workspace structure keeps `apps/oip` as a

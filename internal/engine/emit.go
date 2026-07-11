@@ -313,6 +313,16 @@ func applyEventToInstance(inst *core.WorkflowInstance, ev core.ExecutionEvent) e
 		}
 		if pid != "" {
 			inst.CurrentSteps = removeStep(inst.CurrentSteps, pid)
+			// Record the fallback-activated step in Variables so that convergent
+			// join gates (OR-semantics workflows) can see it as "done" and activate
+			// the merge step. The sentinel value carries no outputs; downstream
+			// templates that reference this step's outputs will resolve to zero-values.
+			if inst.Variables == nil {
+				inst.Variables = map[string]any{}
+			}
+			if _, exists := inst.Variables[pid]; !exists {
+				inst.Variables[pid] = map[string]any{}
+			}
 		}
 
 	case core.EventTypeSignalReceived:

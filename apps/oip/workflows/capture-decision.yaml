@@ -37,7 +37,15 @@ steps:
       context: "{{steps.assemble-context.outputs.context}}"
     outputs:
       draft: {type: string}
-    fallback: confirm-entry
+    fallback: manual-entry
+
+  - id: manual-entry
+    name: Manual Entry (AI unavailable)
+    type: signal
+    wait_signal:
+      name: manual_draft_provided
+      timeout: 24h
+      timeout_action: fail
 
   - id: confirm-entry
     name: Human Confirmation
@@ -62,6 +70,11 @@ transitions:
   - from: assemble-context
     to: draft-entry
   - from: draft-entry
+    to: confirm-entry
+  - from: draft-entry
+    to: manual-entry
+    condition: "steps.draft-entry.status == 'fallback'"
+  - from: manual-entry
     to: confirm-entry
   - from: confirm-entry
     to: append-to-record
