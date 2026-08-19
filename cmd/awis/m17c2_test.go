@@ -53,15 +53,15 @@ func TestParseCronInvalid(t *testing.T) {
 	cases := []struct {
 		expr string
 	}{
-		{"* * * *"},        // 4 fields
-		{"* * * * * *"},   // 6 fields
-		{"60 * * * *"},    // minute out of range
-		{"* 24 * * *"},    // hour out of range
-		{"* * 32 * *"},    // dom out of range
-		{"* * * 13 *"},    // month out of range
-		{"* * * * 7"},     // dow out of range
-		{"* * * * */0"},   // step=0 invalid
-		{"abc * * * *"},   // non-numeric
+		{"* * * *"},     // 4 fields
+		{"* * * * * *"}, // 6 fields
+		{"60 * * * *"},  // minute out of range
+		{"* 24 * * *"},  // hour out of range
+		{"* * 32 * *"},  // dom out of range
+		{"* * * 13 *"},  // month out of range
+		{"* * * * 7"},   // dow out of range
+		{"* * * * */0"}, // step=0 invalid
+		{"abc * * * *"}, // non-numeric
 	}
 	for _, tc := range cases {
 		t.Run(tc.expr, func(t *testing.T) {

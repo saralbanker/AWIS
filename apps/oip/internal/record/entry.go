@@ -17,17 +17,17 @@ import (
 
 // Entry holds the TDS-06 record fields for a single decision entry.
 type Entry struct {
-	Title       string
-	Date        string // YYYY-MM-DD
-	Status      string // "decided" or "superseded"
-	Tags        []string
-	Corrects    string // ID of prior entry or ""
-	Provenance  Provenance
-	Distinguishes Distinguishes
-	Decision            string
-	Rationale           string
+	Title                string
+	Date                 string // YYYY-MM-DD
+	Status               string // "decided" or "superseded"
+	Tags                 []string
+	Corrects             string // ID of prior entry or ""
+	Provenance           Provenance
+	Distinguishes        Distinguishes
+	Decision             string
+	Rationale            string
 	RejectedAlternatives string
-	Unknowns            string
+	Unknowns             string
 }
 
 // Provenance holds the attribution block (Art. 9).

@@ -256,7 +256,7 @@ func (a *Adapter) doRequest(ctx context.Context, body messagesRequest) (string, 
 	if err != nil {
 		return "", core.Usage{}, fmt.Errorf("anthropic: http request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -336,10 +336,10 @@ func buildSynthesisPrompt(req core.SynthesisRequest) string {
 	sb.WriteString(req.Query)
 	sb.WriteString("\n\nEntries:\n")
 	for i, e := range req.Entries {
-		sb.WriteString(fmt.Sprintf("%d. %v\n", i+1, e))
+		fmt.Fprintf(&sb, "%d. %v\n", i+1, e)
 	}
 	if req.MaxLen > 0 {
-		sb.WriteString(fmt.Sprintf("\nMaximum response length: %d tokens.\n", req.MaxLen))
+		fmt.Fprintf(&sb, "\nMaximum response length: %d tokens.\n", req.MaxLen)
 	}
 	return sb.String()
 }

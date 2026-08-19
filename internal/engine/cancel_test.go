@@ -345,7 +345,7 @@ func TestCancel_DuringWait(t *testing.T) {
 	want := []pair{
 		{core.EventTypeWorkflowStarted, ""},
 		{core.EventTypeStepStarted, "w"},
-		{core.EventTypeStepFailed, "w"},  // code="cancelled", retrying=false
+		{core.EventTypeStepFailed, "w"}, // code="cancelled", retrying=false
 		{core.EventTypeWorkflowCancelled, ""},
 	}
 	assertPairs(t, pairs, want)

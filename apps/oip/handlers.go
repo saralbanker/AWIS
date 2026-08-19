@@ -80,14 +80,14 @@ func (h *RecordAppendHandler) Execute(ctx sdk.StepContext) (sdk.StepResult, erro
 	}
 
 	e := record.Entry{
-		Title:               strInput(inputs, "title"),
-		Status:              strInput(inputs, "status"),
-		Corrects:            strInput(inputs, "corrects"),
-		Decision:            strInput(inputs, "decision"),
-		Rationale:           strInput(inputs, "rationale"),
+		Title:                strInput(inputs, "title"),
+		Status:               strInput(inputs, "status"),
+		Corrects:             strInput(inputs, "corrects"),
+		Decision:             strInput(inputs, "decision"),
+		Rationale:            strInput(inputs, "rationale"),
 		RejectedAlternatives: strInput(inputs, "rejected_alternatives"),
-		Unknowns:            strInput(inputs, "unknowns"),
-		Tags:                sliceInput(inputs, "tags"),
+		Unknowns:             strInput(inputs, "unknowns"),
+		Tags:                 sliceInput(inputs, "tags"),
 		Provenance: record.Provenance{
 			Origin:     strInput(inputs, "provenance_origin"),
 			Authority:  strInput(inputs, "provenance_authority"),

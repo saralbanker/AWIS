@@ -114,7 +114,7 @@ func TestSignalTimeout_Fail(t *testing.T) {
 	assertPairs(t, pairs, []pair{
 		{core.EventTypeWorkflowStarted, ""},
 		{core.EventTypeStepStarted, "w"},
-		{core.EventTypeStepFailed, "w"},   // timeout signal_timeout code
+		{core.EventTypeStepFailed, "w"}, // timeout signal_timeout code
 		{core.EventTypeWorkflowFailed, ""},
 	})
 
@@ -216,7 +216,7 @@ func TestSignalTimeout_Compensate(t *testing.T) {
 		{core.EventTypeWorkflowStarted, ""},
 		{core.EventTypeStepStarted, "a"}, {core.EventTypeStepCompleted, "a"},
 		{core.EventTypeStepStarted, "w"},
-		{core.EventTypeStepFailed, "w"},   // code="signal_timeout"
+		{core.EventTypeStepFailed, "w"}, // code="signal_timeout"
 		{core.EventTypeWorkflowFailed, ""},
 		{core.EventTypeWorkflowCompensating, ""},
 		{core.EventTypeWorkflowCompensated, ""},

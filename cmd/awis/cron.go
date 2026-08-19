@@ -26,11 +26,11 @@ import (
 type cronSchedule struct {
 	raw string
 	// Each field is a bitset of matching values.
-	minutes  uint64 // bits 0-59
-	hours    uint64 // bits 0-23
-	doms     uint32 // bits 1-31
-	months   uint16 // bits 1-12
-	dows     uint8  // bits 0-6
+	minutes uint64 // bits 0-59
+	hours   uint64 // bits 0-23
+	doms    uint32 // bits 1-31
+	months  uint16 // bits 1-12
+	dows    uint8  // bits 0-6
 }
 
 // parseCron parses a standard 5-field cron expression.
