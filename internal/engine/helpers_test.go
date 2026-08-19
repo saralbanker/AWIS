@@ -220,11 +220,11 @@ func (h *stepHandler) Execute(_ core.StepContext) (core.StepResult, error) {
 // thereafter (returning outputs). It counts calls atomically. Used by the retry
 // and compensation-undo fixtures.
 type flakyHandler struct {
-	id       string
-	outputs  map[string]any
-	err      error
+	id        string
+	outputs   map[string]any
+	err       error
 	failUntil int32 // number of leading calls that fail
-	calls    int32
+	calls     int32
 }
 
 func (h *flakyHandler) ID() string { return h.id }
