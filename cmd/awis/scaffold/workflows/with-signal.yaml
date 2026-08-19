@@ -1,0 +1,44 @@
+schema_version: 1
+id: with-signal
+version: 1.0.0
+namespace: examples
+name: With Signal
+description: WAIT/signal workflow — parks until an external signal is delivered
+
+triggers:
+  - type: manual
+
+steps:
+  - id: prepare
+    name: Prepare
+    type: native
+    handler: examples.signal.prepare
+    outputs:
+      ready: {type: boolean}
+
+  - id: await-approval
+    name: Await Approval
+    type: signal
+    wait_signal:
+      signal_name: approved
+      timeout: 72h
+      timeout_action: cancel
+
+  - id: finalize
+    name: Finalize
+    type: native
+    handler: examples.signal.finalize
+    inputs:
+      approval: "{{steps.await-approval.outputs.approved}}"
+    outputs:
+      done: {type: boolean}
+
+initial_step: prepare
+
+transitions:
+  - from: prepare
+    to: await-approval
+  - from: await-approval
+    to: finalize
+
+final_steps: [finalize]
