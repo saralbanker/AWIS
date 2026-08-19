@@ -110,11 +110,11 @@ func RetryExhaustionFallback() (*core.WorkflowDefinition, []core.StepHandler) {
 		Triggers:      manualTrigger(),
 		Steps: []core.Step{
 			{
-				ID:      "flaky",
-				Name:    "flaky",
-				Type:    core.StepTypeNative,
-				Handler: "fixtures.rf.flaky",
-				Retry:   &core.RetryPolicy{Attempts: 2, Backoff: "immediate"},
+				ID:       "flaky",
+				Name:     "flaky",
+				Type:     core.StepTypeNative,
+				Handler:  "fixtures.rf.flaky",
+				Retry:    &core.RetryPolicy{Attempts: 2, Backoff: "immediate"},
 				Fallback: "recovery",
 			},
 			{ID: "recovery", Name: "recovery", Type: core.StepTypeNative, Handler: "fixtures.rf.recovery"},
