@@ -31,8 +31,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # fetch-depth: 0 is REQUIRED, not a default worth trimming.
+      # actions/checkout defaults to a depth-1 clone, in which
+      # `git rev-parse HEAD~1` fails and TestE2EGitDiffFetch_CapabilityIDHandler
+      # silently t.Skip()s while the package still reports ok — a fake-green
+      # path. Proven by running the suite in a `git clone --depth 1`.
+      # (That test arrives with M12; wired here so the guard predates it.)
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
