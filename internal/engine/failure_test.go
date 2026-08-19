@@ -43,10 +43,10 @@ func TestRetryExhaustThenFallback(t *testing.T) {
 	pairs, evs := eventPairs(t, s, iid)
 	want := []pair{
 		{core.EventTypeWorkflowStarted, ""},
-		{core.EventTypeStepStarted, "a"},          // attempt 1
-		{core.EventTypeStepFailed, "a"},           // retrying:true
-		{core.EventTypeStepStarted, "a"},          // attempt 2
-		{core.EventTypeStepFailed, "a"},           // retrying:false (exhausted)
+		{core.EventTypeStepStarted, "a"}, // attempt 1
+		{core.EventTypeStepFailed, "a"},  // retrying:true
+		{core.EventTypeStepStarted, "a"}, // attempt 2
+		{core.EventTypeStepFailed, "a"},  // retrying:false (exhausted)
 		{core.EventTypeStepFallbackActivated, "a"},
 		{core.EventTypeStepStarted, "fb"},
 		{core.EventTypeStepCompleted, "fb"},

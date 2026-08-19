@@ -34,7 +34,9 @@ func NewPluginRunner(mgr *Manager) *PluginRunner {
 // and maps the result to core.StepResult / *core.StepError.
 //
 // The effective call timeout follows TDS-05 §5:
-//   min(ctx deadline, step.Timeout if set, capability timeout_ms)
+//
+//	min(ctx deadline, step.Timeout if set, capability timeout_ms)
+//
 // The stepTimeout argument to Manager.Call carries the step-level timeout; the
 // Manager computes the full effective minimum internally.
 func (r *PluginRunner) Run(ctx context.Context, sc core.StepContext, step core.Step) (core.StepResult, *core.StepError) {

@@ -6,7 +6,10 @@ toolchain go1.26.4
 
 require modernc.org/sqlite v1.53.0
 
+require gopkg.in/yaml.v3 v3.0.1 // indirect
+
 require (
+	github.com/awis/awis v0.0.0
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -17,3 +20,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace github.com/awis/awis => ../..

@@ -79,7 +79,7 @@ type ymlRetryPolicy struct {
 
 type ymlWaitConfig struct {
 	SignalName    string `yaml:"signal_name"`
-	Name          string `yaml:"name"`           // Blueprint §7 alias for signal_name
+	Name          string `yaml:"name"` // Blueprint §7 alias for signal_name
 	Timeout       string `yaml:"timeout"`
 	TimeoutAction string `yaml:"timeout_action"`
 }

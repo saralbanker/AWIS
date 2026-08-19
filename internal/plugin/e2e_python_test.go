@@ -49,10 +49,11 @@ func e2ePythonPluginDir(t *testing.T) string {
 // TestE2EPythonPlugin registers a real Python plugin and runs a harness workflow.
 //
 // Workflow:
-//   plugin-step (type=plugin, handler=echo.call): inputs {message: "hello"}
-//     → outputs {reply: "hello"}
-//   verify-step (type=native, handler=test-native-echo): reads plugin-step.reply
-//     → workflow completes.
+//
+//	plugin-step (type=plugin, handler=echo.call): inputs {message: "hello"}
+//	  → outputs {reply: "hello"}
+//	verify-step (type=native, handler=test-native-echo): reads plugin-step.reply
+//	  → workflow completes.
 //
 // This test proves the full path: Python process ↔ NDJSON JSON-RPC ↔ Manager ↔
 // PluginRunner ↔ engine ↔ storage.

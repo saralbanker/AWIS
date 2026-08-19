@@ -18,8 +18,8 @@ const version = "0.1.0-dev"
 
 // Global flags — parsed before the subcommand name.
 var (
-	globalDataDir  string
-	globalJSON     bool
+	globalDataDir   string
+	globalJSON      bool
 	globalNamespace string
 )
 

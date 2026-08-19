@@ -24,12 +24,12 @@ func init() {
 
 // submitOutput is the JSON schema for 'awis submit --json' (TDS-07 §4).
 type submitOutput struct {
-	InstanceID      string  `json:"instance_id"`
-	WorkflowID      string  `json:"workflow_id"`
-	WorkflowVersion string  `json:"workflow_version"`
-	Namespace       string  `json:"namespace"`
-	Status          string  `json:"status"`
-	DurationMs      *int    `json:"duration_ms"`
+	InstanceID      string `json:"instance_id"`
+	WorkflowID      string `json:"workflow_id"`
+	WorkflowVersion string `json:"workflow_version"`
+	Namespace       string `json:"namespace"`
+	Status          string `json:"status"`
+	DurationMs      *int   `json:"duration_ms"`
 }
 
 func runSubmit(args []string) {

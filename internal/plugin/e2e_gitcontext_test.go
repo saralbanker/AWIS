@@ -36,7 +36,6 @@ import (
 	"github.com/awis/awis/internal/storage"
 )
 
-
 // e2eRepoRoot returns the absolute path to the repository root (two levels above
 // internal/plugin/).
 func e2eRepoRoot(t *testing.T) string {

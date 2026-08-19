@@ -45,12 +45,12 @@ type Config struct {
 // Runtime wraps the internal engine and exposes the application-facing sdk
 // surface (Blueprint §12). Construct via NewRuntime.
 type Runtime struct {
-	eng          *engine.Engine
-	nr           *native.NativeRunner
-	storage      core.StoragePort
-	namespace    string
-	workerID     string
-	pluginMgr    *plugin.Manager // nil when storage lacks PluginStore
+	eng       *engine.Engine
+	nr        *native.NativeRunner
+	storage   core.StoragePort
+	namespace string
+	workerID  string
+	pluginMgr *plugin.Manager // nil when storage lacks PluginStore
 
 	mu       sync.Mutex
 	defs     map[string]core.SemVer // id → latest registered version

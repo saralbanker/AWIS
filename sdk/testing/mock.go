@@ -25,8 +25,8 @@ type MockIntelligence struct {
 	draftResp core.DraftResponse
 
 	// embed fixture
-	hasEmbed  bool
-	embedVec  []float32
+	hasEmbed bool
+	embedVec []float32
 
 	// classify fixture
 	hasClassify  bool

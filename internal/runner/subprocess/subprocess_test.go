@@ -336,4 +336,3 @@ func TestBehavior_StderrCapture(t *testing.T) {
 		t.Errorf("details missing stderr key: %v", se.Details)
 	}
 }
-
