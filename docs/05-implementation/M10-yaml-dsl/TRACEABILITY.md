@@ -26,4 +26,37 @@ Every task → canonical coordinate. Cards: docs/05-implementation/M10-yaml-dsl/
   `core.WorkflowDefinition`; consumed via registration. dsl imports nothing from cmd/.
 
 ## Execution record (appended during B-BUILD/C-VERIFY)
-- (empty — filled as cards complete)
+- C1 (a575113, 2026-07-09): internal/dsl package created. ParseFile/Parse (yaml.v3 KnownFields),
+  lineMap, rawToCore. go.mod: yaml.v3 v3.0.1 (only new dep). 6/6 tests pass incl. oracle parse
+  + validate.Validate zero-issues check. make build/test/lint/race/e1 all green. No deviations.
+- C2 (b958c79, 2026-07-10): validate.go (ValidateFile, Report, ReportIssue, resolveLines, lineFor,
+  indexFromField, fallbackOf); render.go (Render, renderValid, renderInvalid, hintFor covering all
+  16 validate codes + parse-error); discover.go (Discover via filepath.Glob). T4/T5/T6 delivered.
+  FR-WD-15: zero runtime/storage/sdk imports in validate.go. 15/15 tests pass (12 ValidateFile +
+  3 Discover + 5 render golden). make build/test/lint/race/e1 all green, 0 lint issues. No deviations.
+- C3 (872974b, 2026-07-10): equivalence_test.go (TestKeystoneDeepEqual + TestHarnessOracle dsl_test
+  pkg); testdata/keystone.yaml (5-step: retry, fan-out, signal WAIT, conditioned transition);
+  5 YAML fixtures (hello-world, with-signal, with-intelligence, capture-decision verbatim §7,
+  recall-decision §29 shape); fixtures_test.go (TestFixturesParse + TestFixturesValidate 5/5);
+  docs/DSL.md (annotated capture-decision, field-ref→TDS-02, expr-rules→TDS-03, validation→PRD§18).
+  T7/T8/T9/T10 delivered. dsl.go deviations: (a) schema_version absent→defaults 1 (Blueprint §7
+  omits it); (b) wait_signal.name: alias for signal_name: (Blueprint §7 uses name:, TDS-02 uses
+  signal_name:). Both dsl.go only; no frozen interfaces touched. make build/test/lint/race/e1
+  all green. 20 dsl tests pass (15 prior unmodified + 5 new). No fixture edits.
+- V1 (awis-verifier, 2026-07-10): PASS 17/17 checklist rows (26 evidence points). V-COMMON block
+  green (build/test/lint/race/e1). go.mod: yaml.v3 only new direct dep (check.v1 transitive of
+  yaml.v3, expected). Blueprint §7 parse oracle green. Unknown-key rejection + file/line precision
+  confirmed. Runtime-free dep scan empty (no engine/storage/sdk runtime in dsl). PRD §18 rendering
+  golden pass (valid + invalid). All 13 ValidateFile check-class tests pass. Discover sorted + nil
+  on missing dir confirmed. FR-WD-02 keystone deep-equal: PASS (no normalization). Harness oracle
+  PASS. 5/5 fixtures parse+validate. apps/oip diff: ONLY workflows/*.yaml. docs/DSL.md cites
+  TDS-02/TDS-03/PRD §18. No existing test modified. sdk/expr/validate/core surfaces unchanged.
+  5 godoc spot-check pass. COMPAT: schema_version default + wait_signal.name alias are parse-layer
+  only, no runtime surface — strictly additive, no architectural drift.
+- D-CLOSE (Fable, 2026-07-10, at ef35aed): semantic review PASS. Frozen-surface diffs EMPTY
+  (internal/core, engine, storage, validate, expr, sdk). Purely additive milestone: internal/dsl
+  (parser/validate-report/render/discover), 5 fixtures, docs/DSL.md, gopkg.in/yaml.v3. No graph
+  semantics re-implemented (validate.Validate is the single authority; dsl only resolves lines
+  and renders). Deviations (schema_version default, wait_signal.name alias) endorsed as
+  parse-layer compatibility with Blueprint §7 — no drift. Gates at HEAD: build/test/lint(0
+  issues)/race/e1/docs-lint green. Merge recommendation: APPROVED FOR SQUASH MERGE.

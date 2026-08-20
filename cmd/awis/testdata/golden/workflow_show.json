@@ -1,0 +1,1 @@
+{"id":"capture-decision","version":"1.0.0","namespace":"oip","steps":[{"id":"draft-entry","type":"native","next":null,"fallback":null,"wait_signal":null}]}

@@ -1,5 +1,5 @@
 # M10 → M14/M15/M17 Handoff
-**Status: STAGED — activates at M09 merge; actuals filled at M10 completion.**
+**Status: COMPLETE — D-CLOSE review passed 2026-07-10; merge sha fills at founder merge.**
 
 ## Guaranteed outputs (contract — to be confirmed as actuals)
 - `internal/dsl`: `ParseFile`/`Parse` (YAML → frozen `core.WorkflowDefinition`, TDS-02 field
@@ -31,6 +31,17 @@
 - OIP YAML fixtures parse/validate only; they cannot run until M13 (plugin) + M15 (handlers).
 
 ## Actuals (filled at completion)
-- C1 commit: — · C2 commit: — · C3 commit: —
-- V1 verification: —
-- Deviations: —
+- C1 commit: a575113 · C2 commit: b958c79 · C3 commit: 872974b
+- V1 verification: PASS 17/17 (awis-verifier, 2026-07-10, at cd2429b). Full record in
+  module TRACEABILITY execution record + ticked VALIDATION_CHECKLIST.
+- Deviations: dsl.go (a) schema_version absent defaults to 1 (Blueprint §7 omits field);
+  (b) wait_signal.name: accepted as alias for signal_name: (Blueprint §7 uses name:, TDS-02
+  uses signal_name:). Both additive dsl.go-only fixes; no frozen interfaces touched.
+  V1 confirmed: both compatibility adapters are parse-layer only, strictly additive, no drift.
+- D-CLOSE (Fable, 2026-07-10): semantic review of full diff main...m10-yaml-dsl PASS — frozen
+  surfaces untouched (internal/core, engine, storage, validate, expr, sdk diffs EMPTY); milestone
+  is purely additive (internal/dsl + fixtures + docs/DSL.md + yaml.v3); graph semantics delegated
+  to internal/validate (no re-implementation — the §27.M10 risk row is clear); PRD §18 renderer
+  covers all 16 validate codes + parse-error; FR-WD-15 runtime-free path confirmed by import scan.
+  Gates re-run at HEAD ef35aed: build/test/lint(0)/race/e1/docs-lint all green.
+  MERGE RECOMMENDATION: APPROVED FOR SQUASH MERGE.

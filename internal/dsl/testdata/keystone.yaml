@@ -1,0 +1,68 @@
+schema_version: 1
+id: keystone.round-trip
+version: 1.0.0
+namespace: keystone
+name: Keystone Round-Trip
+description: Non-trivial workflow for FR-WD-02 equivalence test (M10-C3; T7)
+
+triggers:
+  - type: manual
+
+steps:
+  - id: fetch
+    name: Fetch Data
+    type: native
+    handler: keystone.fetch
+    inputs:
+      source: "{{workflow.inputs.source}}"
+    outputs:
+      data: {type: object}
+    retry:
+      attempts: 3
+      backoff: exponential
+
+  - id: enrich
+    name: Enrich
+    type: native
+    handler: keystone.enrich
+    outputs:
+      enriched: {type: object}
+
+  - id: cache
+    name: Cache
+    type: native
+    handler: keystone.cache
+    outputs:
+      cached: {type: boolean}
+
+  - id: await-approval
+    name: Await Approval
+    type: signal
+    wait_signal:
+      signal_name: approved
+      timeout: 1h
+      timeout_action: fail
+
+  - id: publish
+    name: Publish
+    type: native
+    handler: keystone.publish
+    outputs:
+      published: {type: boolean}
+
+initial_step: fetch
+
+transitions:
+  - from: fetch
+    to: enrich
+  - from: fetch
+    to: cache
+  - from: enrich
+    to: await-approval
+  - from: cache
+    to: await-approval
+  - from: await-approval
+    to: publish
+    condition: "steps.await-approval.status != 'failed'"
+
+final_steps: [publish]

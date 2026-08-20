@@ -1,0 +1,8 @@
+{
+  "jsonrpc": "2.0",
+  "id": "req-1",
+  "method": "handshake",
+  "params": {
+    "protocol_version": "awis-plugin/1"
+  }
+}

@@ -1,0 +1,4 @@
+INSTALLED PLUGINS
+
+  NAME                     VERSION    STATUS     PATH
+  git-context-plugin       1.0.0      registered <plugin-path>

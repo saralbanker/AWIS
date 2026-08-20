@@ -41,7 +41,7 @@ func TestSignalAndAuditTablesExist(t *testing.T) {
 }
 
 // TestMigrationsReapplyIsNoOp verifies that reopening an already-migrated DB
-// leaves the head at 4 and neither re-runs nor errors on 0003/0004.
+// leaves the head at 5 and neither re-runs nor errors on 0003/0004/0005.
 func TestMigrationsReapplyIsNoOp(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/reapply.db"
@@ -59,8 +59,8 @@ func TestMigrationsReapplyIsNoOp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("currentVersion: %v", err)
 	}
-	if v != 4 {
-		t.Fatalf("want head 4 after re-apply, got %d", v)
+	if v != 5 {
+		t.Fatalf("want head 5 after re-apply, got %d", v)
 	}
 }
 

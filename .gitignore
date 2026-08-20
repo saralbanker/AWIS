@@ -24,3 +24,6 @@
 .venv/
 venv/
 __pycache__/
+
+# built binaries
+/awis

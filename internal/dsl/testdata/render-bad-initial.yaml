@@ -1,0 +1,16 @@
+schema_version: 1
+id: render-bad-initial
+version: 1.0.0
+namespace: test
+name: Bad Initial Step Test
+metadata: {}
+triggers:
+  - type: manual
+steps:
+  - id: step-a
+    name: Step A
+    type: native
+    handler: my-handler
+initial_step: no-such-step
+transitions: []
+final_steps: [step-a]

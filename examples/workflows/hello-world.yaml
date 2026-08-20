@@ -1,0 +1,36 @@
+schema_version: 1
+id: hello-world
+version: 1.0.0
+namespace: examples
+name: Hello World
+description: Minimal linear native workflow — the simplest possible AWIS workflow
+
+triggers:
+  - type: manual
+
+steps:
+  - id: greet
+    name: Greet
+    type: native
+    handler: examples.hello.greet
+    inputs:
+      name: "{{workflow.inputs.name}}"
+    outputs:
+      message: {type: string}
+
+  - id: log
+    name: Log Greeting
+    type: native
+    handler: examples.hello.log
+    inputs:
+      message: "{{steps.greet.outputs.message}}"
+    outputs:
+      logged: {type: boolean}
+
+initial_step: greet
+
+transitions:
+  - from: greet
+    to: log
+
+final_steps: [log]
