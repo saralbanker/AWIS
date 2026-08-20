@@ -180,9 +180,9 @@ func runWorkflowList(args []string) {
 
 // workflowShowOutputJSON is the TDS-07 §4 JSON schema for workflow show.
 type workflowShowOutputJSON struct {
-	ID        string          `json:"id"`
-	Version   string          `json:"version"`
-	Namespace string          `json:"namespace"`
+	ID        string             `json:"id"`
+	Version   string             `json:"version"`
+	Namespace string             `json:"namespace"`
 	Steps     []workflowStepJSON `json:"steps"`
 }
 

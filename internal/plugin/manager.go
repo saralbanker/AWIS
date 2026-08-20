@@ -68,13 +68,13 @@ type ManagerConfig struct {
 //   - mu: protects all fields below (state, handle, crashCount, etc.).
 //     Held only for state transitions; NOT held during blocking I/O.
 type pluginEntry struct {
-	callMu       sync.Mutex    // serializes calls (V1 pin: one call at a time per plugin)
-	mu           sync.Mutex    // protects all fields below
+	callMu       sync.Mutex // serializes calls (V1 pin: one call at a time per plugin)
+	mu           sync.Mutex // protects all fields below
 	manifest     *Manifest
 	state        pluginState
 	handle       *processHandle
 	crashCount   int           // consecutive crash counter
-	monitorDone  chan struct{}  // closed when the monitor goroutine exits
+	monitorDone  chan struct{} // closed when the monitor goroutine exits
 	intentional  bool          // set before a controlled kill so monitor skips crash counting
 	idleTimer    *time.Timer
 	shutdownOnce sync.Once
@@ -83,9 +83,9 @@ type pluginEntry struct {
 // Manager manages the lifecycle of all registered plugins (TDS-05 §7).
 // NewManager is the constructor; Register / Call / Shutdown are the API.
 type Manager struct {
-	store  storage.PluginStore
-	cfg    ManagerConfig
-	clock  func() time.Time
+	store storage.PluginStore
+	cfg   ManagerConfig
+	clock func() time.Time
 
 	mu      sync.Mutex
 	plugins map[string]*pluginEntry // keyed by manifest.Name
