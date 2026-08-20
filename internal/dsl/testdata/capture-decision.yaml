@@ -1,0 +1,85 @@
+# Blueprint §7 capture-decision example adapted to TDS-02 YAML field names.
+# Source: AWIS_ARCHITECTURE_BLUEPRINT.md §7 (parse oracle, M10-C1 ACCEPTANCE).
+# Key adaptation: wait_signal.name → wait_signal.signal_name (TDS-02 verbatim).
+schema_version: 1
+id: capture-decision
+version: 1.0.0
+namespace: oip
+name: Capture Decision
+description: Assemble context, draft entry, confirm, append to record
+metadata: {}
+
+triggers:
+  - type: manual
+  - type: event
+    config:
+      event: git.push.completed
+      filter: "event.branch == 'main'"
+
+steps:
+  - id: assemble-context
+    name: Assemble Git Context
+    type: plugin
+    handler: git-context-plugin
+    inputs:
+      repo_path: "{{workflow.inputs.repo_path}}"
+      ref: "{{workflow.inputs.ref}}"
+    outputs:
+      context: {type: object}
+    retry:
+      attempts: 3
+      backoff: exponential
+
+  - id: draft-entry
+    name: Draft Decision Entry
+    type: intelligence
+    intelligence:
+      capability: draft
+      context_budget: 3000
+    inputs:
+      context: "{{steps.assemble-context.outputs.context}}"
+    outputs:
+      draft: {type: string}
+    fallback: manual-entry
+
+  - id: manual-entry
+    name: Manual Entry (AI unavailable)
+    type: signal
+    wait_signal:
+      signal_name: manual_draft_provided
+      timeout: 24h
+      timeout_action: fail
+
+  - id: confirm-entry
+    name: Human Confirmation
+    type: signal
+    wait_signal:
+      signal_name: entry_confirmed
+      timeout: 72h
+      timeout_action: cancel
+
+  - id: append-to-record
+    name: Append to Record
+    type: native
+    handler: oip.record.append
+    inputs:
+      entry: "{{steps.confirm-entry.outputs.confirmed_entry}}"
+    outputs:
+      entry_id: {type: string}
+
+initial_step: assemble-context
+
+transitions:
+  - from: assemble-context
+    to: draft-entry
+  - from: draft-entry
+    to: confirm-entry
+  - from: draft-entry
+    to: manual-entry
+    condition: "steps.draft-entry.status == 'fallback'"
+  - from: manual-entry
+    to: confirm-entry
+  - from: confirm-entry
+    to: append-to-record
+
+final_steps: [append-to-record]

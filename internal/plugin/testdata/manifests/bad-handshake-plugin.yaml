@@ -1,0 +1,17 @@
+name: bad-handshake-plugin
+version: 1.0.0
+description: Returns wrong name in handshake — tests plugin_handshake_error
+author: test
+
+capabilities:
+  - id: test.cap
+    inputs:
+      value: string
+    outputs:
+      result: string
+    timeout_ms: 5000
+
+runtime:
+  command: sh
+  args: ["testdata/bin/bad-handshake-plugin.sh"]
+  idle_timeout_s: 300

@@ -1,0 +1,16 @@
+{
+  "jsonrpc": "2.0",
+  "id": "req-1",
+  "result": {
+    "name": "git-context-plugin",
+    "version": "1.0.0",
+    "capabilities": [
+      {
+        "id": "git.context.assemble"
+      },
+      {
+        "id": "git.diff.fetch"
+      }
+    ]
+  }
+}

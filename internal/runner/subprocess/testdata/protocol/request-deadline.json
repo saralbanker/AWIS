@@ -1,0 +1,11 @@
+{
+  "protocol": "awis-subprocess/1",
+  "handler": "python my_step.py",
+  "instance_id": "inst-001",
+  "step_id": "compute-hrv",
+  "attempt": 1,
+  "inputs": {
+    "records": [1, 2, 3]
+  },
+  "deadline": "2099-01-01T00:00:00.000000000Z"
+}

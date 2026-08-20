@@ -1,0 +1,40 @@
+# M11 → M12/M15 Handoff
+**Status: COMPLETE — D-CLOSE review passed 2026-07-10; merge sha fills at founder merge.**
+
+## Guaranteed outputs (contract — to be confirmed as actuals)
+- `docs/SUBPROCESS_PROTOCOL.md` (TDS-04, finalized per DoD) + golden wire files at
+  `internal/runner/subprocess/testdata/protocol/` (single wire truth, both sides tested).
+- `internal/runner/subprocess`: engine.Runner for `type: subprocess` steps — spawn (no shell,
+  whitespace argv), one-shot stdin/stdout JSON exchange, timeout → process-group kill,
+  typed StepError mapping (spawn_error/timeout/protocol_error/subprocess_error/envelope).
+- `sdk.NewRuntime` (and therefore the awistesting harness) routes subprocess steps.
+- `python/awis-step`: pip-installable-from-path `awis_step` (@step, StepContext, StepResult,
+  StepError, step.serve()); zero runtime deps; pytest in CI via `make pytest`.
+
+## What M12 may assume (drafted; confirm at completion)
+- TDS-04 authoring pattern (envelope tables + embedded goldens) is the template for TDS-05.
+- Subprocess spawn/kill/stderr-capture patterns are reusable; M12's transport is JSON-RPC 2.0
+  over long-lived stdin/stdout (a DIFFERENT protocol — do not reuse the one-shot envelope).
+- Error-code classes (spawn_error/timeout/protocol_error) are the naming precedent.
+
+## What M15 may assume (drafted; confirm at completion)
+- Polyglot steps work end-to-end (FR-SE-02 proven in harness); OIP contingency paths may use
+  subprocess-typed steps if a plugin slips (IMP §10 contingency note).
+
+## Known limitations (drafted)
+- One process per step execution (one-shot); no process reuse/pooling — that is M12's
+  lifecycle domain.
+- Python-only client library in V1; shell/TS speak the protocol directly (TDS-04 documents it).
+- `awis-step` is repo-local (pip install from path); PyPI is a release-day nicety, not a gate.
+
+## Actuals (filled at completion)
+- C1 commit: 5f3cb87 · C2 commit: febae93 · C3 commit: 145a266
+- V1 verification: PASS (awis-verifier, 2026-07-10, at 5cc1a51; 18/19 clean + 1 CE-adjudicated
+  V-card wording gap — record in module TRACEABILITY).
+- Deviations: harness route test lives in sdk/testing/subprocess_route_test.go (new file,
+  SPEC-sanctioned; import cycle); deadline wire format is fixed 9-digit nanoseconds (goldens
+  keep trailing zeros; RFC3339Nano trims); e2e chains Python→Python with subprocess→native
+  proven by the route test (CE disposition).
+- Known edge (accepted at D-CLOSE): engine ctx CANCELLATION (not timeout) surfaces as
+  subprocess_error exit code -1 rather than a dedicated cancelled code — acceptable for V1;
+  revisit only if M14 cancel UX needs the distinction.

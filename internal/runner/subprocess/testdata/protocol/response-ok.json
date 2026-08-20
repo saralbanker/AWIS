@@ -1,0 +1,6 @@
+{
+  "protocol": "awis-subprocess/1",
+  "outputs": {
+    "hrv": 42.5
+  }
+}

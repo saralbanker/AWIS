@@ -20,16 +20,16 @@ func openTestDB(t *testing.T) *DB {
 }
 
 // TestOpenAppliesMigration verifies that a fresh empty DB is migrated to the
-// current head version on Open (head = 4 since migrations 0003_signals +
-// 0004_audit, M07-C1 / F-4).
+// current head version on Open (head = 5 since migrations 0003_signals +
+// 0004_audit + 0005_plugins, M07-C1 / F-4; M12-C2).
 func TestOpenAppliesMigration(t *testing.T) {
 	db := openTestDB(t)
 	v, err := currentVersion(db.db)
 	if err != nil {
 		t.Fatalf("currentVersion: %v", err)
 	}
-	if v != 4 {
-		t.Fatalf("want schema_version 4, got %d", v)
+	if v != 5 {
+		t.Fatalf("want schema_version 5, got %d", v)
 	}
 }
 
@@ -61,14 +61,14 @@ func TestOpenIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("currentVersion after reopen: %v", err)
 	}
-	if v != 4 {
-		t.Fatalf("want schema_version 4 after reopen, got %d", v)
+	if v != 5 {
+		t.Fatalf("want schema_version 5 after reopen, got %d", v)
 	}
 }
 
 // TestNMinus1Fixture tests the from-scratch fixture path: an empty DB (version
-// 0) migrated to the head version by Open (head = 4 since 0003_signals +
-// 0004_audit). The explicit N-1 case for migration 0002 is TestNMinus1Fixture0002.
+// 0) migrated to the head version by Open (head = 5 since 0003_signals +
+// 0004_audit + 0005_plugins). The explicit N-1 case for migration 0002 is TestNMinus1Fixture0002.
 func TestNMinus1Fixture(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "fixture.db")
@@ -118,8 +118,8 @@ func TestNMinus1Fixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("currentVersion after migration: %v", err)
 	}
-	if v1 != 4 {
-		t.Fatalf("want head version 4 after migration, got %d", v1)
+	if v1 != 5 {
+		t.Fatalf("want head version 5 after migration, got %d", v1)
 	}
 }
 
@@ -199,10 +199,10 @@ func TestNMinus1Fixture0002(t *testing.T) {
 		t.Fatalf("currentVersion after migration: %v", err)
 	}
 	// Open applies every pending migration, so a version-1 fixture advances to
-	// the current head (4) — not merely to 2. This test still proves 0002
+	// the current head (5) — not merely to 2. This test still proves 0002
 	// created domain_events (below); the head just moves with later migrations.
-	if v2 != 4 {
-		t.Fatalf("want head version 4 after migration, got %d", v2)
+	if v2 != 5 {
+		t.Fatalf("want head version 5 after migration, got %d", v2)
 	}
 	if err := db.db.QueryRow(
 		`SELECT name FROM sqlite_master WHERE type='table' AND name='domain_events'`,

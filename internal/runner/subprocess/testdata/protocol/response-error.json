@@ -1,0 +1,10 @@
+{
+  "protocol": "awis-subprocess/1",
+  "error": {
+    "code": "validation_error",
+    "message": "records field must not be empty",
+    "details": {
+      "field": "records"
+    }
+  }
+}

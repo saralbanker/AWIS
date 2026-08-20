@@ -1,0 +1,12 @@
+{
+  "jsonrpc": "2.0",
+  "id": "req-2",
+  "error": {
+    "code": -32000,
+    "message": "handler_error",
+    "data": {
+      "code": "capability_not_found",
+      "detail": "no handler registered for capability"
+    }
+  }
+}

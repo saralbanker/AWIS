@@ -2,55 +2,114 @@
 # Write rule (EEOS §3.3): no phase or card transition is real until it is written here.
 # Status vocabulary: DRAFT | READY | DISPATCHED | DONE | STOPPED | WITHDRAWN
 
-# ── M09 awaiting founder merge ────────────────────────────────────────────────
-MILESTONE: M09-test-infrastructure
-BRANCH: m09-test-infrastructure
+# ── M10 awaiting founder merge ────────────────────────────────────────────────
+MILESTONE: M10-yaml-dsl
+BRANCH: m10-yaml-dsl
 PHASE: E-MERGE (blocked on founder)
 GATE: none (non-gated boundary; squash-merge on founder review)
 CARDS:
-  M09-C1   DONE    awis-builder   b64723d
-  M09-C2   DONE    awis-builder   3764a3a
-  M09-C3   DONE    awis-builder   c8fc10b
-  M09-V1   DONE    awis-verifier  7f700a8
+  M10-C1   DONE    awis-builder   a575113
+  M10-C2   DONE    awis-builder   b958c79
+  M10-C3   DONE    awis-builder   872974b
+  M10-V1   DONE    awis-verifier  f76b6ac
 BLOCKERS: none
-MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE semantic review (Fable, 2026-07-09)
+MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE semantic review (Fable, 2026-07-10)
   found NO architectural drift:
-  - internal/core diff EMPTY; frozen surfaces untouched (EventLog format, port interfaces,
-    F-1 alias targets, StoragePort 12-method set, TDS-01/02/03)
-  - engine delta = one additive nil-safe Config.NewID seam (IMP §3 determinism rule)
-  - sdk surface delta = exactly DeterministicMode + Config.Clock + Config.NewID (FR-SDK-07
-    mandated; IMP §13 additive justification in module TRACEABILITY); NewRuntime intelligence
-    wiring closes the recorded M08 gap (nil ⇒ NullAdapter)
-  - sdk/testing surface = exactly the FR-SDK-06/08 harness+mock contract; harness drives the
-    REAL engine (no re-implemented semantics found in review)
-  - V1 correction reviewed + endorsed: Runtime.ReadEvents (sdk/events.go) was outside the
-    Blueprint §12/§25 + FR-SDK surface; deleted; Harness.ReadEvents reads storage directly
-    inside awistesting — final implementation is specification-compliant
-  - FR-SDK-09 boundary re-proven at D-CLOSE (examples/ internal-import grep empty)
-  - QG-5 + §20.M9 checkpoint green < 1s; build+test+lint+race+e1 re-run green at HEAD 9da8dd0
-EVIDENCE: V1 PASS 20/20 (awis-verifier, 2026-07-09, at 7f700a8). Full record: module
-  TRACEABILITY execution record + ticked VALIDATION_CHECKLIST + HANDOFF actuals (merge sha
-  fills at merge).
-PR-BODY: diff = main...m09-test-infrastructure (16 files, +1929/−34 before D-CLOSE docs;
-  module cards under docs/05-implementation/M09-test-infrastructure/cards/)
-NEXT: founder squash-merge (E-MERGE, human-only); then M10 B-BUILD
+  - frozen-surface diffs EMPTY (internal/core, engine, storage, validate, expr, sdk)
+  - milestone purely additive: internal/dsl + 5 YAML fixtures + docs/DSL.md + yaml.v3 dep
+  - no re-implemented graph semantics (validate.Validate single authority; §27.M10 risk clear)
+  - deviations (schema_version default 1; wait_signal.name alias) endorsed: parse-layer only
+  - gates re-run at HEAD: build/test/lint(0)/race/e1/docs-lint all green
+EVIDENCE: V1 PASS 17/17 (awis-verifier, 2026-07-10, at cd2429b). Full record: module
+  TRACEABILITY execution record + ticked VALIDATION_CHECKLIST + HANDOFF actuals.
+PR-BODY: diff = main...m10-yaml-dsl (26 files, +2542/−30 incl. ledger docs;
+  module cards under docs/05-implementation/M10-yaml-dsl/cards/)
+NEXT: founder squash-merge (E-MERGE, human-only); M11 proceeds stacked on m10-yaml-dsl
+  per founder directive 2026-07-10 ("complete all milestones")
 
-# ── M10 staged (A-INIT complete; activates at M09 merge) ─────────────────────
-MILESTONE-NEXT: M10-yaml-dsl
-BRANCH: m10-yaml-dsl  (create from main AFTER M09 squash-merges)
-PHASE: A-INIT done (fused at M09 D-CLOSE, non-gated boundary); B-BUILD starts at M09 merge
-GATE: none
+# ── M11 awaiting founder merge ────────────────────────────────────────────────
+MILESTONE: M11-subprocess-runner
+BRANCH: m11-subprocess-runner (stacked on m10-yaml-dsl)
+PHASE: E-MERGE (blocked on founder)
+GATE: none (non-gated boundary)
 CARDS:
-  M10-C1   READY   awis-builder   (internal/dsl parser, yaml.v3, TDS-02 fields, file/line errors)
-  M10-C2   READY   awis-builder   (ValidateFile + PRD §18 rendering + Discover; runtime-free)
-  M10-C3   READY   awis-builder   (FR-WD-02 keystone + harness oracle + 5 YAML fixtures + docs/DSL.md)
-  M10-V1   READY   awis-verifier
-BLOCKERS: M09 merge (branch-from-main discipline)
+  M11-C1   DONE    awis-builder   5f3cb87
+  M11-C2   DONE    awis-builder   febae93
+  M11-C3   DONE    awis-builder   145a266
+  M11-V1   DONE    awis-verifier  (report 2026-07-10 at 5cc1a51; PASS, 1 row CE-adjudicated)
+BLOCKERS: none
+MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE (Fable, 2026-07-10): frozen surfaces
+  untouched; runner reviewed line-by-line (process-group kill, envelope-wins, ReadAll/Wait
+  ordering all correct); TDS-04 finalized (DoD); pytest in CI; e2e keystone green.
+EVIDENCE: module TRACEABILITY execution record + ticked VALIDATION_CHECKLIST + HANDOFF actuals.
+NEXT: founder squash-merge; M12 proceeds stacked on m11-subprocess-runner
 
-LAST: 2026-07-09 M09 D-CLOSE (Fable): semantic review PASS, no drift; HANDOFF/TRACEABILITY
-      actuals finalized; merge recommendation APPROVED FOR SQUASH MERGE; M08 confirmed merged
-      by founder (main 87c1632) → DONE-MILESTONES; M10 A-INIT materialized (module + 4 cards
-      READY); STATE → E-MERGE
+# ── M12 awaiting founder merge ────────────────────────────────────────────────
+MILESTONE: M12-plugin-system
+BRANCH: m12-plugin-system (stacked on m11-subprocess-runner)
+PHASE: E-MERGE (blocked on founder)
+GATE: none (non-gated boundary)
+CARDS:
+  M12-C1   DONE    awis-builder   5e6eebb
+  M12-C2   DONE    awis-builder   58902ff
+  M12-C3   DONE    awis-builder   72496b8
+  M12-C4   DONE    awis-builder   c9566c6
+  M12-V1   DONE    awis-verifier  (report 2026-07-10 at 147920c; PASS 27/27)
+BLOCKERS: none
+MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE (Fable, 2026-07-10) incl. the
+  Opus-designated adversarial FSM review (upward substitution): invariants 1-5 verified;
+  frozen surfaces untouched; gates + pytest green at HEAD.
+EVIDENCE: module TRACEABILITY + ticked VALIDATION_CHECKLIST + HANDOFF actuals.
+NEXT: founder squash-merge; M13 proceeds stacked on m12-plugin-system
 
-DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07 M08   # history: git log + module HANDOFFs
-# M09 moves to DONE-MILESTONES after founder squash-merge
+# ── M13 awaiting founder merge ────────────────────────────────────────────────
+MILESTONE: M13-git-context-plugin
+BRANCH: m13-git-context-plugin (stacked on m12-plugin-system)
+PHASE: E-MERGE (blocked on founder)
+GATE: none (non-gated boundary)
+CARDS:
+  M13-C1   DONE    awis-builder   76574ff
+  M13-C2   DONE    awis-builder   080a367
+  M13-V1   DONE    awis-verifier  (report 2026-07-10 at d120ade; PASS all rows)
+BLOCKERS: none
+MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE (Fable, 2026-07-10): consumer-only
+  milestone; OIP plugin dependency exists; manifest Blueprint-verbatim (python3 delta recorded).
+EVIDENCE: module TRACEABILITY + ticked VALIDATION_CHECKLIST + HANDOFF actuals.
+NEXT: founder squash-merge; M14 proceeds stacked on m13-git-context-plugin
+
+# ── M14 awaiting founder merge ────────────────────────────────────────────────
+MILESTONE: M14-core-cli
+BRANCH: m14-core-cli (stacked on m13-git-context-plugin)
+PHASE: E-MERGE (blocked on founder)
+GATE: none (non-gated boundary)
+CARDS:
+  M14-C1   DONE    awis-builder   709ce0e
+  M14-C2   DONE    awis-builder   73435f7
+  M14-C3   DONE    awis-builder   add54dd
+  M14-C4   DONE    awis-builder   51c2575
+  M14-V1   DONE    awis-verifier  (21/22 at 08982be; row 9 → C3r 234a935; CE re-verify green)
+  M14-C3r  DONE    awis-builder   234a935
+BLOCKERS: none
+MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE (Fable, 2026-07-10): F-3/CONTRA-5
+  settled + proven live; dev loop (submit->status->trace->signal) real-binary tested incl.
+  crash recovery; frozen layers untouched.
+NEXT: founder squash-merge; M15 proceeds stacked on m14-core-cli
+
+# ── M15 active ────────────────────────────────────────────────────────────────
+MILESTONE: M15-oip-on-awis
+BRANCH: m15-oip-on-awis (stacked on m14-core-cli)
+PHASE: A-INIT (in progress, Fable)
+GATE: G3 (human platform-boundary verdict) + TDS-06 human sign-off BEFORE handlers
+BLOCKERS: none
+NEXT: A-INIT; NOTE TDS-06 sign-off + G3 verdict are FOUNDER-ONLY — build to the gate, brief, stop
+
+LAST: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
+      HEAD 03d5045 IS the founder's M09 squash-merge ("M09 — Test Infrastructure") and
+      m10-yaml-dsl is based on it — founder merged after this branch's A-INIT snapshot.
+      Resolution: M09 → DONE-MILESTONES (merge sha 03d5045). Same day: M10 D-CLOSE (Fable)
+      PASS, merge recommendation APPROVED; founder directive: continue through M18 with
+      Sonnet/Haiku subagents only (no Opus; Opus-designated work is done inline by Fable,
+      upward substitution per EEOS rule 8); milestones stack branches, E-MERGE stays human.
+
+DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07 M08 M09   # history: git log + module HANDOFFs
+# M09 merge sha 03d5045 (founder squash-merge, verified against main log at reconciliation)
