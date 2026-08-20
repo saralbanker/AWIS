@@ -1,16 +1,23 @@
 name: CI
 
-# Minimum viable verification CI (stabilization sprint S6).
+# Verification CI. No release pipeline, no deployment. Its job is to answer
+# "are the gates green?" and it does so by running the same `make` targets a
+# developer runs locally, so a green check here and a green run on a laptop
+# mean the same thing.
 #
-# Scope is deliberately narrow: Linux only, no matrix, no release pipeline, no
-# deployment. Its single job is to answer "are the gates green?" and it does so
-# by running the same `make` targets a developer runs locally, so a green check
-# here and a green run on a laptop mean the same thing.
+# Linux + macOS, added once Linux was proven green. The matrix earns its cost:
+# the first CI run in this project's history failed on a Go *patch* difference
+# (local go1.26.5 vs runner go1.26.6) that no amount of local testing would
+# have surfaced. A second OS is the same argument one step further out —
+# path separators, BSD vs GNU userland, case-insensitive filesystems and
+# process-group semantics all differ there.
 #
-# Deliberately NOT wired yet (each is a known, tracked gap, not an oversight):
-#   - macOS: the previous workflow declared a macOS matrix leg that never once
-#     executed. A matrix is only worth adding after Linux is proven green.
+# fail-fast is off: when one leg breaks, the other's result is exactly the
+# information needed to tell an OS-specific defect from a general one.
+#
+# Deliberately NOT wired yet (each a known, tracked gap, not an oversight):
 #   - pytest, benchmarks, release-dry: out of scope for a verification-only CI.
+#   - Windows: no supported target for v1.0.0.
 #
 # CGO_ENABLED is intentionally left at its default of 1. `go test -race`
 # requires cgo; the previous workflow set CGO_ENABLED=0 globally, which means a
@@ -27,9 +34,13 @@ permissions:
 
 jobs:
   verify:
-    name: Verify (Linux)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: Verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       # fetch-depth: 0 is REQUIRED, not a default worth trimming.
       # actions/checkout defaults to a depth-1 clone, in which
@@ -88,6 +99,8 @@ jobs:
   # and acts as a merge guard: M15, M16 and M17 currently carry incomplete
   # module artifacts, so this job will correctly go red if they are merged
   # before those files are materialized. That is the intended behaviour.
+  # Stays single-OS on purpose: this checks repository *contents*, not compiled
+  # behaviour, so a second runner would re-read the same files and prove nothing.
   docs-lint:
     name: EEOS docs-lint
     runs-on: ubuntu-latest
