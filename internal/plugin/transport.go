@@ -63,8 +63,8 @@ type handshakeParams struct {
 
 // handshakeResult is the result block of a successful handshake response (TDS-05 §2).
 type handshakeResult struct {
-	Name         string               `json:"name"`
-	Version      string               `json:"version"`
+	Name         string              `json:"name"`
+	Version      string              `json:"version"`
 	Capabilities []handshakeCapEntry `json:"capabilities"`
 }
 
@@ -90,10 +90,10 @@ type executeResult struct {
 // processHandle is a long-lived plugin process (TDS-05 §1 long-lived model).
 // One instance is created per spawn; destroyed on crash or shutdown.
 type processHandle struct {
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
-	reader    *bufio.Reader
-	stderrBuf *bytes.Buffer
+	cmd        *exec.Cmd
+	stdin      io.WriteCloser
+	reader     *bufio.Reader
+	stderrBuf  *bytes.Buffer
 	reqCounter int // monotonic per process; protected by manager mutex
 }
 
@@ -102,7 +102,8 @@ type processHandle struct {
 // Process group is set (Setpgid) so SIGKILL reaps all descendants.
 //
 // Pattern: subprocess.go cmd.SysProcAttr + StdinPipe/StdoutPipe (coordinate:
-//   internal/runner/subprocess/subprocess.go lines 126–143).
+//
+//	internal/runner/subprocess/subprocess.go lines 126–143).
 func spawnPlugin(command string, args []string, env []string) (*processHandle, error) {
 	cmd := exec.Command(command, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -293,7 +294,8 @@ func (h *processHandle) doExecute(ctx context.Context, id string, params execute
 
 // killGroup sends SIGKILL to the entire process group of the plugin.
 // Pattern: subprocess.killGroup (coordinate:
-//   internal/runner/subprocess/subprocess.go line 286–292).
+//
+//	internal/runner/subprocess/subprocess.go line 286–292).
 func (h *processHandle) killGroup() {
 	if h.cmd.Process == nil {
 		return
@@ -311,7 +313,8 @@ func (h *processHandle) pid() int {
 
 // tailWriter is an io.Writer that keeps only the last max bytes in buf.
 // Pattern: subprocess.tailWriter (coordinate:
-//   internal/runner/subprocess/subprocess.go lines 309–327).
+//
+//	internal/runner/subprocess/subprocess.go lines 309–327).
 type tailWriter struct {
 	buf *bytes.Buffer
 	max int

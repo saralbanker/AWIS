@@ -26,14 +26,14 @@ func init() {
 
 // statusActiveJSON is one element of the 'active' array in TDS-07 §4 status JSON schema.
 type statusActiveJSON struct {
-	InstanceID         string  `json:"instance_id"`
-	WorkflowID         string  `json:"workflow_id"`
-	Namespace          string  `json:"namespace"`
-	Status             string  `json:"status"`
-	CurrentStep        *string `json:"current_step"`
-	SignalName         *string `json:"signal_name"`
-	TimeoutRemainingS  *int    `json:"timeout_remaining_s"`
-	ElapsedS           int     `json:"elapsed_s"`
+	InstanceID        string  `json:"instance_id"`
+	WorkflowID        string  `json:"workflow_id"`
+	Namespace         string  `json:"namespace"`
+	Status            string  `json:"status"`
+	CurrentStep       *string `json:"current_step"`
+	SignalName        *string `json:"signal_name"`
+	TimeoutRemainingS *int    `json:"timeout_remaining_s"`
+	ElapsedS          int     `json:"elapsed_s"`
 }
 
 // statusRecentJSON is one element of the 'recent' array in TDS-07 §4 status JSON schema.
