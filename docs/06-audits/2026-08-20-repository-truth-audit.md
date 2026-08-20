@@ -75,6 +75,12 @@ so the absence is not a configuration gap in the branch files — those branches
 been pushed under an active Actions configuration. The consequence is what matters: **no milestone
 branch has any CI evidence whatsoever.**
 
+**Proven live during this audit:** pushing this report's own branch produced run `32351838137`
+(`head_branch: claude/awis-repository-audit-0y6xfs`) — run #4, and the **first CI run on a
+non-main branch in this project's history**. Actions is therefore active for `branches: ["**"]`
+today; the milestone branches simply predate that. This directly de-risks step 4 of §9: a
+rebaselined branch *will* get real CI.
+
 This is independently corroborated inside the repository. `be13cf9`'s commit message:
 
 > "Drift had grown monotonically 7 -> 22 files across M10..M17 because gofmt is a CI-only gate and **CI has never executed**."
@@ -262,7 +268,7 @@ and it differs from that recommendation in one decisive respect (the lint fix). 
 1. **It is the only milestone with zero founder blockers.** M15 needs G3 + TDS-06 (human-only). M17 needs C3 finished. M16 needs neither.
 2. **It is proven, not projected.** I executed the whole rebaseline: `verify: ALL GATES PASSED`, exit 0 (§F-6).
 3. **It permanently de-stacks the chain.** M16 ∩ M15 = `STATE.md` alone. Rebaselining removes M16 from M15's founder-gated critical path forever.
-4. **It buys CI truth as a side effect.** main's `ci.yml` triggers on `branches: ["**"]`, so pushing the rebaselined branch produces **the first CI run on a milestone branch in this project's history** — converting M16's verdict from self-reported to machine-proven, and validating the pipeline for M17 and M15 after it.
+4. **It buys CI truth as a side effect — and this is now demonstrated, not assumed.** main's `ci.yml` triggers on `branches: ["**"]`, and pushing this audit's own branch fired run `32351838137`, the first non-main CI run in the project's history (§F-3). The same push will convert M16's verdict from self-reported to machine-proven, and validate the pipeline for M17 and M15 after it.
 5. **It is small and reversible.** One 60KB patch, one 3-line lint fix, four doc files.
 
 **Do this in the same sitting (not an action, but the long pole):** send the founder the G3 /
@@ -412,7 +418,8 @@ machine work instead of following it.
 | M15 impl 95% complete | **High** | Branch ledger + card SHAs; not independently re-verified end-to-end |
 | M16 is the highest-value next action | **High** | Proven green + zero founder deps; assumes founder merge cadence is not the binding constraint |
 | Fold-into-DEPENDENCY_MAP is the best EEOS fix | **High** | Contract text + 15/15 precedent; founder may still prefer an amendment |
-| *Why* CI never ran on branches | **Low** | Effect is certain; the cause (Actions enablement timing) is inferred and does not affect any recommendation |
+| Pushing a branch today triggers real CI | **Certain** | Run `32351838137` fired on this audit's own branch |
+| *Why* CI never ran on milestone branches | **Medium** | Effect certain; cause (branches predate Actions activation) inferred but now supported by the live run above. Affects no recommendation |
 
 ---
 
