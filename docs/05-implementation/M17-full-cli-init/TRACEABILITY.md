@@ -162,3 +162,36 @@
   only, not independently re-run this session (out of this session's stated scope).
   **Not done this session (explicitly out of scope per human instruction):** M17-V1 re-run.
   That remains the sole standing item before M17 can move to C-VERIFY → D-CLOSE.
+
+- **V1-rerun (awis-verifier, fresh independent agent, isolated worktree, 2026-08-21, clean tree
+  at `ef626e7`): VERDICT: FAIL.** Dispatched with explicit instruction to re-measure everything
+  from scratch, assuming nothing from C1r or any prior ledger entry. Verbatim table:
+
+  | Item | Result | Evidence |
+  |---|---|---|
+  | `make build` | ✅ | clean build |
+  | `make test` | ✅ | all packages `ok` |
+  | `make lint` | ✅ | 0 issues, both modules (no cache flake this run) |
+  | `make race` | ❌ | `go test -race ./...`: `TestSystemRehearsalInitStartSubmitTrace` FAILED — "did not reach a terminal status within 10s" (20.69s elapsed); same test passes standalone (`-run TestSystemRehearsalInitStartSubmitTrace`, 11.06s) — timing-marginal against the hardcoded `10*time.Second` deadline at `cmd/awis/system_test.go:404`, flakes under full-suite `-race` contention |
+  | `make e1` | ✅ | `TestE1` ok |
+  | `make pytest` | ✅ | 41/41 (not card-mandated, run anyway) |
+  | Migration 0006 fresh+upgrade; StoragePort untouched | ✅ | `TestOpenAppliesMigration`, `TestOpenIdempotent`, `TestMigrationsReapplyIsNoOp`, `TestRecallStoreMigration0006` all pass; schema head=6 |
+  | TDS-07 §4 section per M17 command | ✅ | docs/CLI_CONTRACT.md now covers all 21 commands; C1r's 15 new sections confirmed present |
+  | Human+JSON goldens wired (not orphaned) for every M17 command | ❌ | `replay` has `testdata/golden/replay.json` tested at `c1r_test.go:64` but no `replay.txt` golden/test exists, unlike every other M17 command (both files); `replay.go:105-122` implements a human-mode format that is undocumented-by-golden |
+  | Cron fake-clock tests `-count=1` | ✅ | all `TestRunCronScanner*`/`TestParseCron*`/`TestCronMatches*` pass |
+  | `awis init` scaffold+`--force`+rehearsal | ✅ (standalone) | all init tests pass; rehearsal 11.15s standalone; binary `awis init .` <10ms, well under PRD §32's 30s target — the race-suite failure above is the same test flaking under contention, not a functional defect |
+  | docs/CLI.md covers full PRD §15 tree | ✅ | all 21 commands present, headings match 1:1 |
+  | PRD §32 spot-check | ✅ (non-exhaustive, as before) | init timing + rebuild-state spot-checked, consistent |
+  | go.mod/go.sum vs `origin/m16-anthropic-adapter` | ✅ | diff empty |
+  | Scope: engine/core/sdk/dsl/plugin-pkg/storage untouched except 0006+RecallStore; no existing test modified | ❌ | re-flagged on direct `git diff --stat` inspection: `internal/storage/audit.go` (+7, new additive `AuditAppender` interface); `internal/storage/{db_test.go,plugins_test.go,signal_test.go}` modified (schema-version 5→6 bumps); `internal/engine/*_test.go`(4)/`internal/plugin/{manager.go,runner.go,transport.go}`+2 e2e tests/`sdk/runtime.go`/`sdk/testing/mock.go` all still diff vs baseline — traced (again, independently) as whitespace/gofmt-only for the non-storage files and a necessary consequence of 0006 for the storage-test bumps, matching LAST-3's earlier trace, but the checklist's literal wording is not met, and this verifier explicitly declined to treat the prior session's self-closure as adjudication: *"the prior ledger's 'no adjudication needed' framing is the implementer's own adjudication and was not accepted as evidence."* |
+
+  **Verifier's own note on interaction-model detail (not a defect):** global `--json` must
+  precede the subcommand (`awis --json config show`, not `awis config show --json`); confirmed
+  correct via binary build.
+
+  **Conclusion:** 3 of 8 checklist rows FAIL on this from-scratch re-run — V-COMMON (row 1: a
+  flaky `-race` full-suite failure, passes standalone), goldens/TDS-07 (row 3: narrowed to
+  `replay.txt` only — C1r's own card scoped `replay.json` alone), and scope/frozen-surface
+  (row 8: recurring, pending adjudication, not closed by a prior session's self-adjudication
+  per this verifier's explicit position). No revision card cut this session (verification-only
+  scope). See STATE.md LAST-6.

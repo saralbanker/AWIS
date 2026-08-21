@@ -127,16 +127,62 @@ NEXT: founder merge; M17 proceeds stacked
 # ── M17 active ────────────────────────────────────────────────────────────────
 MILESTONE: M17-full-cli-init
 BRANCH: m17-full-cli-init (stacked on m16-anthropic-adapter)
-PHASE: B-BUILD (returned from C-VERIFY — V1 FAIL; one revision card needed, not yet cut)
+PHASE: B-BUILD (returned from C-VERIFY — M17-V1 re-run FAIL; revision card(s) needed, not cut
+  this session — verification-only scope)
 CARDS:
   M17-C1   DONE        awis-builder   a342394
   M17-C2   DONE        awis-builder   744d3d0
   M17-C3   DONE        awis-builder   afe526d   (P2 salvage re-dispatch; see LAST-2)
   M17-V1   FAIL        awis-verifier  (2026-08-21, clean tree at ece8694; see LAST-2, LAST-3)
   M17-C1r  DONE        awis-scribe    ead48d5   (see LAST-5)
-BLOCKERS: none (the CONTRA-candidate below is CLOSED — see LAST-3)
-NEXT: re-run M17-V1 clean on m17-full-cli-init (row 7 should now be ✅; row 8 already CLOSED
-  per LAST-3). Not done this session — human scoped this session to C1r execution only.
+  M17-V1   FAIL        awis-verifier  (2026-08-21, re-run, isolated worktree at ef626e7; see LAST-6)
+BLOCKERS: none (the row-8 scope-diff finding was CLOSED at LAST-3; the fresh verifier re-flagged
+  it on the literal checklist wording without accepting that closure as evidence — recorded as
+  FAIL per Tier-1 measurement, adjudication not performed this session — see LAST-6)
+NEXT: cut revision card(s) for the two re-measured gaps: (a) V-COMMON race: `make race` full
+  suite fails on `TestSystemRehearsalInitStartSubmitTrace` (passes standalone) — timing-marginal
+  against its hardcoded 10s deadline (cmd/awis/system_test.go:404,433), flakes under -race
+  contention; (b) goldens: `replay.txt` golden+test still missing (only replay.json exists/
+  tested, per M17-C1r's scope which named "replay.json" only). Row 8 (scope diff) needs
+  CE/founder adjudication before it can close on a literal-wording basis, independent of
+  whether the underlying diffs are behavioral (LAST-3 traced them as gofmt/necessary-only, but
+  that trace has not been accepted as adjudication by an independent verifier twice running).
+  Not cut this session (verification-only scope, human instruction).
+
+LAST-6: 2026-08-21 (new session) — M17-V1 re-dispatched fresh (independent awis-verifier agent,
+  isolated git worktree, no context from the C1r implementation session) per explicit human
+  instruction to re-measure everything from scratch, trusting no prior ledger claim. VERDICT:
+  FAIL, on a clean checkout of m17-full-cli-init at ef626e7. Findings vs the 8-row
+  VALIDATION_CHECKLIST:
+  - Row 1 (V-COMMON+pytest): build/test/lint(0 issues, no flake this run)/e1/pytest(41/41) all
+    ✅; **race ❌** — `TestSystemRehearsalInitStartSubmitTrace` failed under full-suite
+    `go test -race ./...` ("did not reach a terminal status within 10s"), 20.69s, but passed
+    standalone in 11.06s — a timing-marginal flake against the test's hardcoded 10s deadline
+    under -race contention, not a logic defect.
+  - Row 2 (migration 0006 + StoragePort): ✅.
+  - Row 3 (goldens+TDS-07): narrowed but still **FAIL** — all 15 TDS-07 §4 sections now present
+    (C1r closed that half); but `replay` has a JSON golden+test only, no `.txt` golden/test,
+    while every other M17 command has both. C1r's own card scoped only "replay.json" (see
+    M17-C1r.md OUTPUTS 1a) — this gap was in the card's own scope definition, not a C1r defect.
+  - Row 4 (cron fake-clock): ✅. Row 5 (init scaffold+rehearsal): ✅ standalone (the race
+    failure above is the same test, but as a suite-level flake, not a functional defect).
+    Row 6 (docs/CLI.md tree): ✅. Row 7 (PRD §32 spot-check): ✅, still non-exhaustive by design.
+  - Row 8 (scope/frozen-surface): **FAIL**, re-flagged. The verifier did not treat LAST-3's
+    trace-and-close as adjudication evidence ("the prior ledger's 'no adjudication needed'
+    framing is the implementer's own adjudication and was not accepted as evidence") and
+    re-measured the same diffs directly: `internal/storage/audit.go` (+7, new additive
+    `AuditAppender` interface), `internal/storage/{db_test.go,plugins_test.go,signal_test.go}`
+    (schema-version 5→6 bumps), `internal/engine/*_test.go`(4)/`internal/plugin/{manager.go,
+    runner.go,transport.go}`+2 e2e tests/`sdk/runtime.go`/`sdk/testing/mock.go` all still show
+    in `git diff --stat` vs `origin/m16-anthropic-adapter`. Confirmed (again) as whitespace/
+    gofmt-only for the non-storage files and necessary-consequence-of-0006 for the storage test
+    bumps, consistent with LAST-3's trace — but the checklist's literal wording ("untouched",
+    "no existing test modified") is not met, so it stands as FAIL pending an actual
+    CE/founder adjudication rather than a self-closed session note.
+  Full verbatim report + repro commands: TRACEABILITY.md V1-rerun record. No STATE/card edits
+  made by the verifier itself (read-only agent; confirmed zero commits/diff in its worktree).
+  Per this session's explicit scope (verify only): no revision card cut, no adjudication
+  performed, no remediation implemented — see NEXT.
 
 LAST-5: 2026-08-21 (same session) — M17-C1r report received and independently spot-checked
   (not a full re-verification, per this session's explicit "do not verify beyond what is
