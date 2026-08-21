@@ -136,18 +136,21 @@ CARDS:
   M17-V1   FAIL        awis-verifier  (2026-08-21, clean tree at ece8694; see LAST-2, LAST-3)
   M17-C1r  DONE        awis-scribe    ead48d5   (see LAST-5)
   M17-V1   FAIL        awis-verifier  (2026-08-21, re-run, isolated worktree at ef626e7; see LAST-6)
+  M17-C2r  DISPATCHED  awis-builder   (cut this session at ccadec2; see LAST-7)
 BLOCKERS: none (the row-8 scope-diff finding was CLOSED at LAST-3; the fresh verifier re-flagged
   it on the literal checklist wording without accepting that closure as evidence — recorded as
   FAIL per Tier-1 measurement, adjudication not performed this session — see LAST-6)
-NEXT: cut revision card(s) for the two re-measured gaps: (a) V-COMMON race: `make race` full
-  suite fails on `TestSystemRehearsalInitStartSubmitTrace` (passes standalone) — timing-marginal
-  against its hardcoded 10s deadline (cmd/awis/system_test.go:404,433), flakes under -race
-  contention; (b) goldens: `replay.txt` golden+test still missing (only replay.json exists/
-  tested, per M17-C1r's scope which named "replay.json" only). Row 8 (scope diff) needs
-  CE/founder adjudication before it can close on a literal-wording basis, independent of
-  whether the underlying diffs are behavioral (LAST-3 traced them as gofmt/necessary-only, but
-  that trace has not been accepted as adjudication by an independent verifier twice running).
-  Not cut this session (verification-only scope, human instruction).
+NEXT: await M17-C2r report (row 1 race-deadline scaling, row 3 replay.txt golden); row 8
+  (scope diff) remains explicitly OUT OF SCOPE for M17-C2r and still needs CE/founder
+  adjudication before it can close on a literal-wording basis, independent of whether the
+  underlying diffs are behavioral (LAST-3 traced them as gofmt/necessary-only, but that trace
+  has not been accepted as adjudication by an independent verifier twice running).
+
+LAST-7: 2026-08-21 (same session) — cut and dispatched M17-C2r (revision #2), closing ONLY
+  M17-V1 re-run rows 1 and 3 (LAST-6). Row 8 explicitly out of scope, card forbids touching
+  internal/*, sdk/*, storage, go.mod/go.sum, docs/CLI*.md, main_test.go, or any ledger file.
+  Card committed at ccadec2 before dispatch (immutability). Dispatched to awis-builder
+  (Sonnet, frozen model policy) via isolated Agent call.
 
 LAST-6: 2026-08-21 (new session) — M17-V1 re-dispatched fresh (independent awis-verifier agent,
   isolated git worktree, no context from the C1r implementation session) per explicit human
