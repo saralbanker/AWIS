@@ -127,14 +127,50 @@ NEXT: founder merge; M17 proceeds stacked
 # ── M17 active ────────────────────────────────────────────────────────────────
 MILESTONE: M17-full-cli-init
 BRANCH: m17-full-cli-init (stacked on m16-anthropic-adapter)
-PHASE: C-VERIFY
+PHASE: B-BUILD (returned from C-VERIFY — V1 FAIL; revision cards needed, not yet cut)
 CARDS:
   M17-C1   DONE    awis-builder   a342394
   M17-C2   DONE    awis-builder   744d3d0
-  M17-C3   DONE    awis-builder   afe526d   (P2 salvage re-dispatch; see LAST)
-  M17-V1   READY   awis-verifier
-NEXT: dispatch M17-V1 to awis-verifier on a clean tree (not yet dispatched — held per explicit
-  session directive to stop after C3 completion records; do not treat as forgotten)
+  M17-C3   DONE    awis-builder   afe526d   (P2 salvage re-dispatch; see LAST-2)
+  M17-V1   FAIL    awis-verifier  (2026-08-21, clean tree at ece8694; see LAST-2)
+BLOCKERS: E2-candidate — see LAST-2 "frozen-surface scope violation"; needs CE/founder
+  adjudication (CONTRA per EEOS rule 7) before any revision-card work resumes, since it
+  concerns whether sdk/engine/plugin/storage changes already on this branch (introduced by
+  C1/C2, not C3) were an approved, undisclosed deviation or genuine scope overreach.
+NEXT: human/CE adjudication of the scope-freeze finding first; THEN cut revision card(s)
+  (working title M17-C1r/C2r) for: (a) missing goldens for replay + orphaned
+  config_show/config_set/config_validate/rebuild_state goldens, (b) missing TDS-07 sections
+  in docs/CLI_CONTRACT.md for every M17 command except init, (c) whatever the adjudication
+  above decides about the non-scope files. Re-run M17-V1 clean once revision cards close.
+
+LAST-2: 2026-08-21 M17-V1 dispatched to awis-verifier (this session, on human request) on a
+  clean checkout at ece8694 (HEAD after the M17-C3 ledger commit). VERDICT: FAIL. V-COMMON:
+  build/test/race/e1 ✅; lint showed 9 errcheck hits on first run but they cited a path
+  belonging to a different, concurrently-running agent worktree (shared golangci-lint cache
+  cross-contamination) — reported as a flake per protocol, not silently re-run past; a cache
+  clean + rerun gave 0 issues. Migration 0006 fresh+upgrade ✅, StoragePort untouched ✅. Cron
+  fake-clock tests ✅. `awis init` scaffold/--force/rehearsal ✅ (rehearsal instance legitimately
+  ends `failed` — no compiled-in handlers in the generic binary, matches the CE pin's "measured
+  loosely" framing, not a defect). docs/CLI.md full-tree coverage ✅. TWO independently-
+  sufficient FAIL rows: (1) most M17 commands lack goldens and/or a TDS-07 contract section —
+  `replay` has no goldens at all ("Goldens not needed for replay" per its own test comment,
+  contradicting the checklist), `config_show/config_set/config_validate/rebuild_state` goldens
+  exist on disk but are orphaned (no test references them), and docs/CLI_CONTRACT.md §3 still
+  labels the whole M17 tree "Planned Commands (not yet implemented)" — only `init` (added by
+  C3 this session) has a §4 contract section. (2) **frozen-surface scope violation**: diff
+  `m16-anthropic-adapter...HEAD` touches `internal/dsl/dsl.go`, `internal/engine/*_test.go`
+  (4 files), `internal/plugin/{manager.go,runner.go,transport.go}` (production code) +
+  `e2e_gitcontext_test.go`/`e2e_python_test.go`, `sdk/runtime.go`, `sdk/testing/mock.go`,
+  `internal/storage/{audit.go,db_test.go,plugins_test.go,signal_test.go}` — this contradicts
+  IMPLEMENTATION_SPEC.md's own Non-scope line ("Frozen surfaces: StoragePort method set,
+  engine semantics ... core types — all untouched; sdk untouched") and the card-level
+  acceptance criteria (M17-C1/C2 ACCEPTANCE: "engine/core/sdk untouched"). Traced by file
+  timestamps/diff boundaries: **this predates M17-C3** — all of these files were already in
+  the C1/C2 diff before this session's C3 dispatch; this session neither introduced nor
+  touched them. Full table + evidence pointers: module TRACEABILITY.md V1 record (verbatim
+  verifier report) and VALIDATION_CHECKLIST.md (ticked/unticked this session). No files edited
+  by the verifier (read-only agent, per its tool contract) other than this ledger commit made
+  afterward to record the result.
 
 LAST: 2026-08-21 M17-C3 P2 salvage re-dispatch (this session): STATE showed M17-C3 DISPATCHED
       with no commit on m17-full-cli-init — a prior run died without finishing. Preserved WIP

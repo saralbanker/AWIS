@@ -1,7 +1,10 @@
 # M17 → M18 Handoff
-**Status: IN PROGRESS — C1/C2/C3 DONE; V1 (verification) not yet dispatched.**
-This file is created at C3 completion (module previously had no HANDOFF.md/TRACEABILITY.md);
-it will be revised at D-CLOSE once V1 runs.
+**Status: NOT DONE — C1/C2/C3 DONE; V1 ran 2026-08-21 and returned FAIL.** Back in B-BUILD
+pending revision cards (missing goldens/TDS-07 sections for most M17 commands, plus a
+frozen-surface scope question inherited from C1/C2 that needs CE/founder adjudication before
+those cards are cut). Full findings: module TRACEABILITY.md V1 record; ledger: STATE.md
+LAST-2. This file is created at C3 completion (module previously had no HANDOFF.md/
+TRACEABILITY.md); it remains a draft until V1 passes and D-CLOSE runs.
 
 ## Guaranteed outputs (contract — to be confirmed as actuals at D-CLOSE)
 - Migration `0006_recall_fts` + `RecallStore` (additive; StoragePort method set untouched).
