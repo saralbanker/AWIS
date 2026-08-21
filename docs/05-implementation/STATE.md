@@ -129,16 +129,37 @@ MILESTONE: M17-full-cli-init
 BRANCH: m17-full-cli-init (stacked on m16-anthropic-adapter)
 PHASE: B-BUILD (returned from C-VERIFY — V1 FAIL; one revision card needed, not yet cut)
 CARDS:
-  M17-C1   DONE    awis-builder   a342394
-  M17-C2   DONE    awis-builder   744d3d0
-  M17-C3   DONE    awis-builder   afe526d   (P2 salvage re-dispatch; see LAST-2)
-  M17-V1   FAIL    awis-verifier  (2026-08-21, clean tree at ece8694; see LAST-2, LAST-3)
+  M17-C1   DONE        awis-builder   a342394
+  M17-C2   DONE        awis-builder   744d3d0
+  M17-C3   DONE        awis-builder   afe526d   (P2 salvage re-dispatch; see LAST-2)
+  M17-V1   FAIL        awis-verifier  (2026-08-21, clean tree at ece8694; see LAST-2, LAST-3)
+  M17-C1r  DONE        awis-scribe    ead48d5   (see LAST-5)
 BLOCKERS: none (the CONTRA-candidate below is CLOSED — see LAST-3)
-NEXT: cut a revision card (working title M17-C1r) for the goldens/TDS-07 gap only: (a)
-  missing goldens for replay, (b) re-wire the orphaned config_show/config_set/
-  config_validate/rebuild_state goldens into real tests, (c) TDS-07 sections in
-  docs/CLI_CONTRACT.md for every M17 command besides init. Also confirm `make pytest`
-  (not covered by the 2026-08-21 V1 pass). Re-run M17-V1 clean once closed.
+NEXT: re-run M17-V1 clean on m17-full-cli-init (row 7 should now be ✅; row 8 already CLOSED
+  per LAST-3). Not done this session — human scoped this session to C1r execution only.
+
+LAST-5: 2026-08-21 (same session) — M17-C1r report received and independently spot-checked
+  (not a full re-verification, per this session's explicit "do not verify beyond what is
+  required" instruction): `git show --stat ead48d5` confirms the 4-file diff (c1r_test.go new,
+  replay_test.go comment, testdata/golden/replay.json new, CLI_CONTRACT.md +644/-18) matches
+  the scribe's self-report; `git diff m16-anthropic-adapter...HEAD --stat` for frozen-surface
+  paths shows nothing new beyond the pre-existing entries already traced and closed at LAST-3;
+  `go test -count=1 ./cmd/awis/...` re-run directly, uncached — `ok`; grep-confirmed all 15
+  new §4 sections and all 7 previously-orphaned goldens (replay + config_show/set/validate +
+  rebuild_state + plugin_remove/status) are now referenced by `checkGolden(...)` calls. Full
+  record: module TRACEABILITY.md C1r entry. `make pytest`/lint/race/e1 taken on the scribe's
+  report, not independently re-run. M17-V1 re-run intentionally NOT done this session.
+
+LAST-4: 2026-08-21 (new session) — cut docs/05-implementation/M17-full-cli-init/cards/M17-C1r.md
+  per the NEXT direction left by LAST-2/LAST-3 (goldens/TDS-07 gap only, row 7; row 8 stays
+  CLOSED, not reopened). DISPATCH: awis-scribe (mechanical CLI/doc/golden-fixture batch, IKB
+  fit). Scope confirmed against current repo state before cutting: replay has zero goldens;
+  config_show/config_set/config_validate/rebuild_state/plugin_remove/plugin_status goldens
+  exist on testdata/golden/ but are referenced by no test (verified via grep across
+  cmd/awis/*_test.go); docs/CLI_CONTRACT.md §4 has sections for version/start/stop/status/
+  submit/signal/cancel/trace/workflow {validate,list,show}/plugin {install,list}/init only —
+  15 M17 commands still lack a §4 section. Dispatched per EEOS P1; STATE written before
+  dispatch (ledger law, rule 1).
 
 LAST-3: 2026-08-21 (same session) — CLOSED the LAST-2 frozen-surface finding without
   founder/CE adjudication, on evidence rather than judgment call. Traced every cited file to
