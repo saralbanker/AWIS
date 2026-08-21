@@ -102,12 +102,31 @@
   was dispatched — i.e. introduced by C1 and/or C2, not by C3. C3's own diff (`afe526d`) is
   confined to `cmd/awis/{init.go,init_test.go,scaffold/**,system_test.go,testdata/golden/
   init.*}` + `docs/CLI.md` + `docs/CLI_CONTRACT.md`, none of which touch a frozen surface.
-  This does not excuse the finding — it relocates responsibility for the frozen-surface
-  question to C1/C2, which never had their own V1 pass before this session's ledger-only
-  "DONE" marking. **Needs CE/founder adjudication** (EEOS rule 7, CONTRA path) before any
-  revision card is cut: was the C1/C2 sdk/engine/plugin/storage-adjacent work an approved,
-  undisclosed deviation (e.g. required by the RecallStore/audit wiring) or genuine scope
-  overreach requiring rework? See STATE.md LAST-2 for the ledger entry.
+
+  **Update (same session, LAST-3): traced and CLOSED, no adjudication needed.** Ran
+  `git log m16-anthropic-adapter..m17-full-cli-init -- <file>` per file to find the exact
+  introducing commit:
+  - `sdk/runtime.go`, `sdk/testing/mock.go`, `internal/plugin/manager.go`, `internal/dsl/
+    dsl.go`, and all 4 `internal/engine/*_test.go` files → **`be13cf9`** (prior-session
+    "STABILIZATION S2/S3/S5/S6" commit: a disclosed, self-documenting repo-wide `gofmt -w .`
+    pass). Confirmed with `git diff --ignore-all-space be13cf9^ be13cf9 -- <file>` → empty
+    (whitespace-only).
+  - `internal/plugin/{runner.go,transport.go}` → also `be13cf9`; these still showed a diff
+    under `--ignore-all-space` (blank-line insertions aren't pure inline whitespace to git),
+    so inspected manually: struct-tag column realignment and Go 1.19 doc-comment-block
+    reflow only — no code line, identifier, or value changed.
+  - `internal/storage/{db_test.go,plugins_test.go,signal_test.go}` → `a342394` (M17-C1):
+    hardcoded `schema_version 5` assertions bumped to `6` — the unavoidable, minimal
+    consequence of adding migration 0006, C1's own explicit deliverable.
+  - `internal/storage/audit.go` → `a342394` (M17-C1): additive, in scope of C1's
+    RecallStore/audit read-path objective.
+
+  **Conclusion:** row 8's FAIL is factually correct at the byte-diff level — the verifier's
+  mandate is to report what's true, not adjudicate intent, and it did its job — but none of
+  it is the scope overreach the checklist item exists to catch. No frozen surface has a
+  behavioral change. Closed without CE/founder adjudication; see STATE.md LAST-3. The only
+  standing item from this V1 pass is the goldens/TDS-07 gap (row 7), which is real,
+  unrelated, and needs its own revision card (STATE.md NEXT).
 
   **Next:** cut revision card(s) once the above is adjudicated, covering at minimum: (a) goldens
   for `replay` + re-wiring the orphaned config/rebuild-state goldens into real tests, (b) TDS-07
