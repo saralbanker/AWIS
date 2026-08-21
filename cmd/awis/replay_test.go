@@ -6,7 +6,7 @@ package main
 //   - JSON schema has required fields
 //   - replayAction returns non-empty strings for all known event types
 //   - dry_run always true in JSON output
-//   - Goldens not needed for replay (no stable empty-state; instance required)
+//   - replay.json golden test (see c1r_test.go TestReplayGoldenJSON)
 
 import (
 	"encoding/json"
