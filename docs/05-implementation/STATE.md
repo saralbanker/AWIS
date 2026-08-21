@@ -127,15 +127,36 @@ NEXT: founder merge; M17 proceeds stacked
 # ── M17 active ────────────────────────────────────────────────────────────────
 MILESTONE: M17-full-cli-init
 BRANCH: m17-full-cli-init (stacked on m16-anthropic-adapter)
-PHASE: B-BUILD
+PHASE: C-VERIFY
 CARDS:
   M17-C1   DONE    awis-builder   a342394
   M17-C2   DONE    awis-builder   744d3d0
-  M17-C3   DISPATCHED   awis-builder
+  M17-C3   DONE    awis-builder   afe526d   (P2 salvage re-dispatch; see LAST)
   M17-V1   READY   awis-verifier
-NEXT: C1->C2->C3->V1
+NEXT: dispatch M17-V1 to awis-verifier on a clean tree (not yet dispatched — held per explicit
+  session directive to stop after C3 completion records; do not treat as forgotten)
 
-LAST: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
+LAST: 2026-08-21 M17-C3 P2 salvage re-dispatch (this session): STATE showed M17-C3 DISPATCHED
+      with no commit on m17-full-cli-init — a prior run died without finishing. Preserved WIP
+      on branch `m17-c3-wip` (9 files: cmd/awis/init.go + init_test.go + scaffold/*) was
+      explicitly marked "does NOT build green — do not merge"; kept as reference only, NOT
+      merged, NOT deleted. Re-dispatched to awis-builder (isolated worktree) with the P2
+      salvage preamble: audited the WIP against the card's OUTPUTS/ACCEPTANCE, salvaged what
+      passed, fixed 4 defects found in it (go:embed missing `all:` prefix silently dropped
+      `.gitignore`; TestEmbeddedWorkflowsByteIdentical source paths 2 levels too deep;
+      no init goldens existed; no rehearsal system test existed) and closed 2 remaining gaps
+      (docs/CLI.md not covering the full command tree; CLI_CONTRACT.md missing the TDS-07
+      init section). Result committed once: afe526d. Independently re-verified in this
+      session (not just the builder's self-report): `make verify` full green at afe526d
+      (gofmt-check, vet, lint 0 issues, oip-isolation, build, test, race, e1); rehearsal test
+      `TestSystemRehearsalInitStartSubmitTrace` confirmed running un-skipped (11.01s, real
+      binary subprocess init→start→submit→status-poll→trace) and passing; go.mod/go.sum diff
+      vs 49ce489 is empty. Full record: docs/05-implementation/M17-full-cli-init/TRACEABILITY.md
+      and HANDOFF.md (both created this session — module previously had neither). Per this
+      session's explicit scope: M17-V1 was NOT dispatched, M18 was NOT started, nothing was
+      merged, EEOS/cards were not altered.
+
+LAST-PRIOR: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERGE blocked, but main
       HEAD 03d5045 IS the founder's M09 squash-merge ("M09 — Test Infrastructure") and
       m10-yaml-dsl is based on it — founder merged after this branch's A-INIT snapshot.
       Resolution: M09 → DONE-MILESTONES (merge sha 03d5045). Same day: M10 D-CLOSE (Fable)
