@@ -132,3 +132,33 @@
   for `replay` + re-wiring the orphaned config/rebuild-state goldens into real tests, (b) TDS-07
   sections in `docs/CLI_CONTRACT.md` for every M17 command besides `init`, (c) whatever the
   frozen-surface adjudication decides. Re-run M17-V1 clean once closed.
+
+- **C1r (ead48d5, 2026-08-21): closes V1 row 7 (goldens/TDS-07 gap only; row 8 stayed CLOSED per
+  LAST-3, not reopened).** Dispatched to awis-scribe per card
+  `docs/05-implementation/M17-full-cli-init/cards/M17-C1r.md`. Diff confined to
+  `cmd/awis/c1r_test.go` (new, 271 lines), `cmd/awis/replay_test.go` (comment update),
+  `cmd/awis/testdata/golden/replay.json` (new), `docs/CLI_CONTRACT.md` (+644/−18) — verified
+  directly via `git show --stat ead48d5`; no frozen-surface file appears in that commit.
+  1. **`replay.json`** — new golden (none existed before; the "Goldens not needed for replay"
+     comment is gone). Strategy 1 (fixed `replayOutputJSON` struct, byte-stable).
+  2. **6 orphaned goldens wired**: `config_show/config_set/config_validate/rebuild_state.
+     {json,txt}` via strategy 2 (seeded temp data-dir, in-process call, both output modes) —
+     confirmed by grep: all 6 names now appear in `checkGolden(...)` calls in `c1r_test.go`.
+  3. **`plugin_remove`/`plugin_status` `.{json,txt}`** — also found orphaned during this
+     session's scope-check (STATE LAST-4) and wired via strategy 1 (fixed struct matching the
+     pre-existing fixture values).
+  4. **`docs/CLI_CONTRACT.md` §4**: 15 new sections (history, logs, metrics, recall, replay,
+     audit, config show/set/validate/edit, plugin remove/status, rebuild-state, export,
+     prune-events) — confirmed present by header grep, bringing total `### ` command sections
+     to 29 (14 pre-existing + `init` + these 15). §3 M17 tree heading updated off "not yet
+     implemented."
+  **Independent verification this session** (not just the scribe's self-report): `git show
+  --stat ead48d5` confirms the 4-file diff matches the report; `git diff
+  m16-anthropic-adapter...HEAD --stat` for frozen-surface paths shows only the pre-existing,
+  already-traced-and-closed `be13cf9`/`a342394` entries (LAST-3) — nothing new from C1r;
+  `go test -count=1 ./cmd/awis/...` re-run directly in this session, uncached: `ok` (31.8s);
+  §4 section-header count and golden-name wiring both confirmed by direct grep, not taken on
+  report alone. `make pytest` (41 tests) and the other gate results are per the scribe's report
+  only, not independently re-run this session (out of this session's stated scope).
+  **Not done this session (explicitly out of scope per human instruction):** M17-V1 re-run.
+  That remains the sole standing item before M17 can move to C-VERIFY → D-CLOSE.
