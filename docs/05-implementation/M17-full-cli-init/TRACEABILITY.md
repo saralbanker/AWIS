@@ -80,4 +80,36 @@
   (card explicitly permits "status+trace") and asserts on `trace` in human mode, which is
   unaffected. Flagged here for M17-V1 to assess/route, or M18 otherwise — not part of this
   card's acceptance criteria.
-- V1: not yet dispatched (module still needs its C-VERIFY pass; out of this session's scope).
+- V1 (awis-verifier, 2026-08-21, clean tree at `ece8694`): **VERDICT: FAIL.** Verbatim table:
+
+  | Item | Result | Evidence |
+  |---|---|---|
+  | V-COMMON: `make build` | ✅ | clean build |
+  | V-COMMON: `make test` | ✅ | all packages `ok` |
+  | V-COMMON: `make lint` | ❌ (flake) | 1st run: 9 errcheck issues in `cmd/awis/system_test.go` citing a path belonging to a different, concurrently-running agent worktree — shared golangci-lint cache cross-contamination. After `golangci-lint cache clean`, rerun gave `0 issues`. Reported as a flake per protocol, not a pass-by-rerun. |
+  | V-COMMON: `make race` | ✅ | all packages `ok` |
+  | V-COMMON: `make e1` (AWIS-E1) | ✅ | `TestE1` ok |
+  | Migration 0006 fresh+upgrade; StoragePort untouched | ✅ | fresh-migration test PASS; upgrade path manually seeded schema_version 1–5, ran built binary, confirmed `schema_version` row 6 + `execution_events_fts*` created + all pre-existing tables untouched |
+  | Every M17 command: human+JSON goldens + TDS-07 section | ❌ | `replay` has no goldens and no golden test ("Goldens not needed for replay" per its own test comment); `config_show/config_set/config_validate/rebuild_state` golden fixtures exist on disk but are orphaned — no test references them; `docs/CLI_CONTRACT.md` §3 still labels the whole M17 tree "Planned Commands (not yet implemented)" — only `init` (this session's C3) has a §4 TDS-07 section |
+  | Cron trigger fake-clock tests | ✅ | `TestRunCronScannerFakeClockFires` + 2 more, PASS under `make test`/`-race` |
+  | `awis init` scaffold + `--force` + rehearsal | ✅ (with note) | all init tests PASS; rehearsal's submitted instance legitimately ends `status=failed` (no compiled-in handler in the generic binary) — the test's terminal-state check accepts this; documented, not a defect |
+  | `docs/CLI.md` covers complete PRD §15 tree | ✅ | all 30 commands present incl. every M17 addition |
+  | PRD §32 remaining rows map to evidence | ✅ (spot-check only) | not exhaustively audited within V1's context budget |
+  | go.mod EMPTY; frozen surfaces untouched; storage=0006+RecallStore only; no existing test modified | ❌ | go.mod/go.sum unchanged, but `internal/dsl/dsl.go`, 4 `internal/engine/*_test.go` files, `internal/plugin/{manager.go,runner.go,transport.go}` (production code) + 2 e2e tests, `sdk/runtime.go`, `sdk/testing/mock.go`, `internal/storage/{audit.go,db_test.go,plugins_test.go,signal_test.go}` are all modified relative to `m16-anthropic-adapter` — contradicts IMPLEMENTATION_SPEC.md's declared frozen surfaces (StoragePort set, engine semantics, core types, sdk — "all untouched") |
+
+  **Scope note (established by this session, not by the verifier):** every file cited in the
+  second FAIL row was already present in the `main...m17-full-cli-init` diff *before* M17-C3
+  was dispatched — i.e. introduced by C1 and/or C2, not by C3. C3's own diff (`afe526d`) is
+  confined to `cmd/awis/{init.go,init_test.go,scaffold/**,system_test.go,testdata/golden/
+  init.*}` + `docs/CLI.md` + `docs/CLI_CONTRACT.md`, none of which touch a frozen surface.
+  This does not excuse the finding — it relocates responsibility for the frozen-surface
+  question to C1/C2, which never had their own V1 pass before this session's ledger-only
+  "DONE" marking. **Needs CE/founder adjudication** (EEOS rule 7, CONTRA path) before any
+  revision card is cut: was the C1/C2 sdk/engine/plugin/storage-adjacent work an approved,
+  undisclosed deviation (e.g. required by the RecallStore/audit wiring) or genuine scope
+  overreach requiring rework? See STATE.md LAST-2 for the ledger entry.
+
+  **Next:** cut revision card(s) once the above is adjudicated, covering at minimum: (a) goldens
+  for `replay` + re-wiring the orphaned config/rebuild-state goldens into real tests, (b) TDS-07
+  sections in `docs/CLI_CONTRACT.md` for every M17 command besides `init`, (c) whatever the
+  frozen-surface adjudication decides. Re-run M17-V1 clean once closed.
