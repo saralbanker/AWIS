@@ -127,21 +127,38 @@ NEXT: founder merge; M17 proceeds stacked
 # ── M17 active ────────────────────────────────────────────────────────────────
 MILESTONE: M17-full-cli-init
 BRANCH: m17-full-cli-init (stacked on m16-anthropic-adapter)
-PHASE: B-BUILD (returned from C-VERIFY — V1 FAIL; revision cards needed, not yet cut)
+PHASE: B-BUILD (returned from C-VERIFY — V1 FAIL; one revision card needed, not yet cut)
 CARDS:
   M17-C1   DONE    awis-builder   a342394
   M17-C2   DONE    awis-builder   744d3d0
   M17-C3   DONE    awis-builder   afe526d   (P2 salvage re-dispatch; see LAST-2)
-  M17-V1   FAIL    awis-verifier  (2026-08-21, clean tree at ece8694; see LAST-2)
-BLOCKERS: E2-candidate — see LAST-2 "frozen-surface scope violation"; needs CE/founder
-  adjudication (CONTRA per EEOS rule 7) before any revision-card work resumes, since it
-  concerns whether sdk/engine/plugin/storage changes already on this branch (introduced by
-  C1/C2, not C3) were an approved, undisclosed deviation or genuine scope overreach.
-NEXT: human/CE adjudication of the scope-freeze finding first; THEN cut revision card(s)
-  (working title M17-C1r/C2r) for: (a) missing goldens for replay + orphaned
-  config_show/config_set/config_validate/rebuild_state goldens, (b) missing TDS-07 sections
-  in docs/CLI_CONTRACT.md for every M17 command except init, (c) whatever the adjudication
-  above decides about the non-scope files. Re-run M17-V1 clean once revision cards close.
+  M17-V1   FAIL    awis-verifier  (2026-08-21, clean tree at ece8694; see LAST-2, LAST-3)
+BLOCKERS: none (the CONTRA-candidate below is CLOSED — see LAST-3)
+NEXT: cut a revision card (working title M17-C1r) for the goldens/TDS-07 gap only: (a)
+  missing goldens for replay, (b) re-wire the orphaned config_show/config_set/
+  config_validate/rebuild_state goldens into real tests, (c) TDS-07 sections in
+  docs/CLI_CONTRACT.md for every M17 command besides init. Also confirm `make pytest`
+  (not covered by the 2026-08-21 V1 pass). Re-run M17-V1 clean once closed.
+
+LAST-3: 2026-08-21 (same session) — CLOSED the LAST-2 frozen-surface finding without
+  founder/CE adjudication, on evidence rather than judgment call. Traced every cited file to
+  its introducing commit: `sdk/runtime.go`, `sdk/testing/mock.go`,
+  `internal/plugin/{manager,runner,transport}.go`, `internal/dsl/dsl.go`, and 4
+  `internal/engine/*_test.go` files all trace to `be13cf9` (prior-session "STABILIZATION
+  S2/S3/S5/S6" commit — a disclosed, self-documenting repo-wide `gofmt -w .` pass). Verified
+  directly with `git diff --ignore-all-space be13cf9^ be13cf9 -- <file>` and manual inspection
+  of the two files that still showed a diff under `-w` (`runner.go`, `transport.go`): all of
+  it is struct-field realignment and Go 1.19 doc-comment-block reflow, zero identifiers/
+  values/logic changed. The remaining `internal/storage/{db_test.go,plugins_test.go,
+  signal_test.go}` edits (from C1, a342394) are hardcoded `schema_version 5→6` assertion
+  bumps — an unavoidable, minimal consequence of adding migration 0006, C1's own explicit
+  deliverable; `internal/storage/audit.go` is additive, in scope of C1's RecallStore/audit
+  read-path objective. Conclusion: V1's row-8 FAIL is factually correct at the byte-diff
+  level (per the verifier's mandate to report fact, not intent) but does not represent the
+  scope overreach the checklist item exists to catch — no behavioral change to any frozen
+  surface. Downgraded from "BLOCKERS: E2-candidate, needs adjudication" to closed; the only
+  real open item from V1 is the goldens/TDS-07 gap (row 7), which is unrelated and still
+  needs a revision card (see NEXT). Full trace: TRACEABILITY.md.
 
 LAST-2: 2026-08-21 M17-V1 dispatched to awis-verifier (this session, on human request) on a
   clean checkout at ece8694 (HEAD after the M17-C3 ledger commit). VERDICT: FAIL. V-COMMON:
