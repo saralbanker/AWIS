@@ -127,8 +127,8 @@ NEXT: founder merge; M17 proceeds stacked
 # ── M17 active ────────────────────────────────────────────────────────────────
 MILESTONE: M17-full-cli-init
 BRANCH: m17-full-cli-init (stacked on m16-anthropic-adapter)
-PHASE: B-BUILD (returned from C-VERIFY — M17-V1 re-run FAIL; revision card(s) needed, not cut
-  this session — verification-only scope)
+PHASE: C-VERIFY (M17-C2r landed 4808070; a fresh M17-V1 re-run is required before D-CLOSE — not
+  dispatched this session)
 CARDS:
   M17-C1   DONE        awis-builder   a342394
   M17-C2   DONE        awis-builder   744d3d0
@@ -136,21 +136,38 @@ CARDS:
   M17-V1   FAIL        awis-verifier  (2026-08-21, clean tree at ece8694; see LAST-2, LAST-3)
   M17-C1r  DONE        awis-scribe    ead48d5   (see LAST-5)
   M17-V1   FAIL        awis-verifier  (2026-08-21, re-run, isolated worktree at ef626e7; see LAST-6)
-  M17-C2r  DISPATCHED  awis-builder   (cut this session at ccadec2; see LAST-7)
-BLOCKERS: none (the row-8 scope-diff finding was CLOSED at LAST-3; the fresh verifier re-flagged
-  it on the literal checklist wording without accepting that closure as evidence — recorded as
-  FAIL per Tier-1 measurement, adjudication not performed this session — see LAST-6)
-NEXT: await M17-C2r report (row 1 race-deadline scaling, row 3 replay.txt golden); row 8
-  (scope diff) remains explicitly OUT OF SCOPE for M17-C2r and still needs CE/founder
-  adjudication before it can close on a literal-wording basis, independent of whether the
-  underlying diffs are behavioral (LAST-3 traced them as gofmt/necessary-only, but that trace
-  has not been accepted as adjudication by an independent verifier twice running).
+  M17-C2r  DONE        awis-builder   4808070   (see LAST-8)
+BLOCKERS: row 8 (scope-diff) still unresolved on a literal-wording basis — CLOSED at LAST-3 by
+  implementer self-trace, re-flagged FAIL by an independent verifier at LAST-6 who declined to
+  accept that self-trace as adjudication; still needs an actual CE/founder call, not another
+  self-trace. Rows 1 and 3 believed closed per M17-C2r's own report (LAST-8) but NOT yet
+  confirmed by an independent verifier — do not treat as PASS until re-measured.
+NEXT: dispatch a fresh, independent M17-V1 re-run (isolated worktree, no context from the C2r
+  implementation session) to re-measure rows 1, 3, and 8 from scratch — per this session's
+  standing instruction that no ledger claim is trusted without execution. Row 8 remains
+  explicitly out of any implementation card's scope; it can only close via CE/founder
+  adjudication, not further self-tracing.
 
-LAST-7: 2026-08-21 (same session) — cut and dispatched M17-C2r (revision #2), closing ONLY
-  M17-V1 re-run rows 1 and 3 (LAST-6). Row 8 explicitly out of scope, card forbids touching
-  internal/*, sdk/*, storage, go.mod/go.sum, docs/CLI*.md, main_test.go, or any ledger file.
-  Card committed at ccadec2 before dispatch (immutability). Dispatched to awis-builder
-  (Sonnet, frozen model policy) via isolated Agent call.
+LAST-8: 2026-08-21 (same session) — M17-C2r executed by awis-builder, HEAD 4808070, single
+  commit "M17-C2r: race-scaled rehearsal deadline (row 1) and replay.txt golden (row 3)".
+  Touch set exactly as scoped: cmd/awis/{c1r_test.go,racescale_norace_test.go,
+  racescale_race_test.go,replay.go,system_test.go,testdata/golden/replay.txt} (6 files,
+  +67/−19) — independently confirmed via `git show --stat 4808070`, matches card's Required
+  Files list plus the two permitted raceScale build-tag helper files. Row 1: rehearsal-test
+  deadline now `10s * raceScale` (raceScale=6 under `-race` build tag, 1 otherwise) instead of
+  a hardcoded 10s; agent reports `go test -race -count=3 ./cmd/awis/...` 3/3 pass (elapsed
+  11.58s/11.18s/11.51s per run) and one transient pre-commit full-suite `make race` fail on
+  first cold -race binary build, reproduced clean on 2 subsequent full runs — not independently
+  re-run this session. Row 3: `replay.txt` added, `printReplayHuman` extracted from `runReplay`
+  byte-identical (agent states diff shows only the extraction), `TestReplayGoldenHuman` added
+  sharing a fixture helper with the existing JSON test; agent states it passes clean without
+  `-update`. Frozen-surface check: `git diff m16-anthropic-adapter...4808070 --stat` independently
+  re-run this session — confirms ZERO new frozen-surface paths beyond what LAST-6 already
+  enumerated (same internal/storage, internal/plugin, internal/engine, sdk entries; commit
+  4808070 itself touches only the 6 cmd/awis files listed above). Row 8 untouched, as required.
+  Card compliance (files, scope, forbidden-list) independently confirmed via diff inspection.
+  Test/race NUMBERS (pass/fail, timings) are per the builder's own report and have NOT been
+  independently re-executed or re-verified this session — that is M17-V1's job, not CE's.
 
 LAST-6: 2026-08-21 (new session) — M17-V1 re-dispatched fresh (independent awis-verifier agent,
   isolated git worktree, no context from the C1r implementation session) per explicit human
