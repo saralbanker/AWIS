@@ -1,0 +1,63 @@
+schema_version: 1
+id: with-intelligence
+version: 1.0.0
+namespace: examples
+name: With Intelligence
+description: Intelligence step with fallback — AI drafts a result; manual entry on unavailability
+
+triggers:
+  - type: manual
+
+steps:
+  - id: gather-context
+    name: Gather Context
+    type: native
+    handler: examples.intel.gather
+    inputs:
+      query: "{{workflow.inputs.query}}"
+    outputs:
+      context: {type: string}
+
+  - id: ai-draft
+    name: AI Draft
+    type: intelligence
+    intelligence:
+      capability: draft
+      context_budget: 2000
+    inputs:
+      context: "{{steps.gather-context.outputs.context}}"
+    outputs:
+      draft: {type: string}
+    fallback: manual-draft
+
+  - id: manual-draft
+    name: Manual Draft (AI unavailable)
+    type: signal
+    wait_signal:
+      signal_name: manual_draft_provided
+      timeout: 24h
+      timeout_action: fail
+
+  - id: review
+    name: Review Draft
+    type: native
+    handler: examples.intel.review
+    inputs:
+      draft: "{{steps.ai-draft.outputs.draft}}"
+    outputs:
+      approved: {type: boolean}
+
+initial_step: gather-context
+
+transitions:
+  - from: gather-context
+    to: ai-draft
+  - from: ai-draft
+    to: review
+  - from: ai-draft
+    to: manual-draft
+    condition: "steps.ai-draft.status == 'fallback'"
+  - from: manual-draft
+    to: review
+
+final_steps: [review]

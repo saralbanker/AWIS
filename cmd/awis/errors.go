@@ -85,8 +85,8 @@ Commands (M17-C2 — live):
   config              Configuration sub-commands (show, set, validate, edit)
   rebuild-state       Rebuild workflow_instances projection from EventLog
 
-Commands (M17 — planned):
-  init                Initialize project structure and config
+Commands (M17-C3 — live):
+  init                Initialize project structure and config (FR-RM-01)
 
 Run 'awis <command> --help' for per-command usage.
 `

@@ -1,0 +1,14 @@
+Initialized AWIS project in /tmp/awis-project
+
+  created  config.yaml
+  created  .gitignore
+  created  workflows/hello-world.yaml
+  created  workflows/with-signal.yaml
+  created  workflows/with-intelligence.yaml
+  created  handlers/example_handler.go
+  created  README_AWIS.md
+
+Next steps:
+  awis start
+  awis submit hello-world --input name=World
+  awis status
