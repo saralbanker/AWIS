@@ -401,7 +401,8 @@ func TestSystemRehearsalInitStartSubmitTrace(t *testing.T) {
 	}
 
 	var finalStatus string
-	deadline := time.Now().Add(10 * time.Second)
+	terminalBudget := 10 * time.Second * raceScale
+	deadline := time.Now().Add(terminalBudget)
 	for time.Now().Before(deadline) {
 		statusCmd := exec.Command(bin, "--data-dir="+dataDir, "--json", "status", "--all")
 		statusCmd.Dir = projDir
@@ -430,8 +431,8 @@ func TestSystemRehearsalInitStartSubmitTrace(t *testing.T) {
 	}
 
 	if !terminal[finalStatus] {
-		t.Fatalf("instance %s did not reach a terminal status within 10s (last observed status: %q)",
-			submitResult.InstanceID, finalStatus)
+		t.Fatalf("instance %s did not reach a terminal status within %s (last observed status: %q)",
+			submitResult.InstanceID, terminalBudget, finalStatus)
 	}
 	t.Logf("instance %s reached terminal status %q", submitResult.InstanceID, finalStatus)
 
