@@ -23,11 +23,11 @@ import (
 
 // ── replay.json ───────────────────────────────────────────────────────────────
 
-// TestReplayGoldenJSON verifies the replay --json output golden.
-// Uses strategy 1: build a fixed replayOutputJSON struct with deterministic values.
-func TestReplayGoldenJSON(t *testing.T) {
+// replayGoldenFixture returns the fixed replayOutputJSON used by both the
+// JSON and human replay goldens, so they cannot drift apart.
+func replayGoldenFixture() replayOutputJSON {
 	epoch := time.Date(2026, 7, 10, 14, 0, 0, 0, time.UTC)
-	out := replayOutputJSON{
+	return replayOutputJSON{
 		InstanceID: "det-000001",
 		WorkflowID: "capture-decision",
 		Namespace:  "oip",
@@ -60,8 +60,25 @@ func TestReplayGoldenJSON(t *testing.T) {
 			},
 		},
 	}
+}
+
+// TestReplayGoldenJSON verifies the replay --json output golden.
+// Uses strategy 1: build a fixed replayOutputJSON struct with deterministic values.
+func TestReplayGoldenJSON(t *testing.T) {
+	out := replayGoldenFixture()
 	got := encodeNoEscape(t, out)
 	checkGolden(t, "replay.json", got)
+}
+
+// TestReplayGoldenHuman verifies the replay human-mode output golden.
+// Uses the same fixed fixture as TestReplayGoldenJSON so the two goldens
+// cannot drift apart.
+func TestReplayGoldenHuman(t *testing.T) {
+	out := replayGoldenFixture()
+	got := captureOutput(func() {
+		printReplayHuman(out)
+	})
+	checkGolden(t, "replay.txt", got)
 }
 
 // ── config_show.{json,txt} ────────────────────────────────────────────────────

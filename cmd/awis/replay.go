@@ -86,28 +86,33 @@ func runReplay(args []string) {
 		})
 	}
 
+	out := replayOutputJSON{
+		InstanceID: string(inst.InstanceID),
+		WorkflowID: inst.DefinitionID,
+		Namespace:  inst.Namespace,
+		Status:     string(inst.Status),
+		DryRun:     true,
+		Steps:      steps,
+	}
+
 	if globalJSON {
-		out := replayOutputJSON{
-			InstanceID: string(inst.InstanceID),
-			WorkflowID: inst.DefinitionID,
-			Namespace:  inst.Namespace,
-			Status:     string(inst.Status),
-			DryRun:     true,
-			Steps:      steps,
-		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetEscapeHTML(false)
 		_ = enc.Encode(out)
 		return
 	}
 
-	// Human output.
-	fmt.Printf("REPLAY (dry-run)  %s / %s\n", inst.DefinitionID, inst.InstanceID)
-	fmt.Printf("Status: %s  (original)\n\n", inst.Status)
+	printReplayHuman(out)
+}
+
+// printReplayHuman renders the human-mode 'awis replay' output for out.
+func printReplayHuman(out replayOutputJSON) {
+	fmt.Printf("REPLAY (dry-run)  %s / %s\n", out.WorkflowID, out.InstanceID)
+	fmt.Printf("Status: %s  (original)\n\n", out.Status)
 	fmt.Println("The following steps WOULD run if this instance were re-executed:")
 	fmt.Println()
 
-	for _, s := range steps {
+	for _, s := range out.Steps {
 		mins := s.RelativeMs / 60000
 		secs := (s.RelativeMs / 1000) % 60
 		timeStr := fmt.Sprintf("%02d:%02d", mins, secs)
