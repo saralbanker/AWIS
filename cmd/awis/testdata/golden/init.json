@@ -1,0 +1,1 @@
+{"target":"/tmp/awis-project","files":["config.yaml",".gitignore","workflows/hello-world.yaml","workflows/with-signal.yaml","workflows/with-intelligence.yaml","handlers/example_handler.go","README_AWIS.md"]}

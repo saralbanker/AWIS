@@ -1,0 +1,8 @@
+# AWIS project configuration
+# See: awis config show  |  awis config set <key> <value>
+
+namespace: default
+tick: 100ms
+
+# Intelligence (optional — leave blank for zero-AI mode)
+# anthropic_api_key: $ANTHROPIC_API_KEY

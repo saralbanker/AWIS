@@ -722,6 +722,73 @@ INSTALLED PLUGINS
 
 ---
 
+### init
+
+**Synopsis:** `awis init [--force] [directory]` (M17-C3; FR-RM-01)
+
+Scaffold a new AWIS project into `[directory]` (default: current directory)
+from an embedded file set (`//go:embed all:scaffold`; the `all:` prefix is
+required so `scaffold/.gitignore` — a dot-file — is not silently excluded by
+Go's default embed rule):
+
+- `config.yaml` — minimal project config (`namespace`, `tick`, commented
+  `anthropic_api_key` note)
+- `.gitignore` — excludes `.awis/` and `*.pid`
+- `workflows/hello-world.yaml`, `workflows/with-signal.yaml`,
+  `workflows/with-intelligence.yaml` — the three M10 example workflows,
+  embedded byte-identical to `examples/workflows/`
+- `handlers/example_handler.go` — native step handler stubs for an
+  embedding Go program to register via `sdk.Runtime.RegisterHandler`
+- `README_AWIS.md` — quick-start + project-structure reference
+
+Refuses to write into a non-empty target directory unless `--force` is
+given (existing files are left in place; scaffold files are written
+alongside them).
+
+**Flags:**
+- `--force` — allow writing into a non-empty target directory
+
+**Human output:**
+```
+Initialized AWIS project in /abs/path/my-project
+
+  created  config.yaml
+  created  .gitignore
+  created  workflows/hello-world.yaml
+  created  workflows/with-signal.yaml
+  created  workflows/with-intelligence.yaml
+  created  handlers/example_handler.go
+  created  README_AWIS.md
+
+Next steps:
+  awis start
+  awis submit hello-world --input name=World
+  awis status
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "target": "string",
+  "files":  ["string"]
+}
+```
+
+**Errors:**
+- Exit 1: target directory not empty and `--force` not given
+- Exit 1: cannot resolve/create the target directory (permissions)
+- Exit 1: cannot write a scaffold file (permissions, disk space)
+
+**Exit codes:** 0 scaffolded, 1 error
+
+**Note:** the scaffolded `workflows/hello-world.yaml` carries its own YAML
+`namespace: examples`. `sdk.Runtime.Submit`'s cross-process lookup filters
+`ListWorkflows` by the CALLING process's `--namespace` (not the
+definition's namespace), so submitting it requires
+`awis --namespace=examples submit hello-world`.
+
+---
+
 ## §5 Error Taxonomy
 
 Every error AWIS shows answers three questions (PRD §26 verbatim):
