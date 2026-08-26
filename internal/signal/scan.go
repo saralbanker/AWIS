@@ -45,7 +45,11 @@ type Waits interface {
 	// resume must guard (B3 step 3 <expected_version>). ok=false means no live
 	// wait — an early/spurious signal or an already-resumed instance — and the
 	// scan skips it so a signal never resumes the wrong wait.
-	Resolve(instanceID core.InstanceID, signalName string) (stepID string, expectedVersion int, ok bool)
+	//
+	// ctx (engine-hardening Step 1.6 / B-15): Resolve is durable — on an
+	// in-memory miss it may consult storage's wait_records to recover a wait
+	// that predates this process (a restart), which needs ctx for the read.
+	Resolve(ctx context.Context, instanceID core.InstanceID, signalName string) (stepID string, expectedVersion int, ok bool)
 	// OnDelivered notifies the engine that the B3 tx committed for
 	// (instanceID, signalName): the engine advances its sequence/version cursors
 	// (the tx assigned seq MAX+1 and bumped version) and clears the in-memory wait.
@@ -103,7 +107,7 @@ func (sc *Scanner) Scan(ctx context.Context) error {
 // error only for a real store fault on DeliverSignal itself; the B3-defined
 // no-op and lock-conflict outcomes are benign and logged.
 func (sc *Scanner) deliverOne(ctx context.Context, sig storage.Signal) error {
-	stepID, expectedVersion, ok := sc.waits.Resolve(sig.InstanceID, sig.SignalName)
+	stepID, expectedVersion, ok := sc.waits.Resolve(ctx, sig.InstanceID, sig.SignalName)
 	if !ok {
 		// No live wait for this (instance, signal): early/spurious signal, or the
 		// instance already resumed. Leave it undelivered; a later wait may claim it.

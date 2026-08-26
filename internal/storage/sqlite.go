@@ -568,6 +568,26 @@ func (s *SQLiteStorage) GetInstance(ctx context.Context, instanceID core.Instanc
 	return inst, nil
 }
 
+// InstanceVersion returns the optimistic-lock version of an instance row
+// (engine-hardening B-0: the durable version, read fresh from storage, is what
+// makes UpsertInstance's OCC check correct across a process restart — the
+// engine's in-memory e.ver cache is empty on a fresh process while this column
+// is not). Returns ErrInstanceNotFound when the row is absent.
+func (s *SQLiteStorage) InstanceVersion(ctx context.Context, instanceID core.InstanceID) (int, error) {
+	var version int
+	err := s.db.db.QueryRowContext(ctx,
+		`SELECT version FROM workflow_instances WHERE instance_id = ?`,
+		string(instanceID),
+	).Scan(&version)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+		}
+		return 0, fmt.Errorf("storage: InstanceVersion query: %w", err)
+	}
+	return version, nil
+}
+
 // ListInstances returns instances matching filter. Fields with zero values add
 // no WHERE predicate; non-zero Namespace or Status each add one. Results are
 // ordered by started_at ascending (NFR-S-04 namespace predicate via
