@@ -19,16 +19,19 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/awis/awis/internal/core"
 	"github.com/awis/awis/internal/dsl"
+	"github.com/awis/awis/internal/examples"
 	"github.com/awis/awis/internal/intelligence/adapters/anthropic"
 	"github.com/awis/awis/internal/storage"
 	"github.com/awis/awis/sdk"
@@ -62,9 +65,30 @@ func runStart(args []string) {
 	fs.StringVar(&namespace, "namespace", "default", "Namespace for this runtime instance")
 	mustParse(fs, args)
 
+	// Apply config.yaml (B-10). `awis init` writes a config.yaml declaring
+	// namespace / tick / anthropic_api_key, and until now the runtime read none
+	// of it — the file was decorative. Precedence is the conventional one:
+	// an explicitly-supplied flag wins over the config file, which wins over the
+	// built-in default. fs.Visit reports only flags the user actually set, which
+	// is how "explicitly supplied" is distinguished from "left at its default".
+	cfg := loadConfigKeys()
+	setFlags := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) { setFlags[f.Name] = true })
+	if !setFlags["tick"] {
+		if v, ok := cfg["tick"]; ok && v != "" {
+			tickStr = v
+		}
+	}
+	if !setFlags["namespace"] {
+		if v, ok := cfg["namespace"]; ok && v != "" {
+			namespace = v
+		}
+	}
+
 	tick, err := time.ParseDuration(tickStr)
 	if err != nil {
-		fail(1, fmt.Sprintf("start: invalid --tick value %q: %s", tickStr, err), "", "use a valid Go duration, e.g. 100ms")
+		fail(1, fmt.Sprintf("start: invalid --tick value %q: %s", tickStr, err),
+			configPath(), "use a valid Go duration, e.g. 100ms")
 	}
 
 	// Resolve data-dir and db path.
@@ -110,7 +134,19 @@ func runStart(args []string) {
 	// the runtime falls through to NullAdapter behaviour (zero-AI mode).
 	var intelligencePort core.IntelligencePort
 	var intelligenceLevel = "none (zero-AI mode)"
-	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
+	// The environment wins over config.yaml so a key never has to be written to
+	// disk; a config value is the fallback for projects that prefer it. The key
+	// itself is NEVER logged or echoed — only the resolved provider name is.
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" {
+		apiKey = cfg["anthropic_api_key"]
+		// A scaffolded config may carry the literal placeholder "$ANTHROPIC_API_KEY";
+		// treat any unexpanded $VAR as absent rather than sending it as a credential.
+		if strings.HasPrefix(apiKey, "$") {
+			apiKey = ""
+		}
+	}
+	if apiKey != "" {
 		intelligencePort = anthropic.New(anthropic.Config{APIKey: apiKey})
 		intelligenceLevel = "anthropic (cloud)"
 	}
@@ -124,6 +160,20 @@ func runStart(args []string) {
 	})
 	if err != nil {
 		fail(1, fmt.Sprintf("start: cannot create runtime: %s", err), "", "")
+	}
+
+	// 4b. Register the built-in native handlers (B-9).
+	// The CLI daemon is a pre-compiled binary, so the only native handlers it can
+	// dispatch are the ones compiled into it. Without this the scaffolded example
+	// workflows fail on their first step with handler_not_found and the `native`
+	// step type is unreachable through the shipped binary entirely. Users' own
+	// native handlers require embedded SDK mode — see internal/examples for the
+	// full rationale, and the unresolved-handler diagnostic below, which makes
+	// that limitation visible at startup rather than at dispatch time.
+	for _, h := range examples.Handlers() {
+		if rerr := rt.RegisterHandler(h); rerr != nil {
+			fail(1, fmt.Sprintf("start: cannot register built-in handler %q: %s", h.ID(), rerr), "", "this is a build error; reinstall awis")
+		}
 	}
 
 	// 5. Register workflows + write WorkflowRegistered audit rows.
@@ -145,10 +195,28 @@ func runStart(args []string) {
 		// WorkflowRegistered audit row is written inside RegisterWorkflow (sdk/registration.go F-4).
 	}
 
+	// 5b. Warn about native handlers a discovered workflow references but that
+	// this binary cannot dispatch (B-9 diagnostic). Previously such a workflow
+	// started normally and then failed mid-run with handler_not_found, which
+	// gives the operator no hint that the cause is structural rather than
+	// transient.
+	if missing := unresolvedHandlers(defs, examples.IDs()); len(missing) > 0 {
+		fmt.Fprintf(os.Stderr,
+			"awis: warning: %d native handler(s) referenced by your workflows are not compiled into this binary: %s\n",
+			len(missing), strings.Join(missing, ", "))
+		fmt.Fprintf(os.Stderr,
+			"awis:   steps using them will fail with handler_not_found. Native handlers you write must be\n"+
+				"awis:   registered in-process via the SDK (rt.RegisterHandler) — see examples/hello_workflow/main.go.\n")
+	}
+
 	// 6. Optional plugin discovery — if PluginStore supported.
+	// Registration goes through rt.RegisterPlugin, NOT the raw PluginStore: the
+	// store write only records a row, while the runtime's plugin.Manager is what
+	// actually dispatches type=plugin steps. Writing the row alone left every
+	// plugin step failing with plugin_not_found (B-19).
 	var pluginNames []string
-	if ps, ok := store.(storage.PluginStore); ok {
-		pluginNames = discoverPlugins(cwd, ps)
+	if _, ok := store.(storage.PluginStore); ok {
+		pluginNames = discoverPlugins(cwd, rt)
 	}
 
 	// 7. Print startup header.
@@ -300,7 +368,7 @@ func sleepUntilNextMinuteWith(ctx context.Context, now func() time.Time, afterFn
 // discoverPlugins finds plugins/*/awis-plugin.yaml files and registers them.
 // Returns a list of plugin names that were successfully discovered/registered.
 // Errors during individual plugin registration are skipped silently (F-5 V1 local-path semantics).
-func discoverPlugins(cwd string, ps storage.PluginStore) []string {
+func discoverPlugins(cwd string, rt *sdk.Runtime) []string {
 	pattern := filepath.Join(cwd, "plugins", "*", "awis-plugin.yaml")
 	matches, err := filepath.Glob(pattern)
 	if err != nil || len(matches) == 0 {
@@ -317,17 +385,48 @@ func discoverPlugins(cwd string, ps storage.PluginStore) []string {
 		if err != nil {
 			continue
 		}
-		name, ver, manifestJSON, capIDs, perr := parsePluginManifestBytes(data)
+		name, _, _, _, perr := parsePluginManifestBytes(data)
 		if perr != nil || name == "" {
 			continue
 		}
-		_ = filepath.Dir(manifestPath) // plugin dir noted; path stored in manifest JSON
-		if err := ps.RegisterPlugin(ctx, name, ver, manifestJSON, capIDs); err != nil {
+		// rt.RegisterPlugin parses the manifest properly (internal/plugin.ParseManifest),
+		// persists it via the PluginStore AND adds it to the in-memory manager so the
+		// engine can dispatch to it. A failure here is reported rather than skipped:
+		// silently dropping a plugin the operator installed is how B-19 stayed hidden.
+		if err := rt.RegisterPlugin(ctx, manifestPath); err != nil {
+			fmt.Fprintf(os.Stderr, "awis: warning: plugin %q not registered: %s\n", name, err)
 			continue
 		}
 		names = append(names, name)
 	}
 	return names
+}
+
+// unresolvedHandlers returns, sorted and deduplicated, the native step handlers
+// referenced by defs that are not present in registered. It is the input to the
+// startup diagnostic that makes the CLI-daemon handler limitation explicit.
+func unresolvedHandlers(defs []*core.WorkflowDefinition, registered []string) []string {
+	have := make(map[string]bool, len(registered))
+	for _, id := range registered {
+		have[id] = true
+	}
+	seen := make(map[string]bool)
+	var missing []string
+	for _, def := range defs {
+		for _, step := range def.Steps {
+			if step.Type != core.StepTypeNative {
+				continue
+			}
+			ref := string(step.Handler)
+			if ref == "" || have[ref] || seen[ref] {
+				continue
+			}
+			seen[ref] = true
+			missing = append(missing, ref)
+		}
+	}
+	sort.Strings(missing)
+	return missing
 }
 
 // parsePluginManifestBytes does minimal YAML manifest parsing for the start

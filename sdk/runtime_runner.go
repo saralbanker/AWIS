@@ -5,6 +5,8 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/awis/awis/internal/core"
 )
@@ -31,26 +33,80 @@ func (r *Runtime) Submit(ctx context.Context, definitionID string, inputs map[st
 	r.mu.Unlock()
 
 	// Fallback: query storage when not in the in-memory registry. This allows a
-	// submit process (e.g. awis CLI) to target workflows registered by a separate
-	// runtime process against the same DB (M15-P1; IMP §17 cross-process submit).
-	// Scan only r.namespace — callers must set the correct namespace; no
-	// application names may appear in platform code (QG-4 boundary).
+	// submit process (e.g. the awis CLI) to target workflows registered by a
+	// separate runtime process against the same DB (M15-P1; IMP §17 cross-process
+	// submit).
+	//
+	// The scan is two-stage (B-23). A workflow's namespace comes from its own
+	// YAML, while the Runtime's namespace comes from a flag, and the two are
+	// unrelated: `awis start` registers definitions from every namespace it
+	// discovers regardless of --namespace. Scanning only r.namespace therefore
+	// made the documented quickstart fail outright — the scaffolded workflows
+	// declare `namespace: examples` while the CLI defaults to "default", so
+	// `awis submit hello-world` reported "no registered workflow with id
+	// \"hello-world\"" on a freshly initialised project.
+	//
+	// Stage 1 prefers the Runtime's own namespace, so an explicit --namespace
+	// still wins and stays unambiguous. Stage 2 widens to every namespace. An id
+	// that resolves in more than one namespace is an ERROR naming the candidates,
+	// never a silent pick: guessing which of two same-named workflows the operator
+	// meant is worse than making them say.
+	// Stage 1: the Runtime's own namespace.
 	if latestVersion == "" {
-		if defs, lerr := r.storage.ListWorkflows(ctx, r.namespace); lerr == nil {
-			for _, def := range defs {
-				if def.ID == definitionID {
-					if latestVersion == "" || def.Version > latestVersion {
-						latestVersion = def.Version
-					}
-				}
-			}
+		latestVersion, _ = latestInNamespace(ctx, r.storage, r.namespace, definitionID)
+	}
+	// Stage 2: every namespace. ListWorkflows with an empty namespace means "no
+	// predicate", matching ListInstances' filter idiom.
+	//
+	// Note that workflow_definitions is keyed by (id, version) GLOBALLY —
+	// namespace is not part of the primary key — so an id can only appear in two
+	// namespaces at two different versions. The ambiguity branch below therefore
+	// fires rarely, but when it does the two definitions are genuinely unrelated
+	// workflows that happen to share an id, and picking one would be a guess.
+	if latestVersion == "" {
+		ver, nsCandidates := latestInNamespace(ctx, r.storage, "", definitionID)
+		if len(nsCandidates) > 1 {
+			return "", fmt.Errorf(
+				"sdk: Submit: workflow id %q is registered in %d namespaces (%s); "+
+					"re-run with an explicit namespace to disambiguate",
+				definitionID, len(nsCandidates), strings.Join(nsCandidates, ", "))
 		}
+		latestVersion = ver
 	}
 
 	if latestVersion == "" {
 		return "", fmt.Errorf("sdk: Submit: no registered workflow with id %q", definitionID)
 	}
 	return r.eng.Submit(ctx, definitionID, latestVersion, inputs)
+}
+
+// latestInNamespace returns the highest registered version of definitionID
+// within namespace (empty namespace = every namespace), along with the sorted
+// distinct namespaces the id was found in. A storage error yields no match
+// rather than an error: the caller treats "not found here" and "could not look
+// here" identically and falls through to its next stage.
+func latestInNamespace(ctx context.Context, store core.StoragePort, namespace, definitionID string) (core.SemVer, []string) {
+	defs, err := store.ListWorkflows(ctx, namespace)
+	if err != nil {
+		return "", nil
+	}
+	var latest core.SemVer
+	seen := make(map[string]bool)
+	var namespaces []string
+	for _, def := range defs {
+		if def.ID != definitionID {
+			continue
+		}
+		if !seen[def.Namespace] {
+			seen[def.Namespace] = true
+			namespaces = append(namespaces, def.Namespace)
+		}
+		if latest == "" || def.Version > latest {
+			latest = def.Version
+		}
+	}
+	sort.Strings(namespaces)
+	return latest, namespaces
 }
 
 // Signal delivers a named signal to a waiting workflow instance.
