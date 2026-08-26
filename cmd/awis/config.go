@@ -304,8 +304,38 @@ func runConfigEdit(args []string) {
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 // configPath returns the config.yaml path in globalDataDir.
+// configPath resolves the project's config.yaml.
+//
+// `awis init` writes config.yaml at the PROJECT ROOT, but every config
+// sub-command used to look only in <data-dir>/config.yaml — so `awis config
+// show` immediately after `awis init` reported "Config file not found" while
+// the file sat right there in the working directory (B-10). Resolution now
+// prefers the location `awis init` actually writes, and still finds a
+// config.yaml under --data-dir for projects that put one there.
+//
+// When neither exists the project-root path is returned, so `awis config set`
+// creates the file where `awis init` would have put it.
 func configPath() string {
-	return filepath.Join(globalDataDir, "config.yaml")
+	root := "config.yaml"
+	if _, err := os.Stat(root); err == nil {
+		return root
+	}
+	dataDir := filepath.Join(globalDataDir, "config.yaml")
+	if _, err := os.Stat(dataDir); err == nil {
+		return dataDir
+	}
+	return root
+}
+
+// loadConfigKeys reads and parses the resolved config.yaml, returning an empty
+// map when the file is absent or unreadable. Config is advisory: a missing or
+// malformed config must never prevent the runtime from starting.
+func loadConfigKeys() map[string]string {
+	raw, err := os.ReadFile(configPath())
+	if err != nil {
+		return map[string]string{}
+	}
+	return parseConfigKeys(string(raw))
 }
 
 // parseConfigKeys parses a YAML-ish config file and returns key: value pairs.
