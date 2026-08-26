@@ -104,9 +104,32 @@ type workflowFailedPayload struct {
 // recovery path when the engine's view is stale) and the append is retried ONCE
 // (EDR-005). The caller must have set EventID? No — appendEvent fills EventID,
 // SchemaVersion, and SequenceNum; the caller sets the rest (payload, emitted_at).
+//
+// engine-hardening (Step 1.5, closes a B-0-adjacent restart cost): a fresh
+// process (or an instance never touched by this process) has no e.seq entry —
+// the zero value would collide with events this instance already durably has.
+// Before assigning, an unseeded instance is proactively hydrated from
+// storage's MAX(sequence_num) so a restart does not burn one failed append
+// (and its reactive recovery round-trip) per instance. The reactive recovery
+// below is KEPT as a backstop for genuine races (e.g. a concurrent writer).
 func (e *Engine) appendEvent(ctx context.Context, ev *core.ExecutionEvent) error {
 	ev.EventID = e.newID()
 	ev.SchemaVersion = 1
+
+	e.mu.Lock()
+	_, seeded := e.seq[ev.InstanceID]
+	e.mu.Unlock()
+	if !seeded {
+		max, err := e.maxSeq(ctx, ev.InstanceID)
+		if err != nil {
+			return err
+		}
+		e.mu.Lock()
+		if _, seeded = e.seq[ev.InstanceID]; !seeded {
+			e.seq[ev.InstanceID] = max
+		}
+		e.mu.Unlock()
+	}
 
 	e.mu.Lock()
 	e.seq[ev.InstanceID]++
@@ -166,14 +189,58 @@ func (e *Engine) emit(ctx context.Context, ev *core.ExecutionEvent, defID string
 	return e.project(ctx, *ev, defID, defVer)
 }
 
+// instanceVersionStore is the additive slice the engine uses to read the
+// durable optimistic-lock version directly from storage (engine-hardening
+// Step 1, closes B-0). Reached through a type-asserted interface exactly as
+// cancellationStore / signalWaitStore are; StoragePort's 12 methods stay frozen.
+type instanceVersionStore interface {
+	InstanceVersion(ctx context.Context, instanceID core.InstanceID) (int, error)
+}
+
+// expectedVersion returns the OCC version to guard the next projection write.
+// It prefers the durable value in storage (correct across restarts — B-0: a
+// fresh process's e.ver cache is empty while workflow_instances.version is not)
+// and falls back to the in-memory cursor for storages that do not expose it.
+// A successful durable read refreshes e.ver so the cache stays in step.
+func (e *Engine) expectedVersion(ctx context.Context, iid core.InstanceID) int {
+	if vs, ok := e.storage.(instanceVersionStore); ok {
+		v, err := vs.InstanceVersion(ctx, iid)
+		switch {
+		case err == nil:
+			e.mu.Lock()
+			e.ver[iid] = v
+			e.mu.Unlock()
+			return v
+		case errors.Is(err, storage.ErrInstanceNotFound):
+			// No row yet (e.g. WorkflowStarted has not been upserted): the durable
+			// version is 0, matching the in-memory zero-value default.
+			e.mu.Lock()
+			e.ver[iid] = 0
+			e.mu.Unlock()
+			return 0
+		default:
+			e.logger.Warn("expectedVersion: durable read failed; falling back to cached version",
+				"instance_id", string(iid), "error", err.Error())
+		}
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.ver[iid]
+}
+
 // project applies ev to the workflow_instances projection under optimistic
-// concurrency control, mirroring EDR-007 §2 exactly. On ErrVersionConflict it
-// re-reads and re-applies ONCE (the card's version-conflict retry).
+// concurrency control, mirroring EDR-007 §2 exactly.
+//
+// semantics-bearing: the expected OCC version is re-read from durable storage
+// on EVERY attempt (expectedVersion), not assumed as cached+1 — a restarted
+// process's cache is not merely "off by one" (B-0: it is empty). Budget raised
+// from 2 to 3 attempts (engine-hardening Step 1.3) to give the durable re-read
+// room to converge under a genuinely concurrent bump (e.g. ClaimStep).
 func (e *Engine) project(ctx context.Context, ev core.ExecutionEvent, defID string, defVer core.SemVer) error {
-	for attempt := 0; attempt < 2; attempt++ {
-		e.mu.Lock()
-		expected := e.ver[ev.InstanceID]
-		e.mu.Unlock()
+	const maxAttempts = 3
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		expected := e.expectedVersion(ctx, ev.InstanceID)
 
 		inst, found, err := e.getInstance(ctx, ev.InstanceID)
 		if err != nil {
@@ -197,17 +264,15 @@ func (e *Engine) project(ctx context.Context, ev core.ExecutionEvent, defID stri
 			e.mu.Unlock()
 			return nil
 		}
-		if errors.Is(err, storage.ErrVersionConflict) && attempt == 0 {
-			// A version we did not account for (e.g. a claim bump); advance the
-			// tracked version by one and re-read/re-apply once.
-			e.mu.Lock()
-			e.ver[ev.InstanceID] = expected + 1
-			e.mu.Unlock()
+		if errors.Is(err, storage.ErrVersionConflict) {
+			// Re-read the durable version at the top of the next iteration
+			// (expectedVersion) rather than blindly assuming expected+1.
+			lastErr = err
 			continue
 		}
 		return fmt.Errorf("engine: upsert projection %s (instance=%s): %w", ev.EventType, ev.InstanceID, err)
 	}
-	return nil
+	return fmt.Errorf("engine: upsert projection %s (instance=%s): %w", ev.EventType, ev.InstanceID, lastErr)
 }
 
 // getInstance wraps GetInstance, mapping ErrInstanceNotFound to found=false.

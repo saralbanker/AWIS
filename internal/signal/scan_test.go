@@ -46,7 +46,7 @@ type fakeWaits struct {
 	delivered []string // signal names for which OnDelivered fired
 }
 
-func (f *fakeWaits) Resolve(_ core.InstanceID, _ string) (string, int, bool) {
+func (f *fakeWaits) Resolve(_ context.Context, _ core.InstanceID, _ string) (string, int, bool) {
 	return f.stepID, f.version, f.resolveOK
 }
 
