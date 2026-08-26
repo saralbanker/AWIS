@@ -7,9 +7,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/awis/awis/internal/storage"
@@ -68,9 +66,7 @@ func runAudit(args []string) {
 
 	if globalJSON {
 		out := auditOutputJSON{Entries: entries}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 

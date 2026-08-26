@@ -74,9 +74,7 @@ func runConfigShow(args []string) {
 					ConfigFile: cfgPath,
 					Keys:       map[string]string{},
 				}
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetEscapeHTML(false)
-				_ = enc.Encode(out)
+				emitJSON(out)
 				return
 			}
 			fmt.Printf("Config file not found: %s\n\n", cfgPath)
@@ -102,9 +100,7 @@ func runConfigShow(args []string) {
 			ConfigFile: cfgPath,
 			Keys:       masked,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 
@@ -174,9 +170,7 @@ func runConfigSet(args []string) {
 			Value:      displayValue,
 			Masked:     masked,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 
@@ -231,9 +225,7 @@ func runConfigValidate(args []string) {
 		if os.IsNotExist(err) {
 			if globalJSON {
 				out := configValidateOutputJSON{ConfigFile: cfgPath, Valid: false, Errors: []string{"config file not found"}}
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetEscapeHTML(false)
-				_ = enc.Encode(out)
+				emitJSON(out)
 				return
 			}
 			fail(1, fmt.Sprintf("config validate: file not found: %s", cfgPath), cfgPath, "awis init  to create a default config")
@@ -252,9 +244,7 @@ func runConfigValidate(args []string) {
 		if out.Errors == nil {
 			out.Errors = []string{}
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 
@@ -283,9 +273,7 @@ func runConfigEdit(args []string) {
 	if editor == "" {
 		if globalJSON {
 			out := map[string]string{"error": "no $EDITOR set", "config_file": configPath()}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetEscapeHTML(false)
-			_ = enc.Encode(out)
+			emitJSON(out)
 			return
 		}
 		fail(1, "config edit: no $EDITOR set",

@@ -10,7 +10,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -139,9 +138,7 @@ func printStatusTable(namespace string, all bool, n int) {
 
 	if globalJSON {
 		out := buildStatusJSON(now, activeInsts, recentInsts)
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 
@@ -216,9 +213,7 @@ func runStatusDetail(instanceID string) {
 	if globalJSON {
 		now := time.Now()
 		active := buildActiveJSON(now, inst)
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(active)
+		emitJSON(active)
 		return
 	}
 

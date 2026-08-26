@@ -7,7 +7,6 @@ package main
 // On timeout: reports error per TDS-07, exits 1.
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -69,9 +68,7 @@ func runStop(args []string) {
 		elapsedMs := int(time.Since(start).Milliseconds())
 		if globalJSON {
 			out := stopOutput{PID: pid, Stopped: true, ElapsedMs: elapsedMs}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetEscapeHTML(false)
-			_ = enc.Encode(out)
+			emitJSON(out)
 			return
 		}
 		fmt.Printf("stopped. (process was already gone; PID file cleaned up)\n")
@@ -91,9 +88,7 @@ func runStop(args []string) {
 			elapsedMs := int(time.Since(start).Milliseconds())
 			if globalJSON {
 				out := stopOutput{PID: pid, Stopped: true, ElapsedMs: elapsedMs}
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetEscapeHTML(false)
-				_ = enc.Encode(out)
+				emitJSON(out)
 				return
 			}
 			fmt.Printf("stopped.\n")
@@ -105,9 +100,7 @@ func runStop(args []string) {
 	elapsedMs := int(time.Since(start).Milliseconds())
 	if globalJSON {
 		out := stopOutput{PID: pid, Stopped: false, ElapsedMs: elapsedMs}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		os.Exit(1)
 	}
 	// TDS-07 §4 timeout format (verbatim):

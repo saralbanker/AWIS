@@ -151,9 +151,7 @@ func runPluginInstall(args []string) {
 			Path:     absPath,
 			Provides: capIDs,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 
@@ -227,9 +225,7 @@ func runPluginList(args []string) {
 
 	if globalJSON {
 		out := pluginListOutputJSON{Plugins: entries}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 
@@ -305,9 +301,7 @@ func runPluginStatus(args []string) {
 			Path:         path,
 			RegisteredAt: row.RegisteredAt.UTC().Format(time.RFC3339),
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 
@@ -395,9 +389,7 @@ func runPluginRemove(args []string) {
 			Status:  "removed",
 			Removed: true,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 

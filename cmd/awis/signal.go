@@ -7,9 +7,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/awis/awis/internal/core"
 	"github.com/awis/awis/sdk"
@@ -95,9 +93,7 @@ func runSignal(args []string) {
 			Delivered:  true,
 			NextStep:   nextStep,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 

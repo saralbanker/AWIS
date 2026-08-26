@@ -5,7 +5,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -90,11 +89,7 @@ func runVersion(args []string) {
 			Version:   version,
 			GoVersion: goVer,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		if err := enc.Encode(out); err != nil {
-			fail(1, "version: JSON encode failed", "", "")
-		}
+		emitJSON(out)
 		return
 	}
 

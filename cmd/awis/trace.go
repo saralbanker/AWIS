@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/awis/awis/internal/core"
@@ -17,6 +16,28 @@ import (
 
 func init() {
 	commands["trace"] = command{fn: runTrace, summary: "Full execution trace for one instance"}
+}
+
+// truncatePayloadForTraceJSON truncates payload to at most 120 runes (never
+// splitting a multi-byte rune) and marshals the result as a JSON string
+// value via json.Marshal, so escaping (quotes, control characters, etc.) is
+// always correct.
+//
+// Defect B-7: the previous implementation built the JSON string by hand
+// (`"` + truncated + `"`), which produced invalid JSON whenever the raw
+// payload contained an unescaped `"`. The resulting json.RawMessage then
+// failed to encode, and the discarded encode error (see emitJSON, B-8)
+// meant 'trace --json' silently printed nothing and exited 0.
+func truncatePayloadForTraceJSON(payload json.RawMessage) (json.RawMessage, error) {
+	truncated := string(payload)
+	if r := []rune(truncated); len(r) > 120 {
+		truncated = string(r[:120]) + "..."
+	}
+	b, err := json.Marshal(truncated)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(b), nil
 }
 
 // traceEventJSON is one event in the TDS-07 §4 trace JSON schema.
@@ -88,12 +109,11 @@ func runTrace(args []string) {
 				payload = json.RawMessage("{}")
 			}
 			if !full && len(payload) > 120 {
-				// Truncate payload to 120 chars in JSON representation.
-				truncated := string(payload)
-				if len(truncated) > 120 {
-					truncated = truncated[:120] + "..."
+				tp, terr := truncatePayloadForTraceJSON(payload)
+				if terr != nil {
+					fail(1, fmt.Sprintf("trace: cannot marshal truncated payload: %s", terr), string(instanceID), "")
 				}
-				payload = json.RawMessage(`"` + truncated + `"`)
+				payload = tp
 			}
 			relMs := int(ev.EmittedAt.Sub(inst.StartedAt).Milliseconds())
 			if relMs < 0 {
@@ -116,9 +136,7 @@ func runTrace(args []string) {
 			DurationMs:      durationMs,
 			Events:          eventsJSON,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 
