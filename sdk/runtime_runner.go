@@ -87,17 +87,19 @@ func (r *Runtime) List(ctx context.Context, filter core.InstanceFilter) ([]core.
 }
 
 // instanceToStatus maps a core.WorkflowInstance to a core.WorkflowStatus.
-// Variables contains both inputs and accumulated outputs; we expose the full
-// map as both Inputs and Outputs at V1 (IMP §27.M8: shape freeze only).
+// Variables contains both the workflow inputs (under the "inputs" key) and
+// each step's accumulated outputs (under its step id); splitVariables (B-11b)
+// separates them so Inputs and Outputs are never the same map.
 func instanceToStatus(inst core.WorkflowInstance) core.WorkflowStatus {
+	inputs, outputs := splitVariables(inst.Variables)
 	return core.WorkflowStatus{
 		InstanceID:   inst.InstanceID,
 		DefinitionID: inst.DefinitionID,
 		Version:      inst.DefinitionVersion,
 		Status:       inst.Status,
 		CurrentSteps: inst.CurrentSteps,
-		Inputs:       inst.Variables,
-		Outputs:      inst.Variables,
+		Inputs:       inputs,
+		Outputs:      outputs,
 		CreatedAt:    inst.StartedAt,
 		UpdatedAt:    inst.UpdatedAt,
 	}
