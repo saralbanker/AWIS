@@ -43,9 +43,7 @@ func runLogs(args []string) {
 		if os.IsNotExist(err) {
 			if globalJSON {
 				out := logsOutputJSON{LogFile: logPath, Lines: []interface{}{}}
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetEscapeHTML(false)
-				_ = enc.Encode(out)
+				emitJSON(out)
 				return
 			}
 			fmt.Printf("No log file found at %s\n", logPath)
@@ -97,9 +95,7 @@ func runLogs(args []string) {
 			}
 		}
 		out := logsOutputJSON{LogFile: logPath, Lines: parsed}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 

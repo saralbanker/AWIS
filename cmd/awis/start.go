@@ -164,9 +164,7 @@ func runStart(args []string) {
 			Intelligence: intelligenceLevel,
 			PID:          pid,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 	} else {
 		// TDS-07 §4 startup header (verbatim shape):
 		// AWIS v0.1.0-dev  db: .awis/runtime.db

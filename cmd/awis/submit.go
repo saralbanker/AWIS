@@ -109,9 +109,7 @@ func runSubmit(args []string) {
 				Status:          statusStr,
 				DurationMs:      nil,
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetEscapeHTML(false)
-			_ = enc.Encode(out)
+			emitJSON(out)
 			return
 		}
 		// TDS-07 §4 human output (submit only):
@@ -151,9 +149,7 @@ func runSubmit(args []string) {
 					Status:          string(inst.Status),
 					DurationMs:      &dur,
 				}
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetEscapeHTML(false)
-				_ = enc.Encode(out)
+				emitJSON(out)
 				return
 			}
 			// TDS-07 §4 human output (--wait, success):
@@ -173,9 +169,7 @@ func runSubmit(args []string) {
 					Status:          string(inst.Status),
 					DurationMs:      &dur,
 				}
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetEscapeHTML(false)
-				_ = enc.Encode(out)
+				emitJSON(out)
 				os.Exit(1)
 			}
 			// TDS-07 §4 human output (--wait, failure):

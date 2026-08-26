@@ -121,9 +121,7 @@ func runExport(args []string) {
 	}
 
 	if globalJSON {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(summary)
+		emitJSON(summary)
 		return
 	}
 
