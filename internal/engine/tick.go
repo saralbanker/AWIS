@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"time"
@@ -92,6 +93,13 @@ type dispatchResult struct {
 func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance) error {
 	dv, err := e.defViewFor(ctx, inst)
 	if err != nil {
+		return err
+	}
+
+	// engine-hardening Step 2a: reconstruct this instance's retry/pending/
+	// terminally-failed bookkeeping from the EventLog the first time THIS
+	// process touches it (hydrate.go); a no-op after the first tick.
+	if err := e.hydrate(ctx, dv, inst); err != nil {
 		return err
 	}
 
@@ -328,17 +336,12 @@ func (e *Engine) dispatchOne(ctx context.Context, iid core.InstanceID, step core
 		}}
 	}
 
-	// Prefer the ADJ-8 usage side-channel when the runner reports it.
-	var (
-		out   core.StepResult
-		usage *core.Usage
-		serr  *core.StepError
-	)
-	if ur, ok := runner.(UsageRunner); ok {
-		out, usage, serr = ur.RunWithUsage(ctx, sc, step)
-	} else {
-		out, serr = runner.Run(ctx, sc, step)
-	}
+	// Prefer the ADJ-8 usage side-channel when the runner reports it. The
+	// invocation is wrapped by runInvoke's panic backstop (engine-hardening
+	// Step 2c): dispatchOne runs on a dispatch goroutine (processInstance's
+	// DISPATCH stage, tick.go) with no recover above it in the call stack, so
+	// an unrecovered Runner panic here would crash the whole process.
+	out, usage, serr := e.runInvoke(ctx, runner, sc, step)
 	if serr != nil {
 		return dispatchResult{stepErr: serr}
 	}
@@ -347,4 +350,46 @@ func (e *Engine) dispatchOne(ctx context.Context, iid core.InstanceID, step core
 			"instance_id", string(iid), "step_id", step.ID, "error", err.Error())
 	}
 	return dispatchResult{out: out, usage: usage}
+}
+
+// maxRunnerPanicStackBytes bounds the stack trace recorded in StepError.Details
+// on a runner panic. StepError is carried inside the StepFailed payload, which
+// is appended to the APPEND-ONLY EventLog and can never be rewritten (TDS-01
+// §1); an unbounded goroutine stack would be persisted forever. Mirrors
+// internal/runner/native's maxPanicStackBytes bound (native.go) — same
+// technique, kept local so engine does not import a specific runner package.
+const maxRunnerPanicStackBytes = 4096
+
+// runInvoke calls runner.Run / RunWithUsage with a panic backstop: a panic
+// inside the Runner is recovered and converted into a StepError{code:
+// "runner_panic"} instead of propagating past dispatchOne's goroutine and
+// crashing the process. internal/runner/native already recovers HANDLER
+// panics into StepError{code:"handler_panic"} (Blueprint B-3) — that is a
+// runner catching its own dispatched handler; this is the backstop for the
+// runner itself (or any OTHER runner kind — intelligence, subprocess, plugin,
+// or a future custom Runner) misbehaving, so the distinct code is kept so a
+// caller can tell the two apart.
+func (e *Engine) runInvoke(ctx context.Context, runner Runner, sc core.StepContext, step core.Step) (out core.StepResult, usage *core.Usage, serr *core.StepError) {
+	defer func() {
+		if r := recover(); r != nil {
+			stack := debug.Stack()
+			if len(stack) > maxRunnerPanicStackBytes {
+				stack = append(stack[:maxRunnerPanicStackBytes:maxRunnerPanicStackBytes],
+					[]byte("\n... stack truncated ...")...)
+			}
+			out = core.StepResult{}
+			usage = nil
+			serr = &core.StepError{
+				Code:    "runner_panic",
+				Message: fmt.Sprintf("step %q runner panicked: %v", step.ID, r),
+				Details: map[string]any{"stack": string(stack)},
+			}
+		}
+	}()
+	if ur, ok := runner.(UsageRunner); ok {
+		out, usage, serr = ur.RunWithUsage(ctx, sc, step)
+		return out, usage, serr
+	}
+	out, serr = runner.Run(ctx, sc, step)
+	return out, nil, serr
 }
