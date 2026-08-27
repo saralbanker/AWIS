@@ -63,12 +63,17 @@ func runExport(args []string) {
 		core.InstanceStatusCompensationFailed,
 	}
 
+	// One predicate for BOTH halves of the export. Previously the instance
+	// half honoured --namespace while the definition half was hardcoded to
+	// ListWorkflows(ctx, ""), so `awis export --namespace X` wrote X's
+	// instances alongside EVERY namespace's workflow definitions — an export
+	// that does not describe one namespace and does not describe all of them
+	// (B-26).
+	nsPredicate := namespacePredicate(ns)
+
 	var allInstances []core.WorkflowInstance
 	for _, st := range allStatuses {
-		filter := core.InstanceFilter{Status: st}
-		if ns != "" && ns != "default" {
-			filter.Namespace = ns
-		}
+		filter := core.InstanceFilter{Status: st, Namespace: nsPredicate}
 		insts, err := store.ListInstances(ctx, filter)
 		if err != nil {
 			continue
@@ -76,8 +81,8 @@ func runExport(args []string) {
 		allInstances = append(allInstances, insts...)
 	}
 
-	// Collect workflow definitions.
-	defs, err := store.ListWorkflows(ctx, "")
+	// Collect workflow definitions under the SAME predicate.
+	defs, err := store.ListWorkflows(ctx, nsPredicate)
 	if err != nil {
 		fail(1, fmt.Sprintf("export: cannot list workflows: %s", err), globalDataDir+"/runtime.db", "check storage integrity")
 	}
@@ -129,4 +134,30 @@ func runExport(args []string) {
 	fmt.Printf("Export complete  %s\n\n", now.Format("2006-01-02 15:04:05"))
 	fmt.Printf("  Instances:   %d → %s\n", len(allInstances), instancesFile)
 	fmt.Printf("  Definitions: %d → %s\n", len(defs), defsFile)
+}
+
+// namespacePredicate maps a CLI namespace argument to a storage predicate,
+// where "" means "no predicate — every namespace".
+//
+// The global --namespace flag defaults to the string "default", and the read
+// commands have always treated that value as a wildcard rather than as the
+// literal namespace named "default". That overloading is preserved here
+// because changing it would silently alter what `awis history`, `awis
+// metrics` and `awis export` return for every existing project — including
+// the scaffolded one, whose config.yaml says `namespace: default` while its
+// workflows declare `namespace: examples`.
+//
+// The consequence is worth stating plainly: an instance genuinely in a
+// namespace called "default" cannot be selected on its own, because asking
+// for it returns everything. Resolving that needs a distinct sentinel (an
+// empty default, or an explicit --all-namespaces flag) and is a product
+// decision, not a refactor.
+//
+// This helper exists so the predicate is derived in ONE place; the bug it
+// replaces was two halves of a single command disagreeing about it.
+func namespacePredicate(ns string) string {
+	if ns == "default" {
+		return ""
+	}
+	return ns
 }
