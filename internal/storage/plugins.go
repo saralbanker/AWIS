@@ -207,10 +207,24 @@ func (s *SQLiteStorage) SetPluginStatus(ctx context.Context, name, status string
 
 // LookupCapability returns the plugin name (= plugin_id) that owns capabilityID.
 // Returns ErrCapabilityNotFound when absent.
+//
+// Removed plugins are excluded (B-20). Previously this selected from
+// plugin_capabilities alone, with no reference to plugins.status, so `awis
+// plugin remove` — which sets status to "removed" — did not stop a workflow
+// step naming that capability from being dispatched to it. Removal was
+// cosmetic.
+//
+// The exclusion lives HERE, at the point the routing decision is made, rather
+// than only in the remove command: a plugin whose status reaches "removed" by
+// any path is then excluded, instead of only by the one path that remembered
+// to delete its rows.
 func (s *SQLiteStorage) LookupCapability(ctx context.Context, capabilityID string) (string, error) {
 	var pluginID string
 	err := s.db.db.QueryRowContext(ctx,
-		`SELECT plugin_id FROM plugin_capabilities WHERE capability_id = ?`,
+		`SELECT c.plugin_id
+		 FROM plugin_capabilities c
+		 JOIN plugins p ON p.plugin_id = c.plugin_id
+		 WHERE c.capability_id = ? AND p.status != 'removed'`,
 		capabilityID,
 	).Scan(&pluginID)
 	if err != nil {

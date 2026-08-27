@@ -363,10 +363,20 @@ func runPluginRemove(args []string) {
 		)
 	}
 
-	// Mark as removed via SetPluginStatus (StoragePort frozen; V1 soft-delete semantics).
-	if err := ps.SetPluginStatus(ctx, name, "removed"); err != nil {
+	// Mark removed AND drop the capability rows in one transaction (B-20).
+	// Setting the status alone left plugin_capabilities intact, so capability
+	// lookup still routed steps to the "removed" plugin.
+	remover, ok := store.(pluginRemover)
+	if !ok {
 		fail(1,
-			fmt.Sprintf("plugin remove: update status failed: %s", err),
+			"plugin remove: storage does not support plugin removal",
+			globalDataDir+"/runtime.db",
+			"ensure the storage migration is up to date",
+		)
+	}
+	if err := remover.RemovePlugin(ctx, name); err != nil {
+		fail(1,
+			fmt.Sprintf("plugin remove: %s", err),
 			globalDataDir+"/runtime.db",
 			"check storage integrity",
 		)
@@ -453,4 +463,11 @@ func joinStrings(ss []string) string {
 		result += ", " + s
 	}
 	return result
+}
+
+// pluginRemover is the additive storage capability `plugin remove` needs,
+// reached by type assertion because core.StoragePort's 12 methods are frozen
+// (the pattern used by cancellationStore, signalWaitStore and signal.Store).
+type pluginRemover interface {
+	RemovePlugin(ctx context.Context, name string) error
 }
