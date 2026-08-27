@@ -13,6 +13,7 @@ package plugin
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -704,7 +705,7 @@ func TestBuildEnv(t *testing.T) {
 	t.Setenv(leakKey, "1")
 
 	manifestEnv := map[string]string{"FOO": "bar"}
-	env := buildEnv(manifestEnv)
+	env := buildEnv(manifestEnv, "")
 
 	for _, kv := range env {
 		if strings.HasPrefix(kv, leakKey+"=") {
@@ -790,4 +791,77 @@ func TestInputKeySetMatches(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBuildEnvResolvesRelativeModulePaths covers B-21: the shipped manifest
+// must be self-sufficient. A relative AWIS_PLUGIN_LIBPATH / PYTHONPATH used
+// to be interpreted against the AWIS process's working directory, so the
+// shipped git-context-plugin resolved its own package only when awis happened
+// to be run from the plugin's directory.
+func TestBuildEnvResolvesRelativeModulePaths(t *testing.T) {
+	const dir = "/opt/awis/plugins/git-context"
+
+	env := buildEnv(map[string]string{
+		"AWIS_PLUGIN_LIBPATH": "../../python/awis-plugin",
+		"PYTHONPATH":          "lib",
+		"NOT_A_PATH":          "../../python/awis-plugin",
+	}, dir)
+
+	got := envMap(env)
+
+	if want := "/opt/awis/python/awis-plugin"; got["AWIS_PLUGIN_LIBPATH"] != want {
+		t.Errorf("AWIS_PLUGIN_LIBPATH = %q, want %q", got["AWIS_PLUGIN_LIBPATH"], want)
+	}
+	if want := dir + "/lib"; got["PYTHONPATH"] != want {
+		t.Errorf("PYTHONPATH = %q, want %q", got["PYTHONPATH"], want)
+	}
+	// A key not on the allowlist must be passed through untouched: silently
+	// rewriting a value the plugin author did not mean as a path would be a
+	// hard-to-debug corruption of the plugin's environment.
+	if want := "../../python/awis-plugin"; got["NOT_A_PATH"] != want {
+		t.Errorf("NOT_A_PATH = %q, want %q (unchanged)", got["NOT_A_PATH"], want)
+	}
+}
+
+// TestBuildEnvLeavesAbsolutePathsAndEmptyDirAlone pins the two no-op cases:
+// an already-absolute entry must not be re-anchored, and an empty dir (a
+// manifest parsed from bytes with no real path) must change nothing at all.
+func TestBuildEnvLeavesAbsolutePathsAndEmptyDirAlone(t *testing.T) {
+	abs := buildEnv(map[string]string{"PYTHONPATH": "/already/absolute"}, "/opt/plugin")
+	if got := envMap(abs)["PYTHONPATH"]; got != "/already/absolute" {
+		t.Errorf("absolute PYTHONPATH = %q, want it unchanged", got)
+	}
+
+	none := buildEnv(map[string]string{"PYTHONPATH": "relative/path"}, "")
+	if got := envMap(none)["PYTHONPATH"]; got != "relative/path" {
+		t.Errorf("PYTHONPATH with empty dir = %q, want it unchanged", got)
+	}
+}
+
+// TestBuildEnvResolvesEveryEntryOfAPathList checks the separator handling: a
+// path LIST must have each relative element anchored independently, with
+// absolute elements left alone.
+func TestBuildEnvResolvesEveryEntryOfAPathList(t *testing.T) {
+	const dir = "/opt/plugin"
+	sep := string(os.PathListSeparator)
+
+	env := buildEnv(map[string]string{
+		"PYTHONPATH": "lib" + sep + "/abs/lib" + sep + "vendor",
+	}, dir)
+
+	want := "/opt/plugin/lib" + sep + "/abs/lib" + sep + "/opt/plugin/vendor"
+	if got := envMap(env)["PYTHONPATH"]; got != want {
+		t.Errorf("PYTHONPATH = %q, want %q", got, want)
+	}
+}
+
+// envMap turns a KEY=VALUE slice into a map for readable assertions.
+func envMap(env []string) map[string]string {
+	out := make(map[string]string, len(env))
+	for _, kv := range env {
+		if i := strings.Index(kv, "="); i >= 0 {
+			out[kv[:i]] = kv[i+1:]
+		}
+	}
+	return out
 }

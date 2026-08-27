@@ -16,7 +16,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -90,6 +93,25 @@ type Manager struct {
 	mu      sync.Mutex
 	plugins map[string]*pluginEntry // keyed by manifest.Name
 	closed  bool
+
+	// statusMu/statusQueue/statusWake/statusDone/statusWG implement the B-18
+	// ordered status writer: a single background goroutine applies
+	// plugins.status writes to the store strictly in the order they were
+	// queued, so a slow write can never land after — and silently overwrite —
+	// a write that was queued later (see setPluginStatusAsync).
+	statusMu    sync.Mutex
+	statusQueue []pluginStatusChange
+	statusWake  chan struct{}
+	statusDone  chan struct{}
+	statusWG    sync.WaitGroup
+}
+
+// pluginStatusChange is one pending write to the plugins.status column,
+// queued by setPluginStatusAsync and applied in order by statusWriterLoop
+// (B-18).
+type pluginStatusChange struct {
+	name   string
+	status string
 }
 
 // NewManager constructs a Manager backed by the given PluginStore.
@@ -105,11 +127,74 @@ func NewManager(store storage.PluginStore, cfg ManagerConfig) *Manager {
 	if cfg.ShutdownGrace == 0 {
 		cfg.ShutdownGrace = defaultShutdownGrace
 	}
-	return &Manager{
-		store:   store,
-		cfg:     cfg,
-		clock:   clk,
-		plugins: make(map[string]*pluginEntry),
+	m := &Manager{
+		store:      store,
+		cfg:        cfg,
+		clock:      clk,
+		plugins:    make(map[string]*pluginEntry),
+		statusWake: make(chan struct{}, 1),
+		statusDone: make(chan struct{}),
+	}
+	m.statusWG.Add(1)
+	go m.statusWriterLoop()
+	return m
+}
+
+// setPluginStatusAsync queues a plugins.status write for name without
+// blocking the caller — spawnAndHandshakeLocked, monitorProcess and
+// handleCrashLocked all call this while holding entry.mu, and storage I/O
+// must not run under that lock. The queue append itself is synchronous
+// (never a fire-and-forget goroutine), so the order writes are queued in
+// exactly matches the order the FSM decided them in, per plugin name (each of
+// those call sites already serializes on entry.mu). statusWriterLoop is the
+// single consumer that applies queued writes to the store in that same order
+// and logs — never discards — a failed write (B-18: independent
+// "go func(){ store.SetPluginStatus(...) }()" goroutines raced on I/O
+// duration, so a write queued earlier could still land in the DB after one
+// queued later, leaving a stale status such as "active" after a subsequent
+// "failed").
+func (m *Manager) setPluginStatusAsync(name, status string) {
+	m.statusMu.Lock()
+	m.statusQueue = append(m.statusQueue, pluginStatusChange{name: name, status: status})
+	m.statusMu.Unlock()
+	select {
+	case m.statusWake <- struct{}{}:
+	default:
+	}
+}
+
+// statusWriterLoop is the single ordered consumer for queued plugins.status
+// writes (B-18). It runs until Shutdown closes statusDone, and performs one
+// final drain afterward so nothing queued just before close is lost.
+func (m *Manager) statusWriterLoop() {
+	defer m.statusWG.Done()
+	for {
+		m.drainStatusQueue()
+		select {
+		case <-m.statusDone:
+			m.drainStatusQueue()
+			return
+		case <-m.statusWake:
+		}
+	}
+}
+
+// drainStatusQueue applies every currently queued status change to the store,
+// in FIFO order, one at a time. Failures are logged, never swallowed (B-18).
+func (m *Manager) drainStatusQueue() {
+	for {
+		m.statusMu.Lock()
+		if len(m.statusQueue) == 0 {
+			m.statusMu.Unlock()
+			return
+		}
+		change := m.statusQueue[0]
+		m.statusQueue = m.statusQueue[1:]
+		m.statusMu.Unlock()
+
+		if err := m.store.SetPluginStatus(context.Background(), change.name, change.status); err != nil {
+			log.Printf("plugin: SetPluginStatus(%q, %q) failed: %v", change.name, change.status, err)
+		}
 	}
 }
 
@@ -354,6 +439,13 @@ func (m *Manager) Shutdown(ctx context.Context) {
 	for _, entry := range entries {
 		m.shutdownEntry(ctx, entry)
 	}
+
+	// Stop the B-18 ordered status writer and wait for it to drain, so any
+	// status write queued up to this point (e.g. a "failed" from a crash
+	// that raced with shutdown) is applied before Shutdown returns rather
+	// than lost when the process exits.
+	close(m.statusDone)
+	m.statusWG.Wait()
 }
 
 // shutdownEntry cleanly terminates one plugin entry.
@@ -432,11 +524,17 @@ func (m *Manager) ensureActiveLocked(ctx context.Context, entry *pluginEntry) *c
 func (m *Manager) spawnAndHandshakeLocked(ctx context.Context, entry *pluginEntry) *core.StepError {
 	manifest := entry.manifest
 
-	// Build env: manifest env + PATH ONLY (NFR-S-02).
-	env := buildEnv(manifest.Runtime.Env)
+	// Build env: manifest env + PATH ONLY (NFR-S-02). Relative PYTHONPATH /
+	// AWIS_PLUGIN_LIBPATH entries are resolved against manifest.Dir so the
+	// shipped manifest is self-sufficient no matter what directory awis is
+	// run from (B-21).
+	env := buildEnv(manifest.Runtime.Env, manifest.Dir)
 
 	entry.state = stateSpawning
-	handle, err := spawnPlugin(manifest.Runtime.Command, manifest.Runtime.Args, env)
+	// manifest.Dir becomes cmd.Dir so a relative runtime.command/args (e.g.
+	// "python3 -m git_context_plugin") resolves against the plugin's own
+	// directory rather than the awis process's working directory (B-21).
+	handle, err := spawnPlugin(manifest.Runtime.Command, manifest.Runtime.Args, env, manifest.Dir)
 	if err != nil {
 		entry.state = stateRegistered
 		return &core.StepError{Code: "spawn_error", Message: fmt.Sprintf("plugin %q: %v", manifest.Name, err)}
@@ -470,9 +568,7 @@ func (m *Manager) spawnAndHandshakeLocked(ctx context.Context, entry *pluginEntr
 		entry.crashCount++
 		if entry.crashCount > crashLimit {
 			entry.state = stateFailed
-			go func() {
-				_ = m.store.SetPluginStatus(context.Background(), manifest.Name, "failed")
-			}()
+			m.setPluginStatusAsync(manifest.Name, "failed")
 			return &core.StepError{
 				Code:    "plugin_failed",
 				Message: fmt.Sprintf("plugin %q permanently failed after %d consecutive handshake errors", manifest.Name, entry.crashCount),
@@ -487,10 +583,9 @@ func (m *Manager) spawnAndHandshakeLocked(ctx context.Context, entry *pluginEntr
 
 	entry.state = stateActive
 	// Update DB status to active (TDS-05 §7: "DB status → active on first successful handshake").
-	// Fire-and-forget with background context (non-fatal if store fails in tests).
-	go func() {
-		_ = m.store.SetPluginStatus(context.Background(), manifest.Name, "active")
-	}()
+	// Queued via setPluginStatusAsync (B-18): non-blocking, but ordered
+	// relative to any other status write for this plugin.
+	m.setPluginStatusAsync(manifest.Name, "active")
 
 	// Restart idle timer (TDS-05 §7 IDLE: no execute for idle_timeout_s → kill).
 	m.restartIdleTimerLocked(entry)
@@ -525,9 +620,7 @@ func (m *Manager) monitorProcess(entry *pluginEntry, handle *processHandle, done
 		entry.crashCount++
 		if entry.crashCount > crashLimit {
 			entry.state = stateFailed
-			go func() {
-				_ = m.store.SetPluginStatus(context.Background(), entry.manifest.Name, "failed")
-			}()
+			m.setPluginStatusAsync(entry.manifest.Name, "failed")
 		} else {
 			entry.state = stateRegistered
 		}
@@ -678,14 +771,56 @@ func parsePluginTimeout(d core.Duration) time.Duration {
 
 // buildEnv constructs the plugin process environment: manifest env + PATH ONLY
 // (NFR-S-02 minimal env).
-func buildEnv(manifestEnv map[string]string) []string {
+func buildEnv(manifestEnv map[string]string, dir string) []string {
 	env := make([]string, 0, len(manifestEnv)+1)
 	for k, v := range manifestEnv {
+		if dir != "" && pathValuedEnvKeys[strings.ToUpper(k)] {
+			v = resolveEnvPaths(v, dir)
+		}
 		env = append(env, k+"="+v)
 	}
 	// Always include PATH (needed for command resolution).
 	env = append(env, "PATH="+pathEnv())
 	return env
+}
+
+// pathValuedEnvKeys are the manifest env keys whose values are filesystem
+// path lists, and which are therefore resolved against the manifest's own
+// directory when relative (B-21).
+//
+// The list is deliberately an explicit allowlist rather than a heuristic over
+// value shapes: rewriting an env value the plugin author did not mean as a
+// path would be a silent, hard-to-debug corruption of the plugin's
+// environment. Only interpreter module-search paths appear here, because
+// those are the ones a plugin must express relative to itself in order for
+// the SHIPPED manifest to work from any working directory.
+var pathValuedEnvKeys = map[string]bool{
+	"PYTHONPATH":          true,
+	"AWIS_PLUGIN_LIBPATH": true,
+	"NODE_PATH":           true,
+}
+
+// resolveEnvPaths rewrites each relative entry of an OS-path-list-separated
+// value to be absolute against dir, leaving absolute entries and empty
+// segments untouched.
+//
+// This is what lets the shipped git-context-plugin manifest carry a relative
+// AWIS_PLUGIN_LIBPATH and still work: before B-21, a relative value was
+// interpreted against the awis process's working directory, so the plugin
+// resolved its own package only when awis happened to be run from the plugin
+// directory. The one e2e test that covered it passed solely because the test
+// wrote its own manifest with an absolute path injected — it proved the wire
+// protocol worked and proved nothing about the plugin that actually ships.
+func resolveEnvPaths(value, dir string) string {
+	sep := string(os.PathListSeparator)
+	parts := strings.Split(value, sep)
+	for i, p := range parts {
+		if p == "" || filepath.IsAbs(p) {
+			continue
+		}
+		parts[i] = filepath.Join(dir, p)
+	}
+	return strings.Join(parts, sep)
 }
 
 // pathEnv returns the current PATH value or a sensible default.

@@ -1,32 +1,22 @@
 """Entry point for `python3 -m git_context_plugin`.
 
-Bootstraps awis_plugin from AWIS_PLUGIN_LIBPATH if set (mirrors the
-awis-step fixture pattern established by M12 e2e), then starts the
-JSON-RPC serve loop with this package's manifest.
+Starts the JSON-RPC serve loop with this package's manifest.
+
+The AWIS_PLUGIN_LIBPATH sys.path bootstrap deliberately does NOT live here.
+`python3 -m git_context_plugin` imports the package — running __init__.py in
+full — before executing this file, and __init__.py imports awis_plugin at
+module level. A bootstrap here would run after that import had already failed
+(B-21), so it lives at the top of __init__.py instead.
 """
 from __future__ import annotations
 
-import os
-import sys
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# sys.path bootstrap: honour AWIS_PLUGIN_LIBPATH (M12 e2e pattern).
-# Insert the awis-plugin library root before any other import.
-# ---------------------------------------------------------------------------
-_libpath = os.environ.get("AWIS_PLUGIN_LIBPATH")
-if _libpath:
-    for _p in reversed(_libpath.split(os.pathsep)):
-        _p = _p.strip()
-        if _p and _p not in sys.path:
-            sys.path.insert(0, _p)
+# Importing the package runs the AWIS_PLUGIN_LIBPATH bootstrap and registers
+# the @plugin.capability decorators.
+import git_context_plugin  # noqa: F401
 
-# ---------------------------------------------------------------------------
-# Import plugin registry and register capabilities by importing the package.
-# ---------------------------------------------------------------------------
-import git_context_plugin  # noqa: F401, E402  (registers @plugin.capability decorators)
-
-from awis_plugin import plugin  # noqa: E402
+from awis_plugin import plugin
 
 # ---------------------------------------------------------------------------
 # Locate the manifest beside this package directory.
