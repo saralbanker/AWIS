@@ -31,6 +31,34 @@ var configSecretKeys = map[string]bool{
 	"api_key":           true,
 }
 
+// secretKeySubstrings makes masking fail CLOSED. configSecretKeys is an
+// exact-match allowlist of the keys V1 recognises, so a key it does not list
+// — a future provider's credential, a hand-edited config.yaml, a typo like
+// `anthropic_apikey` — would have its VALUE printed verbatim by `config
+// show` and written verbatim into the audit log.
+//
+// A credential printed once is a credential leaked: it lands in terminal
+// scrollback, CI logs, and the append-only audit table, none of which can be
+// retracted. The cost of masking a non-secret by mistake is that an operator
+// has to open config.yaml to read it. That asymmetry is the whole argument
+// for matching on substrings here rather than only on the known-key list.
+var secretKeySubstrings = []string{"key", "token", "secret", "password", "passwd", "credential"}
+
+// isSecretConfigKey reports whether key's VALUE must be masked wherever it is
+// displayed or recorded.
+func isSecretConfigKey(key string) bool {
+	lower := strings.ToLower(key)
+	if configSecretKeys[lower] {
+		return true
+	}
+	for _, frag := range secretKeySubstrings {
+		if strings.Contains(lower, frag) {
+			return true
+		}
+	}
+	return false
+}
+
 func runConfig(args []string) {
 	if len(args) == 0 {
 		fail(2, "config requires a sub-command", "", "awis config [show|set|validate|edit]")
@@ -88,7 +116,7 @@ func runConfigShow(args []string) {
 	keys := parseConfigKeys(string(raw))
 	masked := make(map[string]string, len(keys))
 	for k, v := range keys {
-		if configSecretKeys[strings.ToLower(k)] {
+		if isSecretConfigKey(k) {
 			masked[k] = "***"
 		} else {
 			masked[k] = v
@@ -157,7 +185,7 @@ func runConfigSet(args []string) {
 	// Write ConfigChanged audit row (F-4 write-site).
 	writeConfigChangedAudit(key, value)
 
-	masked := configSecretKeys[strings.ToLower(key)]
+	masked := isSecretConfigKey(key)
 	displayValue := value
 	if masked {
 		displayValue = "***"
@@ -193,7 +221,7 @@ func writeConfigChangedAudit(key, value string) {
 	}
 	// Mask secrets in audit log too.
 	auditValue := value
-	if configSecretKeys[strings.ToLower(key)] {
+	if isSecretConfigKey(key) {
 		auditValue = "***"
 	}
 	payload, _ := json.Marshal(map[string]string{"key": key, "value": auditValue})
