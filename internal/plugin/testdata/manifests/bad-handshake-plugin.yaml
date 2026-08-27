@@ -13,5 +13,5 @@ capabilities:
 
 runtime:
   command: sh
-  args: ["testdata/bin/bad-handshake-plugin.sh"]
+  args: ["../bin/bad-handshake-plugin.sh"]
   idle_timeout_s: 300

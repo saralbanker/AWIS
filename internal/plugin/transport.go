@@ -99,13 +99,20 @@ type processHandle struct {
 
 // spawnPlugin starts the plugin process from the manifest runtime config.
 // env is the full environment to set (manifest env + PATH ONLY; NFR-S-02).
+// dir is the plugin's own directory (Manifest.Dir — the directory containing
+// its awis-plugin.yaml); it is set as cmd.Dir so a relative runtime.command
+// (e.g. "python3 -m git_context_plugin") resolves against the plugin's own
+// location instead of whatever directory the awis process happens to be
+// running from (B-21). An empty dir leaves cmd.Dir unset (inherits the
+// parent's working directory), matching the pre-B-21 behaviour.
 // Process group is set (Setpgid) so SIGKILL reaps all descendants.
 //
 // Pattern: subprocess.go cmd.SysProcAttr + StdinPipe/StdoutPipe (coordinate:
 //
 //	internal/runner/subprocess/subprocess.go lines 126–143).
-func spawnPlugin(command string, args []string, env []string) (*processHandle, error) {
+func spawnPlugin(command string, args []string, env []string, dir string) (*processHandle, error) {
 	cmd := exec.Command(command, args...)
+	cmd.Dir = dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = env // NFR-S-02: only manifest env + PATH
 
