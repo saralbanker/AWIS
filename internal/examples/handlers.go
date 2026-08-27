@@ -55,19 +55,24 @@ func (h handlerFunc) Execute(ctx core.StepContext) (core.StepResult, error) {
 	return h.fn(ctx)
 }
 
-// Handlers returns the built-in native handlers for the scaffolded example
-// workflows, keyed implicitly by their ID(). The set is deliberately small and
-// side-effect-free apart from examples.hello.log, which prints — it exists to
-// show a handler that does something observable.
+// Handlers returns every built-in native handler: the ones backing the
+// scaffolded example workflows (below), plus the examples.diagnostic.*
+// handlers from diagnostic.go that make the failure semantics — retry,
+// fallback, on_error, panic containment, timeout — reachable through the
+// shipped binary rather than only from Go tests.
+//
+// The scaffold-backing set is deliberately small and side-effect-free apart
+// from examples.hello.log, which logs — it exists to show a handler that does
+// something observable.
 func Handlers() []core.StepHandler {
-	return []core.StepHandler{
+	return append([]core.StepHandler{
 		handlerFunc{id: "examples.hello.greet", fn: helloGreet},
 		handlerFunc{id: "examples.hello.log", fn: helloLog},
 		handlerFunc{id: "examples.signal.prepare", fn: signalPrepare},
 		handlerFunc{id: "examples.signal.finalize", fn: signalFinalize},
 		handlerFunc{id: "examples.intel.gather", fn: intelGather},
 		handlerFunc{id: "examples.intel.review", fn: intelReview},
-	}
+	}, diagnosticHandlers()...)
 }
 
 // IDs returns just the handler identifiers, for startup diagnostics.

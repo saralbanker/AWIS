@@ -120,9 +120,21 @@ func TestHandlersExecute(t *testing.T) {
 		},
 		"examples.intel.gather": {inputs: map[string]any{"query": "q"}, wantKeys: []string{"context"}},
 		"examples.intel.review": {inputs: nil, wantKeys: []string{"approved"}},
+
+		"examples.diagnostic.succeed": {inputs: nil, wantKeys: []string{"recovered", "step_id", "attempt"}},
+		// flaky succeeds from attempt succeed_on onward; attempt 1 with
+		// succeed_on 1 is its success path. Its FAILING path is in
+		// diagnostic_test.go.
+		"examples.diagnostic.flaky": {
+			inputs:   map[string]any{"succeed_on": 1},
+			wantKeys: []string{"attempt", "succeed_on"},
+		},
 	}
 
 	for _, h := range Handlers() {
+		if diagnosticsCoveredElsewhere[h.ID()] {
+			continue
+		}
 		tc, ok := cases[h.ID()]
 		if !ok {
 			t.Errorf("handler %q has no execution case in this test", h.ID())
@@ -151,4 +163,16 @@ func TestHelloGreetDefaultsMissingName(t *testing.T) {
 	if got := out.Outputs["message"]; got != "Hello, World!" {
 		t.Fatalf("message = %v, want %q", got, "Hello, World!")
 	}
+}
+
+// diagnosticsCoveredElsewhere lists built-in handlers whose contract is to
+// FAIL, to panic, or to block — none of which a single "call it and expect
+// outputs" case in TestHandlersExecute can express. They are covered by
+// diagnostic_test.go instead. Listing them explicitly keeps TestHandlersExecute's
+// "every handler has a case" guarantee intact: a NEW handler still fails that
+// test until someone writes a case for it.
+var diagnosticsCoveredElsewhere = map[string]bool{
+	"examples.diagnostic.fail":  true,
+	"examples.diagnostic.panic": true,
+	"examples.diagnostic.slow":  true,
 }
