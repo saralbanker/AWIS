@@ -127,6 +127,25 @@ func (f *fixture) runJSON(v any, args ...string) result {
 	return res
 }
 
+// runJSONErr is the goroutine-safe form of runJSON: it RETURNS an error
+// instead of calling t.Fatalf.
+//
+// testing.T.Fatalf must only be called from the goroutine running the test.
+// From a spawned goroutine it calls runtime.Goexit(), which kills that
+// goroutine without failing the test — so a concurrent step could fail and
+// the test would still report PASS. Every concurrent helper in this suite
+// must therefore use this form and surface the error from the main goroutine.
+func (f *fixture) runJSONErr(v any, args ...string) error {
+	res := f.run(append([]string{"--json"}, args...)...)
+	if strings.TrimSpace(res.stdout) == "" {
+		return fmt.Errorf("awis %v: empty stdout (exit=%d stderr=%s)", args, res.exitCode, res.stderr)
+	}
+	if err := json.Unmarshal([]byte(res.stdout), v); err != nil {
+		return fmt.Errorf("awis %v: invalid JSON: %w (stdout=%s)", args, err, res.stdout)
+	}
+	return nil
+}
+
 // ── background runtime lifecycle ────────────────────────────────────────────
 
 const readyTimeout = 10 * time.Second
