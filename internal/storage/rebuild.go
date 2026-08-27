@@ -26,19 +26,35 @@ import (
 // scratch (NFR-R-03 / EDR-007).
 //
 // Algorithm:
-//  1. Snapshot pre-wipe (instance_id → definition_id, definition_version)
-//     pairs. These fields are not evented (EDR-007 definition-identity gap);
-//     preserving them from the existing rows avoids losing identity on
-//     rebuild. Instances absent from the snapshot receive empty strings.
-//  2. Open a single transaction; DELETE workflow_instances + step_claims;
-//     replay every event ordered by sequence_num per instance; INSERT the
-//     projected rows.  step_claims remain wiped — they are runtime state,
-//     not history.
-//  3. Commit atomically.
+//  1. Snapshot pre-wipe (instance_id → definition_id, definition_version,
+//     cancellation_requested) triples. These fields are not evented
+//     (EDR-007 definition-identity gap; cancellation_requested is a
+//     non-evented runtime request flag, cancellation.go); preserving them
+//     from the existing rows avoids losing identity or a pending
+//     cancellation request on rebuild. Instances absent from the snapshot
+//     receive empty strings / false.
+//  2. Snapshot the durable wait_records table (migration 0003_signals.sql;
+//     NOT wiped by this rebuild) to learn which instances are parked on a
+//     live wait. `waiting` is the other non-evented projection status
+//     (EDR-007 §9 gap): entering a wait is a tick-time decision that emits
+//     no event, so a pure event replay can never reconstruct it. Deriving
+//     it from wait_records instead of the old projection row is strictly
+//     more correct because wait_records is the same durable source the
+//     engine itself recovers waits from after a restart (signal.go's
+//     recoverWait) — rebuild and runtime agree by construction.
+//  3. Open a single transaction; DELETE workflow_instances + step_claims;
+//     replay every event ordered by sequence_num per instance; for any
+//     instance the replay leaves in a NON-terminal status that also has a
+//     live wait record, override the projected status to `waiting` (a
+//     terminal status from the EventLog always wins over a stale
+//     wait_records row — an instance can never be resurrected out of
+//     completed/failed/cancelled/compensated/compensation_failed); INSERT
+//     the projected rows. step_claims remain wiped — they are runtime
+//     state, not history.
+//  4. Commit atomically.
 //
 // Rebuilt rows are written with version = 1 (fresh projection generation,
-// documented in EDR-007). cancellation_requested is always rebuilt as 0
-// because cancellation is a non-evented runtime request flag.
+// documented in EDR-007).
 //
 // Defensive rule (pre-authorised by card): if an instance's event stream
 // begins without a WorkflowStarted event the projection starts from zero
@@ -50,15 +66,16 @@ import (
 // transaction opens; an append interleaved between read and commit would not
 // be reflected until the next rebuild.
 func (s *SQLiteStorage) RebuildState(ctx context.Context) error {
-	// ── Step 1: snapshot definition identity (EDR-007 gap) ────────────────────
+	// ── Step 1: snapshot definition identity + cancellation flag (EDR-007 gap) ─
 	type defIdentity struct {
-		definitionID      string
-		definitionVersion string
+		definitionID          string
+		definitionVersion     string
+		cancellationRequested bool
 	}
 	snapshot := make(map[string]defIdentity)
 
 	identRows, err := s.db.db.QueryContext(ctx,
-		`SELECT instance_id, definition_id, definition_version FROM workflow_instances`)
+		`SELECT instance_id, definition_id, definition_version, cancellation_requested FROM workflow_instances`)
 	if err != nil {
 		return fmt.Errorf("storage: RebuildState snapshot definition identity: %w", err)
 	}
@@ -67,15 +84,46 @@ func (s *SQLiteStorage) RebuildState(ctx context.Context) error {
 		defer func() { _ = identRows.Close() }()
 		for identRows.Next() {
 			var iid, defID, defVer string
-			if snapErr = identRows.Scan(&iid, &defID, &defVer); snapErr != nil {
+			var cancelFlag int
+			if snapErr = identRows.Scan(&iid, &defID, &defVer, &cancelFlag); snapErr != nil {
 				return
 			}
-			snapshot[iid] = defIdentity{definitionID: defID, definitionVersion: defVer}
+			snapshot[iid] = defIdentity{
+				definitionID:          defID,
+				definitionVersion:     defVer,
+				cancellationRequested: cancelFlag != 0,
+			}
 		}
 		snapErr = identRows.Err()
 	}()
 	if snapErr != nil {
 		return fmt.Errorf("storage: RebuildState snapshot rows: %w", snapErr)
+	}
+
+	// ── Step 1b: snapshot live wait_records (EDR-007 §9 gap) ─────────────────
+	// wait_records is durable and is NOT wiped by this rebuild; an instance
+	// present here is parked on a live wait. Only used to RESURRECT a
+	// non-terminal replayed status to `waiting` — see Step 4's ordering rule.
+	waitingInstances := make(map[string]bool)
+	waitRows, err := s.db.db.QueryContext(ctx,
+		`SELECT DISTINCT instance_id FROM wait_records`)
+	if err != nil {
+		return fmt.Errorf("storage: RebuildState snapshot wait_records: %w", err)
+	}
+	var waitErr error
+	func() {
+		defer func() { _ = waitRows.Close() }()
+		for waitRows.Next() {
+			var iid string
+			if waitErr = waitRows.Scan(&iid); waitErr != nil {
+				return
+			}
+			waitingInstances[iid] = true
+		}
+		waitErr = waitRows.Err()
+	}()
+	if waitErr != nil {
+		return fmt.Errorf("storage: RebuildState wait_records rows: %w", waitErr)
 	}
 
 	// ── Step 2: collect distinct instance_ids from the event log ─────────────
@@ -141,7 +189,15 @@ func (s *SQLiteStorage) RebuildState(ctx context.Context) error {
 	}
 
 	for _, r := range rows {
-		ident := snapshot[r.instanceID] // empty strings when absent
+		ident := snapshot[r.instanceID] // empty strings / false when absent
+
+		// Ordering rule (card): a wait record must NOT resurrect an instance
+		// the event stream shows as TERMINAL. Terminal status from the
+		// EventLog always wins over a stale wait_records row.
+		status := r.status
+		if !isTerminalStatus(core.InstanceStatus(status)) && waitingInstances[r.instanceID] {
+			status = string(core.InstanceStatusWaiting)
+		}
 
 		currentSteps := r.currentSteps
 		if currentSteps == nil {
@@ -170,22 +226,28 @@ func (s *SQLiteStorage) RebuildState(ctx context.Context) error {
 			completedAt = &v
 		}
 
+		cancellationRequested := 0
+		if ident.cancellationRequested {
+			cancellationRequested = 1
+		}
+
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO workflow_instances
 				(instance_id, definition_id, definition_version, namespace, status,
 				 current_steps, variables, started_at, updated_at, completed_at,
 				 version, cancellation_requested)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
 			r.instanceID,
 			ident.definitionID,
 			ident.definitionVersion,
 			r.namespace,
-			r.status,
+			status,
 			string(stepsJSON),
 			string(varsJSON),
 			startedAt,
 			updatedAt,
 			completedAt,
+			cancellationRequested,
 		); err != nil {
 			return fmt.Errorf("storage: RebuildState insert %q: %w", r.instanceID, err)
 		}
