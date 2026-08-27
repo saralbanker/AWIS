@@ -183,6 +183,7 @@ func (e *Engine) handleCancellation(ctx context.Context, dv *defView, inst core.
 		if err := e.emitStepFailed(ctx, inst, stepID, attempt, serr, false); err != nil {
 			return err
 		}
+		e.markFailed(inst.InstanceID, stepID) // B-4: never re-activate a cancelled retry.
 		e.logger.Info("settle", "instance_id", string(inst.InstanceID), "step_id", stepID, "outcome", "cancelled")
 	}
 	e.dropAllPending(inst.InstanceID)

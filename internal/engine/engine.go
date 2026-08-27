@@ -78,6 +78,11 @@ type Engine struct {
 	pending map[core.InstanceID]map[string]bool   // failure-driven direct activations (EDR-011 §8)
 	cancels map[core.InstanceID]cancelIntent      // remembered Cancel reason+mode (Finalization B4)
 	waits   map[core.InstanceID]map[string]string // live signal waits: instance → signalName → stepID (M07; EDR-011 §8)
+
+	// engine-hardening Step 2a/2b: per-instance restart hydration and the B-4
+	// terminally-failed-step guard.
+	hydrated map[core.InstanceID]bool            // set once hydrate(iid) has run this process (hydrate.go)
+	failed   map[core.InstanceID]map[string]bool // terminally-failed steps, never re-activated (B-4, failure.go)
 }
 
 // retryKey identifies a per-instance per-step retry schedule.
@@ -132,19 +137,21 @@ func New(storage core.StoragePort, runners map[core.StepType]Runner, cfg Config,
 		newIDFn = newUUIDv4
 	}
 	return &Engine{
-		storage: storage,
-		runners: runners,
-		cfg:     cfg,
-		logger:  logger,
-		now:     cfg.Clock,
-		newID:   newIDFn,
-		seq:     make(map[core.InstanceID]int),
-		ver:     make(map[core.InstanceID]int),
-		defs:    make(map[defKey]*defView),
-		retries: make(map[retryKey]retrySched),
-		pending: make(map[core.InstanceID]map[string]bool),
-		cancels: make(map[core.InstanceID]cancelIntent),
-		waits:   make(map[core.InstanceID]map[string]string),
+		storage:  storage,
+		runners:  runners,
+		cfg:      cfg,
+		logger:   logger,
+		now:      cfg.Clock,
+		newID:    newIDFn,
+		seq:      make(map[core.InstanceID]int),
+		ver:      make(map[core.InstanceID]int),
+		defs:     make(map[defKey]*defView),
+		retries:  make(map[retryKey]retrySched),
+		pending:  make(map[core.InstanceID]map[string]bool),
+		cancels:  make(map[core.InstanceID]cancelIntent),
+		waits:    make(map[core.InstanceID]map[string]string),
+		hydrated: make(map[core.InstanceID]bool),
+		failed:   make(map[core.InstanceID]map[string]bool),
 	}
 }
 
