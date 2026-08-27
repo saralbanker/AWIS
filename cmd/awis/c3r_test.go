@@ -134,7 +134,7 @@ func TestStatusGoldenJSON(t *testing.T) {
 	}
 
 	_ = epoch // anchor comment: epoch used by seedStatusFixture (2026-07-10 14:23:00 UTC)
-	out := buildStatusJSON(now, activeInsts, completedInsts)
+	out := buildStatusJSON(context.Background(), nil, now, activeInsts, completedInsts)
 	got := encodeNoEscape(t, out)
 	checkGolden(t, "status.json", got)
 }
