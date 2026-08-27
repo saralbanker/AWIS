@@ -97,11 +97,9 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 		current[s] = true
 	}
 
-	type retryEntry struct {
-		nextAttempt   int
-		nextAttemptAt time.Time
-	}
-	retries := make(map[string]retryEntry)
+	// Staged in the same type the engine stores, so the copy under e.mu below
+	// is a plain assignment and the two shapes cannot drift apart.
+	retries := make(map[string]retrySched)
 	failedSteps := make(map[string]bool)
 
 	for stepID, et := range relevant {
@@ -114,7 +112,7 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 			if !ok || step.Retry == nil {
 				continue // no retry policy to schedule against (defensive; ADJ-6).
 			}
-			retries[stepID] = retryEntry{
+			retries[stepID] = retrySched{
 				nextAttempt:   lf.attempt + 1,
 				nextAttemptAt: lf.emittedAt.Add(backoffDelay(*step.Retry, lf.attempt)),
 			}
@@ -156,10 +154,7 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 		return nil // a concurrent hydrate for this instance already ran.
 	}
 	for stepID, re := range retries {
-		e.retries[retryKey{iid: inst.InstanceID, step: stepID}] = retrySched{
-			nextAttempt:   re.nextAttempt,
-			nextAttemptAt: re.nextAttemptAt,
-		}
+		e.retries[retryKey{iid: inst.InstanceID, step: stepID}] = re
 	}
 	if len(pendingTargets) > 0 {
 		if e.pending[inst.InstanceID] == nil {
