@@ -77,10 +77,24 @@ func runSignal(args []string) {
 			"awis status "+string(instanceID))
 	}
 
-	// Determine next step (best-effort; instance may have advanced by now).
+	// Determine the next step, if the instance has actually advanced yet.
+	//
+	// Delivering a signal only RECORDS the delivery; the engine's next tick is
+	// what resumes the instance. Reading current_steps straight afterwards
+	// therefore usually still shows the step that was WAITING, and reporting
+	// that as the "next step" named the step the signal had just satisfied —
+	// while also claiming the instance had resumed when it had not.
+	//
+	// So next_step is reported only when it genuinely differs from the step
+	// that was parked. Otherwise it stays nil and the human output says the
+	// runtime will resume the instance on its next tick, which is the truth.
+	var waitingStep string
+	if len(inst.CurrentSteps) > 0 {
+		waitingStep = inst.CurrentSteps[0]
+	}
 	var nextStep *string
 	if updated, serr := store.GetInstance(ctx, instanceID); serr == nil {
-		if len(updated.CurrentSteps) > 0 {
+		if len(updated.CurrentSteps) > 0 && updated.CurrentSteps[0] != waitingStep {
 			s := updated.CurrentSteps[0]
 			nextStep = &s
 		}
@@ -104,6 +118,7 @@ func runSignal(args []string) {
 	if nextStep != nil {
 		fmt.Printf("Instance resumed; next step: %s\n", *nextStep)
 	} else {
-		fmt.Printf("Instance resumed.\n")
+		fmt.Printf("The runtime will resume the instance on its next tick.\n")
+		fmt.Printf("  What now: awis status %s\n", instanceID)
 	}
 }

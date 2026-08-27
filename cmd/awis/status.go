@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/awis/awis/internal/core"
+	"github.com/awis/awis/internal/storage"
 )
 
 func init() {
@@ -137,7 +138,7 @@ func printStatusTable(namespace string, all bool, n int) {
 	}
 
 	if globalJSON {
-		out := buildStatusJSON(now, activeInsts, recentInsts)
+		out := buildStatusJSON(ctx, store, now, activeInsts, recentInsts)
 		emitJSON(out)
 		return
 	}
@@ -212,7 +213,7 @@ func runStatusDetail(instanceID string) {
 
 	if globalJSON {
 		now := time.Now()
-		active := buildActiveJSON(now, inst)
+		active := buildActiveJSON(now, inst, lookupWait(context.Background(), store, inst))
 		emitJSON(active)
 		return
 	}
@@ -225,6 +226,17 @@ func runStatusDetail(instanceID string) {
 	if len(inst.CurrentSteps) > 0 {
 		fmt.Printf("Steps:     %s\n", strings.Join(inst.CurrentSteps, ", "))
 	}
+	if wait := lookupWait(context.Background(), store, inst); wait != nil {
+		fmt.Printf("Awaiting:  signal %q  (awis signal %s %s)\n",
+			wait.SignalName, inst.InstanceID, wait.SignalName)
+		if wait.TimeoutAt != nil {
+			remaining := int(wait.TimeoutAt.Sub(now).Seconds())
+			if remaining < 0 {
+				remaining = 0
+			}
+			fmt.Printf("Timeout:   %ds remaining (%s)\n", remaining, wait.TimeoutAction)
+		}
+	}
 	fmt.Printf("Elapsed:   %ds\n", elapsed)
 	if inst.CompletedAt != nil {
 		dur := int(inst.CompletedAt.Sub(inst.StartedAt).Seconds())
@@ -233,10 +245,10 @@ func runStatusDetail(instanceID string) {
 }
 
 // buildStatusJSON builds the full statusOutputJSON from active and recent instances.
-func buildStatusJSON(now time.Time, active, recent []core.WorkflowInstance) statusOutputJSON {
+func buildStatusJSON(ctx context.Context, store any, now time.Time, active, recent []core.WorkflowInstance) statusOutputJSON {
 	activeJSON := make([]statusActiveJSON, 0, len(active))
 	for _, inst := range active {
-		activeJSON = append(activeJSON, buildActiveJSON(now, inst))
+		activeJSON = append(activeJSON, buildActiveJSON(now, inst, lookupWait(ctx, store, inst)))
 	}
 	recentJSON := make([]statusRecentJSON, 0, len(recent))
 	for _, inst := range recent {
@@ -249,21 +261,90 @@ func buildStatusJSON(now time.Time, active, recent []core.WorkflowInstance) stat
 	}
 }
 
-func buildActiveJSON(now time.Time, inst core.WorkflowInstance) statusActiveJSON {
+func buildActiveJSON(now time.Time, inst core.WorkflowInstance, wait *storage.WaitRecord) statusActiveJSON {
 	var currentStep *string
 	if len(inst.CurrentSteps) > 0 {
 		s := inst.CurrentSteps[0]
 		currentStep = &s
 	}
 	elapsedS := int(now.Sub(inst.StartedAt).Seconds())
-	return statusActiveJSON{
-		InstanceID:  string(inst.InstanceID),
-		WorkflowID:  inst.DefinitionID,
-		Namespace:   inst.Namespace,
-		Status:      string(inst.Status),
-		CurrentStep: currentStep,
-		ElapsedS:    elapsedS,
+
+	// signal_name / timeout_remaining_s are part of the published status JSON
+	// schema (TDS-07 §4) but were never assigned: an instance reported as
+	// `waiting` gave no indication of WHICH signal it awaited, so an operator
+	// could not tell what to pass to `awis signal` without reading the
+	// workflow YAML, and a UI could not render the wait at all. The answer was
+	// already durable in wait_records the whole time (B-28).
+	var signalName *string
+	var timeoutRemainingS *int
+	if wait != nil {
+		n := wait.SignalName
+		signalName = &n
+		if wait.TimeoutAt != nil {
+			// Report a clamped, whole-second countdown. A negative value would
+			// mean the wait is already due and the timeout scan simply has not
+			// run yet; surfacing that as a negative number reads as a bug to
+			// whoever sees it, so it floors at 0.
+			remaining := int(wait.TimeoutAt.Sub(now).Seconds())
+			if remaining < 0 {
+				remaining = 0
+			}
+			timeoutRemainingS = &remaining
+		}
 	}
+
+	return statusActiveJSON{
+		InstanceID:        string(inst.InstanceID),
+		WorkflowID:        inst.DefinitionID,
+		Namespace:         inst.Namespace,
+		Status:            string(inst.Status),
+		CurrentStep:       currentStep,
+		SignalName:        signalName,
+		TimeoutRemainingS: timeoutRemainingS,
+		ElapsedS:          elapsedS,
+	}
+}
+
+// waitRecordStore is the additive storage capability needed to describe a
+// wait. Declared locally and type-asserted, the established pattern for
+// reaching *SQLiteStorage methods that are not on the frozen 12-method
+// core.StoragePort.
+type waitRecordStore interface {
+	ListWaitRecordsByInstance(ctx context.Context, instanceID core.InstanceID) ([]storage.WaitRecord, error)
+}
+
+// lookupWait returns the wait record describing why inst is parked, or nil.
+//
+// It queries only for instances whose status is actually `waiting`, so the
+// cost is bounded by the number of genuinely parked instances rather than by
+// the size of the active set. A store without the capability yields nil,
+// which degrades to the previous (null) output rather than failing a
+// read-only status command.
+func lookupWait(ctx context.Context, store any, inst core.WorkflowInstance) *storage.WaitRecord {
+	if inst.Status != core.InstanceStatusWaiting {
+		return nil
+	}
+	ws, ok := store.(waitRecordStore)
+	if !ok {
+		return nil
+	}
+	records, err := ws.ListWaitRecordsByInstance(ctx, inst.InstanceID)
+	if err != nil || len(records) == 0 {
+		return nil
+	}
+	// An instance can hold several wait records (a parallel join of signal
+	// steps). Prefer the one for the step status already reports as current,
+	// so signal_name and current_step describe the same wait; otherwise fall
+	// back to the first, which ListWaitRecordsByInstance orders by step_id for
+	// determinism.
+	if len(inst.CurrentSteps) > 0 {
+		for i := range records {
+			if records[i].StepID == inst.CurrentSteps[0] {
+				return &records[i]
+			}
+		}
+	}
+	return &records[0]
 }
 
 func buildRecentJSON(inst core.WorkflowInstance) statusRecentJSON {
