@@ -13,6 +13,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -57,6 +58,18 @@ func (s *SQLiteStorage) SearchEvents(ctx context.Context, query string, limit in
 		limit = 50
 	}
 
+	// Wrap the query in double-quotes to treat it as a literal phrase rather than
+	// letting FTS5 parse hyphens/special chars as operators (e.g. "-term" = NOT term),
+	// escaping any embedded double-quotes so the phrase can never be broken out of
+	// (B-16; matches apps/oip/internal/index/fts.go's sanitizeFTSQuery approach).
+	ftsQuery := sanitizeFTSQuery(query)
+	if ftsQuery == "" {
+		// Nothing to search for once whitespace-trimmed; a literal empty MATCH
+		// string is not valid FTS5 syntax, so short-circuit to "no results"
+		// instead of risking a query error (B-16).
+		return nil, nil
+	}
+
 	// Lazy FTS sync: rebuild the FTS index from execution_events before querying.
 	// This avoids per-insert trigger overhead (prohibitive at 10K-100K event scale).
 	// V1 recall is a developer-facing search (not latency-critical); rebuild cost
@@ -64,11 +77,6 @@ func (s *SQLiteStorage) SearchEvents(ctx context.Context, query string, limit in
 	if err := s.rebuildFTSIndex(ctx); err != nil {
 		return nil, fmt.Errorf("storage: SearchEvents rebuild FTS: %w", err)
 	}
-
-	// Wrap the query in double-quotes to treat it as a literal phrase rather than
-	// letting FTS5 parse hyphens/special chars as operators (e.g. "-term" = NOT term).
-	// Users can still use raw FTS5 syntax by starting with a special character.
-	ftsQuery := `"` + query + `"`
 
 	// JOIN back to execution_events on event_id to retrieve emitted_at.
 	rows, err := s.db.db.QueryContext(ctx, `
@@ -179,4 +187,28 @@ func (s *SQLiteStorage) ListAudit(ctx context.Context, limit int) ([]AuditRow, e
 		return nil, fmt.Errorf("storage: ListAudit rows: %w", err)
 	}
 	return results, nil
+}
+
+// sanitizeFTSQuery wraps query for safe use as an FTS5 MATCH argument.
+//
+// FTS5 interprets a bare query as its own mini-grammar: a leading "-" means
+// NOT, an unescaped '"' opens/closes a phrase, and other punctuation can be
+// column-filter or operator syntax. Wrapping the whole query in double quotes
+// forces phrase-search semantics (the query is matched literally, in order),
+// and escaping embedded '"' characters (SQLite's own doubling convention,
+// same as ' inside SQL string literals) prevents a user-supplied quote from
+// closing the phrase early and reintroducing raw FTS5 syntax (B-16).
+//
+// Returns "" for a query that is empty after trimming whitespace; callers
+// must treat that as "no results" rather than passing it to MATCH, since an
+// empty MATCH string is not valid FTS5 syntax.
+//
+// Same approach as apps/oip/internal/index/fts.go's sanitizeFTSQuery.
+func sanitizeFTSQuery(query string) string {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return ""
+	}
+	query = strings.ReplaceAll(query, `"`, `""`)
+	return `"` + query + `"`
 }

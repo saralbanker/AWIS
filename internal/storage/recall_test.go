@@ -244,3 +244,127 @@ func TestRecallListAuditDescOrder(t *testing.T) {
 		}
 	}
 }
+
+// ── B-16: SearchEvents FTS5 query sanitization ──────────────────────────────
+
+// seedSearchableEvent registers an instance and appends one event whose
+// payload contains note as a searchable field, mirroring
+// TestRecallSearchEventsWithData's fixture shape. It returns the event_id.
+func seedSearchableEvent(t *testing.T, s *storage.SQLiteStorage, instanceID, note string) string {
+	t.Helper()
+	ctx := context.Background()
+
+	inst := core.WorkflowInstance{
+		InstanceID:        core.InstanceID(instanceID),
+		DefinitionID:      "test-workflow",
+		DefinitionVersion: "1.0.0",
+		Namespace:         "default",
+		Status:            core.InstanceStatusRunning,
+		StartedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
+		CurrentSteps:      []string{},
+	}
+	if err := s.UpsertInstance(ctx, inst, 0); err != nil {
+		t.Fatalf("seedSearchableEvent: UpsertInstance: %v", err)
+	}
+
+	eventID := "evt-" + instanceID
+	payload, err := json.Marshal(map[string]string{"note": note})
+	if err != nil {
+		t.Fatalf("seedSearchableEvent: marshal payload: %v", err)
+	}
+	ev := core.ExecutionEvent{
+		EventID:     eventID,
+		InstanceID:  inst.InstanceID,
+		Namespace:   "default",
+		EventType:   core.EventTypeStepCompleted,
+		StepID:      "step",
+		Payload:     json.RawMessage(payload),
+		EmittedAt:   time.Now(),
+		SequenceNum: 1,
+	}
+	if err := s.AppendEvent(ctx, ev); err != nil {
+		t.Fatalf("seedSearchableEvent: AppendEvent: %v", err)
+	}
+	return eventID
+}
+
+// TestRecallSearchEventsQuoteInQuery verifies a query containing a literal
+// double-quote does not produce malformed FTS5 syntax (B-16: SearchEvents
+// used to build `"` + query + `"` unescaped, so an embedded `"` closed the
+// phrase early and broke the query). The quote is embedded between two
+// unique tokens that also appear (quote-adjacent) in the indexed payload, so
+// this also proves the escaped phrase still matches its intended row rather
+// than merely failing to error.
+func TestRecallSearchEventsQuoteInQuery(t *testing.T) {
+	s := openForRecall(t)
+	const query = `quoteGuardAlpha3009"quoteGuardBeta4011`
+	eventID := seedSearchableEvent(t, s, "i-quote-001", query)
+
+	results, err := s.SearchEvents(context.Background(), query, 10)
+	if err != nil {
+		t.Fatalf("SearchEvents with embedded quote: unexpected error: %v", err)
+	}
+	if len(results) != 1 || results[0].EventID != eventID {
+		t.Errorf("SearchEvents with embedded quote: want 1 result (%s), got %d results", eventID, len(results))
+	}
+}
+
+// TestRecallSearchEventsHyphenInQuery verifies a query containing a leading
+// hyphen is treated as literal phrase content, not FTS5's NOT operator
+// (B-16). If the hyphen were misread as NOT, this query would either error
+// (NOT with no left-hand operand) or fail to find a row that plainly matches.
+func TestRecallSearchEventsHyphenInQuery(t *testing.T) {
+	s := openForRecall(t)
+	const term = "hyphenGuardTermQ7"
+	eventID := seedSearchableEvent(t, s, "i-hyphen-001", term)
+
+	results, err := s.SearchEvents(context.Background(), "-"+term, 10)
+	if err != nil {
+		t.Fatalf("SearchEvents with leading hyphen: unexpected error: %v", err)
+	}
+	if len(results) != 1 || results[0].EventID != eventID {
+		t.Errorf("SearchEvents with leading hyphen: want 1 result (%s), got %d results", eventID, len(results))
+	}
+}
+
+// TestRecallSearchEventsEmptyQuery verifies an empty query returns no
+// results without error rather than being passed to FTS5 MATCH as an
+// invalid empty string (B-16).
+func TestRecallSearchEventsEmptyQuery(t *testing.T) {
+	s := openForRecall(t)
+	seedSearchableEvent(t, s, "i-empty-001", "irrelevant-content")
+
+	results, err := s.SearchEvents(context.Background(), "", 10)
+	if err != nil {
+		t.Fatalf("SearchEvents with empty query: unexpected error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("SearchEvents with empty query: want 0 results, got %d", len(results))
+	}
+
+	// Whitespace-only is equivalent to empty once trimmed.
+	results, err = s.SearchEvents(context.Background(), "   ", 10)
+	if err != nil {
+		t.Fatalf("SearchEvents with whitespace-only query: unexpected error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("SearchEvents with whitespace-only query: want 0 results, got %d", len(results))
+	}
+}
+
+// TestRecallSearchEventsPunctuationOnlyQuery verifies a query made entirely
+// of punctuation does not error (B-16). FTS5's default tokenizer strips
+// punctuation, so this also should not spuriously match unrelated rows.
+func TestRecallSearchEventsPunctuationOnlyQuery(t *testing.T) {
+	s := openForRecall(t)
+	seedSearchableEvent(t, s, "i-punct-001", "unrelatedContentXYZ42")
+
+	results, err := s.SearchEvents(context.Background(), "!!!", 10)
+	if err != nil {
+		t.Fatalf("SearchEvents with punctuation-only query: unexpected error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("SearchEvents with punctuation-only query: want 0 results, got %d", len(results))
+	}
+}
