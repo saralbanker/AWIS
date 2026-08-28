@@ -13,6 +13,7 @@ package plugin
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -864,4 +865,54 @@ func envMap(env []string) map[string]string {
 		}
 	}
 	return out
+}
+
+// TestEveryStatusWriteGoesThroughTheOrderedWriter is the B-18 completeness
+// guard.
+//
+// The original B-18 fix converted three of the FOUR fire-and-forget
+// `go func(){ _ = m.store.SetPluginStatus(...) }()` sites and left
+// handleCrashLocked untouched — while the accompanying doc comment claimed all
+// of them had been converted. A write from that site was not tracked by
+// Shutdown's WaitGroup, so it could be lost at process exit, and it could
+// still land out of order relative to a later-queued write: exactly the defect
+// B-18 exists to prevent.
+//
+// A source-level assertion is the right shape here. The defect is "someone
+// added or kept a write that bypasses the queue", which no behavioural test
+// reliably catches, since the race it creates is timing-dependent.
+func TestEveryStatusWriteGoesThroughTheOrderedWriter(t *testing.T) {
+	src, err := os.ReadFile("manager.go")
+	if err != nil {
+		t.Fatalf("read manager.go: %v", err)
+	}
+
+	// drainStatusQueue is the ONE legitimate direct caller: it is the ordered
+	// writer itself. Every other reference must be the queueing helper.
+	lines := strings.Split(string(src), "\n")
+	var offenders []string
+	for i, line := range lines {
+		if !strings.Contains(line, "m.store.SetPluginStatus(") {
+			continue
+		}
+		if inDrainStatusQueue(lines, i) {
+			continue
+		}
+		offenders = append(offenders, fmt.Sprintf("manager.go:%d: %s", i+1, strings.TrimSpace(line)))
+	}
+	if len(offenders) > 0 {
+		t.Errorf("status writes bypassing setPluginStatusAsync (B-18):\n  %s",
+			strings.Join(offenders, "\n  "))
+	}
+}
+
+// inDrainStatusQueue reports whether line index i falls inside
+// drainStatusQueue, the single legitimate direct caller of SetPluginStatus.
+func inDrainStatusQueue(lines []string, i int) bool {
+	for j := i; j >= 0; j-- {
+		if strings.HasPrefix(lines[j], "func ") {
+			return strings.Contains(lines[j], "drainStatusQueue")
+		}
+	}
+	return false
 }

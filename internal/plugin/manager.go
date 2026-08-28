@@ -639,9 +639,7 @@ func (m *Manager) handleCrashLocked(entry *pluginEntry, pluginName string, reaso
 	entry.handle = nil
 	if entry.crashCount > crashLimit {
 		entry.state = stateFailed
-		go func() {
-			_ = m.store.SetPluginStatus(context.Background(), pluginName, "failed")
-		}()
+		m.setPluginStatusAsync(pluginName, "failed")
 		return &core.StepError{
 			Code:    "plugin_failed",
 			Message: fmt.Sprintf("plugin %q permanently failed after %d consecutive crashes (last: %s)", pluginName, entry.crashCount, reason),
