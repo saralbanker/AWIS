@@ -66,6 +66,30 @@ import (
 // transaction opens; an append interleaved between read and commit would not
 // be reflected until the next rebuild.
 func (s *SQLiteStorage) RebuildState(ctx context.Context) error {
+	// ── Step 0: refuse to rebuild across an unsupported schema version (B-22) ──
+	//
+	// AppendEvent, ReadEvents and ReadEventRange all reject rows above
+	// MaxSupportedSchemaVersion on the reasoning that mis-projecting the
+	// append-only source of truth is worse than a failed read. This replay
+	// path reads execution_events with its own raw SQL and so bypassed all
+	// three, which made `awis rebuild-state` the one command that would
+	// silently reinterpret a newer build's events under v1 field assumptions —
+	// and it does so while WIPING the projection, so the mis-projection
+	// replaces correct state rather than merely accompanying it.
+	//
+	// The check is pre-flight, before any destructive work: a rebuild is
+	// all-or-nothing, so discovering this halfway through would leave the
+	// operator with a wiped projection and an error.
+	var maxSchema sql.NullInt64
+	if err := s.db.db.QueryRowContext(ctx,
+		`SELECT MAX(schema_version) FROM execution_events`).Scan(&maxSchema); err != nil {
+		return fmt.Errorf("storage: RebuildState schema-version check: %w", err)
+	}
+	if maxSchema.Valid && maxSchema.Int64 > MaxSupportedSchemaVersion {
+		return fmt.Errorf("%w: event log contains schema_version %d, max supported is %d",
+			ErrUnsupportedSchemaVersion, maxSchema.Int64, MaxSupportedSchemaVersion)
+	}
+
 	// ── Step 1: snapshot definition identity + cancellation flag (EDR-007 gap) ─
 	type defIdentity struct {
 		definitionID          string

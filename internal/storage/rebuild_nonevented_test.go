@@ -20,8 +20,10 @@ package storage_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/awis/awis/internal/core"
 	"github.com/awis/awis/internal/storage"
@@ -232,5 +234,50 @@ func TestRebuildIsIdempotentAcrossNonEventedState(t *testing.T) {
 		if !cancelled {
 			t.Errorf("pass %d: cancellation_requested was lost", pass)
 		}
+	}
+}
+
+// TestRebuildRefusesUnsupportedSchemaVersion closes the B-22 gap at the
+// RebuildState call site.
+//
+// AppendEvent, ReadEvents and ReadEventRange all refuse rows above
+// MaxSupportedSchemaVersion, on the reasoning that mis-projecting the
+// append-only source of truth is worse than a failed read. RebuildState reads
+// execution_events with its own raw SQL and so bypassed all three — making
+// `awis rebuild-state` the single command that would silently reinterpret a
+// newer build's events under v1 assumptions, WHILE wiping the projection, so
+// the mis-projection replaces correct state rather than merely joining it.
+func TestRebuildRefusesUnsupportedSchemaVersion(t *testing.T) {
+	s, dbh := openTestStorage(t, filepath.Join(t.TempDir(), "schema.db"))
+	t.Cleanup(func() { _ = dbh.Close() })
+	ctx := context.Background()
+
+	seedInstance(t, s, "inst-future", core.InstanceStatusRunning, []string{"a"})
+
+	// Write a future-version row directly: AppendEvent would (correctly)
+	// refuse it, which is exactly why the rebuild path needs its own guard.
+	if _, err := dbh.ExposedDB().ExecContext(ctx, `
+		INSERT INTO execution_events
+			(event_id, instance_id, namespace, event_type, step_id, payload,
+			 emitted_at, sequence_num, schema_version)
+		VALUES (?, ?, 't', ?, '', '{}', ?, 99, ?)`,
+		"fx-future-99", "inst-future", string(core.EventTypeStepStarted),
+		baseTime.UTC().Format(time.RFC3339Nano), storage.MaxSupportedSchemaVersion+1,
+	); err != nil {
+		t.Fatalf("insert future-version event: %v", err)
+	}
+
+	err := s.RebuildState(ctx)
+	if !errors.Is(err, storage.ErrUnsupportedSchemaVersion) {
+		t.Fatalf("RebuildState err = %v, want ErrUnsupportedSchemaVersion — the rebuild "+
+			"silently projected a future schema version under v1 assumptions", err)
+	}
+
+	// And it must refuse BEFORE wiping: the projection has to survive intact,
+	// or a refused rebuild would still have destroyed the operator's state.
+	got, _ := statusOf(t, s, "inst-future")
+	if got != core.InstanceStatusRunning {
+		t.Errorf("status after refused rebuild = %q, want %q — the projection was wiped "+
+			"before the check", got, core.InstanceStatusRunning)
 	}
 }
