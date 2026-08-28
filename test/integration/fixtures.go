@@ -114,8 +114,29 @@ initial_step: primary
 final_steps: [rescue]
 `
 
-// withOnError is a native step with an on_error: true transition to a
-// recovery step (B-4 fixture).
+// withOnError is the B-4 fixture, and its SHAPE is load-bearing.
+//
+// `primary` must NOT be the initial step. B-4 is the join gate re-nominating a
+// terminally-failed step, and isActivatable only re-nominates a step that has
+// an INBOUND transition from a completed step: a step with no inbound edges
+// self-activates only when it is the initial step AND nothing has completed or
+// is running yet (transition.go). So a fixture whose failing step is the
+// initial step is structurally immune to B-4 and would pass whether or not the
+// fix is present — which is exactly what an earlier version of this fixture
+// did.
+//
+// `seed` therefore exists solely to complete before `primary`, so that
+// `completed[seed]` is true and the seed→primary transition keeps firing after
+// primary fails. With the B-4 guard removed, primary is re-nominated on every
+// tick, the instance never reaches a terminal status, and this fixture's tests
+// time out — which is the observable signature of the defect.
+//
+// on_error is also the ONLY route where B-4 can occur. The fallback route
+// records the originating step in Variables (emit.go's StepFallbackActivated
+// projection writes a sentinel there for convergent join gates), so the failed
+// step already counts as completed; and the plain WorkflowFailed route makes
+// the instance terminal in the same tick, so no later tick exists to
+// re-activate on.
 const withOnError = `schema_version: 1
 id: with-on-error
 version: 1.0.0
@@ -123,6 +144,9 @@ namespace: default
 triggers:
   - type: manual
 steps:
+  - id: seed
+    type: native
+    handler: examples.diagnostic.succeed
   - id: primary
     type: native
     handler: examples.diagnostic.fail
@@ -130,10 +154,12 @@ steps:
     type: native
     handler: examples.diagnostic.succeed
 transitions:
+  - from: seed
+    to: primary
   - from: primary
     to: recover
     on_error: true
-initial_step: primary
+initial_step: seed
 final_steps: [recover]
 `
 

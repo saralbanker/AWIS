@@ -188,6 +188,19 @@ func TestB4_TerminallyFailedStepNotReactivated_OnError(t *testing.T) {
 
 // TestB4_TerminallyFailedStepNotReactivated_Fallback: same shape as the
 // on_error fixture above, but a routes via step.Fallback instead.
+//
+// Honest scoping: this test does NOT exercise the B-4 guard, and passes with
+// or without it. The fallback route is structurally immune, because
+// StepFallbackActivated's projection (emit.go) writes a sentinel into
+// Variables for the ORIGINATING step so convergent join gates can treat it as
+// done — which also puts it in completedSet, so activatableFor's
+// `completed[id]` check already excludes it before `failed[id]` is consulted.
+//
+// It is kept because that immunity is a property of a projection rule in
+// another file that nobody would think to protect: if the sentinel write were
+// ever removed, this fixture would start hanging, and the failure would point
+// straight at the interaction. on_error is the only route where B-4 can
+// actually occur, and TestB4_..._OnError is the test that guards it.
 func TestB4_TerminallyFailedStepNotReactivated_Fallback(t *testing.T) {
 	def := core.WorkflowDefinition{
 		SchemaVersion: 1, ID: "t.b4fb", Version: "1.0.0", Namespace: "t", Name: "b4fb",
