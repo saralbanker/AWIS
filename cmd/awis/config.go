@@ -24,39 +24,42 @@ func init() {
 	commands["config"] = command{fn: runConfig, summary: "Configuration sub-commands (show, set, validate, edit)"}
 }
 
-// configYAMLKeys are the recognized V1 config keys (PRD §7 PP-7: minimal by discipline).
-// Secrets are masked in 'config show'.
-var configSecretKeys = map[string]bool{
-	"anthropic_api_key": true,
-	"api_key":           true,
+// configVisibleKeys are the ONLY config keys whose values are safe to print.
+// Everything else is masked.
+//
+// This is an allowlist of the harmless, not a denylist of the dangerous, and
+// the inversion is the whole point. The previous version matched credential-
+// shaped SUBSTRINGS (key/token/secret/password/credential), which is a
+// denylist wearing a disguise: it printed the value of any key whose name the
+// list failed to anticipate. A key named `authorization` — the exact shape a
+// non-Anthropic provider's Bearer credential takes — matched none of those
+// fragments and was printed verbatim by `config show` AND written verbatim
+// into the append-only audit table, where it cannot be redacted afterwards.
+//
+// Enumerating every credential-shaped name is not a winnable game. Enumerating
+// the handful of settings an operator needs to read back is trivial, and the
+// two costs are wildly asymmetric: a masked non-secret costs one
+// `cat config.yaml`, while a printed secret is in terminal scrollback, CI logs
+// and an immutable audit row forever.
+//
+// These are the recognised V1 keys that hold no credential (see
+// validateConfigYAML), plus model/timeout, which are commonly present and
+// never sensitive.
+var configVisibleKeys = map[string]bool{
+	"namespace":    true,
+	"tick":         true,
+	"data_dir":     true,
+	"log_level":    true,
+	"intelligence": true,
+	"plugins_dir":  true,
+	"model":        true,
+	"timeout":      true,
 }
 
-// secretKeySubstrings makes masking fail CLOSED. configSecretKeys is an
-// exact-match allowlist of the keys V1 recognises, so a key it does not list
-// — a future provider's credential, a hand-edited config.yaml, a typo like
-// `anthropic_apikey` — would have its VALUE printed verbatim by `config
-// show` and written verbatim into the audit log.
-//
-// A credential printed once is a credential leaked: it lands in terminal
-// scrollback, CI logs, and the append-only audit table, none of which can be
-// retracted. The cost of masking a non-secret by mistake is that an operator
-// has to open config.yaml to read it. That asymmetry is the whole argument
-// for matching on substrings here rather than only on the known-key list.
-var secretKeySubstrings = []string{"key", "token", "secret", "password", "passwd", "credential"}
-
 // isSecretConfigKey reports whether key's VALUE must be masked wherever it is
-// displayed or recorded.
+// displayed or recorded. Unknown keys are secret by default.
 func isSecretConfigKey(key string) bool {
-	lower := strings.ToLower(key)
-	if configSecretKeys[lower] {
-		return true
-	}
-	for _, frag := range secretKeySubstrings {
-		if strings.Contains(lower, frag) {
-			return true
-		}
-	}
-	return false
+	return !configVisibleKeys[strings.ToLower(strings.TrimSpace(key))]
 }
 
 func runConfig(args []string) {

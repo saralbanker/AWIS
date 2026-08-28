@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestIsSecretConfigKeyFailsClosed is a security guard, not a style test.
 //
@@ -12,14 +15,20 @@ import "testing"
 // scrollback or CI logs, so this must fail closed.
 func TestIsSecretConfigKeyFailsClosed(t *testing.T) {
 	secret := []string{
-		// The originally-recognised keys.
+		// The originally-recognised credential keys.
 		"api_key", "anthropic_api_key",
 		"API_KEY", "Anthropic_API_Key", // case must not matter
-		// Near-misses that the exact-match list silently leaked.
+		// Near-misses the old exact-match list silently leaked.
 		"anthropic_apikey", "apikey", "openai_api_key", "my_api_key_2",
+		// The shape that defeated the substring denylist: an HTTP
+		// Authorization / Bearer value matches none of
+		// key/token/secret/password/credential.
+		"authorization", "Authorization", "auth", "bearer_token", "pat",
 		// Other credential shapes.
 		"auth_token", "TOKEN", "client_secret", "password", "passwd",
-		"aws_credential", "refresh_token",
+		"aws_credential", "refresh_token", "private_key", "signing_key",
+		// And anything at all that is simply not on the visible list.
+		"something_nobody_anticipated",
 	}
 	for _, k := range secret {
 		if !isSecretConfigKey(k) {
@@ -27,44 +36,32 @@ func TestIsSecretConfigKeyFailsClosed(t *testing.T) {
 		}
 	}
 
-	// Keys that must stay readable — masking everything would make
-	// `config show` useless for the settings an operator actually needs to
-	// check.
+	// The settings an operator genuinely needs to read back must stay visible,
+	// or `config show` becomes useless.
 	visible := []string{
 		"namespace", "tick", "data_dir", "log_level", "intelligence",
-		"plugins_dir", "timeout", "model",
+		"plugins_dir", "model", "timeout",
+		"NAMESPACE", " tick ", // case and surrounding space must not matter
 	}
 	for _, k := range visible {
 		if isSecretConfigKey(k) {
-			t.Errorf("isSecretConfigKey(%q) = true; a non-secret setting is being hidden from the operator", k)
+			t.Errorf("isSecretConfigKey(%q) = true; a non-secret setting is hidden from the operator", k)
 		}
 	}
 }
 
-// TestEveryRecognisedSecretKeyIsCoveredBySubstring keeps the two mechanisms
-// consistent: every key on the explicit list must ALSO be caught by the
-// substring rule, so the explicit list can never be the only thing standing
-// between a credential and stdout.
-func TestEveryRecognisedSecretKeyIsCoveredBySubstring(t *testing.T) {
-	for k := range configSecretKeys {
-		var covered bool
-		for _, frag := range secretKeySubstrings {
-			if len(frag) > 0 && contains(k, frag) {
-				covered = true
-				break
+// TestVisibleKeysHoldNoCredential guards the allowlist itself: if someone adds
+// a credential-shaped name to configVisibleKeys, that key's value becomes
+// printable. This is the one direction the inversion cannot protect against,
+// so it is asserted directly.
+func TestVisibleKeysHoldNoCredential(t *testing.T) {
+	banned := []string{"key", "token", "secret", "password", "passwd", "credential", "auth"}
+	for k := range configVisibleKeys {
+		for _, frag := range banned {
+			if strings.Contains(strings.ToLower(k), frag) {
+				t.Errorf("configVisibleKeys contains %q, which looks credential-shaped (%q); "+
+					"its value would be printed verbatim", k, frag)
 			}
 		}
-		if !covered {
-			t.Errorf("configSecretKeys has %q, which no entry in secretKeySubstrings matches", k)
-		}
 	}
-}
-
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }
