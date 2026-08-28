@@ -1,6 +1,6 @@
 # AWIS Engine Freeze Report
 
-Branch `engine-hardening`, base `7146214`. 21 commits.
+Branch `engine-hardening`, base `7146214`. 22 commits.
 Companion to `ENGINE_HARDENING_PLAN.md`, which carries the root-cause analysis
 and the defect→commit map.
 
@@ -29,7 +29,8 @@ precisely the class this program was told not to trust alone.
 
 **Engine stability: high.** All twelve durability, recovery and failure-routing
 defects are closed, each with a regression test whose load-bearing nature was
-verified by reverting the fix and observing red.
+verified by reverting the fix and observing red. Note §9: one of those
+verifications was originally too shallow and has been corrected.
 
 **Integration coverage: good for the engine, partial for the periphery.** Every
 step type, every failure route, restart, rebuild, cancel, signal, timeout,
@@ -112,7 +113,7 @@ throwaway project and asserts what a user would see from a shell.
 | Area | Covered |
 |---|---|
 | Lifecycle | submit → status → trace → completed; JSON contract across 10 read-only subcommands |
-| Failure routing | fallback, `on_error`, plain `WorkflowFailed`; each asserts **exactly one** `StepStarted` per step — the direct B-4 instrument, since a re-activating step accumulates them without bound |
+| Failure routing | fallback, `on_error`, plain `WorkflowFailed`, each asserting **exactly one** `StepStarted` per step. Only the `on_error` case guards B-4 — see §9; the other two routes are structurally immune |
 | Retry | `StepFailed{retrying:true}` then success, with the attempt count pinned |
 | Panic containment | a panicking handler yields `handler_panic`, the process survives, and a *subsequent* instance still completes |
 | Timeout | a 30s handler behind a 1s timeout fails on deadline while an unrelated instance completes |
@@ -289,3 +290,61 @@ product and cost decision, not a defect, and is left to the founder.
 Founder decision on the three §7 items. If event streaming is wanted in V1, the
 `global_seq` migration is the single highest-value next change: it is additive,
 small, and unblocks the GUI's entire live-update story.
+
+---
+
+## 9. Post-review round
+
+After the report above was first written, three independent adversarial
+reviews were run against the branch: a clean-worktree verifier that re-derived
+every gate and tried to prove each regression test was NOT load-bearing, and
+two correctness reviews splitting engine/storage from CLI/SDK/plugin/security.
+
+They found **seven real defects, one of them a security defect and one a
+correction to a claim in this report.** All are fixed and committed; both gates
+are green again, and the integration count is unchanged at 21.
+
+| Finding | Severity | Fix |
+|---|---|---|
+| `config show`/`set`/audit printed the value of any credential-shaped key the substring denylist failed to anticipate (`authorization`) | **SECURITY** | inverted to an allowlist of the eight non-credential settings; unknown keys are secret by default |
+| `RebuildState` never checked `schema_version`, so `awis rebuild-state` would silently reinterpret a newer build's events under v1 assumptions — while wiping the projection | **HIGH** | pre-flight ceiling check before any destructive work |
+| B-18 migrated only 3 of 4 status-write sites; `handleCrashLocked` still fire-and-forget, and the doc comment claimed otherwise | **HIGH** | migrated; source-level guard test against a fifth |
+| `permuteArgs` consumed its own `--` terminator as a dangling flag's value, turning an exit-2 usage error into silent success with a nonsense value | **MEDIUM** | terminator suppressed when a flag is left dangling |
+| **The B-4 integration tests passed with the fix removed** | **MEDIUM** | fixture reshaped — see below |
+| `awis signal` compared only `CurrentSteps[0]`, mis-reporting a multi-branch advance | MEDIUM | compares the whole parked set |
+| `asInt("12abc") == 12` — `Sscanf` accepted trailing garbage | LOW | `strconv.Atoi` |
+| sdk page-bound drift guard compared a constant to itself | LOW | storage pins the literals |
+
+### The correction that matters
+
+This report claimed the integration B-4 tests were "the direct B-4 instrument".
+They were not. All three passed with the guard removed, because `primary` was
+the **initial** step — and `isActivatable` only re-nominates a step with an
+inbound transition from a completed step. The fixture was structurally immune
+to the defect it was named after.
+
+Adding a `seed` predecessor fixed it: with the guard removed,
+`TestB4_OnErrorRoutingReachesCompleted` now times out at 20s (the hang
+signature) instead of passing in 0.23s.
+
+Tracing this also established something worth recording: **`on_error` is the
+only route where B-4 can occur.** The fallback route is immune because
+`StepFallbackActivated`'s projection writes a Variables sentinel for the
+originating step (so convergent join gates see it as done), which also places
+it in `completedSet`. The plain `WorkflowFailed` route is immune because the
+instance goes terminal in the same tick. The guard is load-bearing on exactly
+one of three branches, and the two shape-parity tests now say so.
+
+### Independently confirmed safe
+
+The reviewers also checked, and cleared, the concern I had flagged about the
+B-30 fix: `_txlock=immediate` does **not** serialise reads. Every `BeginTx`
+site in storage is a genuine writer, and every hot read the 100ms tick loop
+performs (`ListInstances`, `GetInstance`, `ReadEvents`, `ListInstancesPaged`)
+is a plain autocommit query that never sees the option — confirmed against the
+driver source. `busy_timeout=5000` was also shown to be nowhere near binding
+under the 30-instance stress load.
+
+No test was found to have been weakened or deleted. The only removal in the
+whole branch was a vacuous stub-success test, replaced by two stronger ones.
+The G1 frozen surfaces show zero diff.
