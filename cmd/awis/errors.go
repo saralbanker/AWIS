@@ -75,6 +75,10 @@ func permuteArgs(fs *flag.FlagSet, args []string) []string {
 	flagArgs := make([]string, 0, len(args))
 	positional := make([]string, 0, len(args))
 
+	// danglingFlag records that the LAST token was a non-boolean flag with no
+	// value after it — a user error that flag.Parse must be allowed to report.
+	danglingFlag := false
+
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 
@@ -118,7 +122,22 @@ func permuteArgs(fs *flag.FlagSet, args []string) []string {
 		if i+1 < len(args) {
 			i++
 			flagArgs = append(flagArgs, args[i])
+		} else {
+			danglingFlag = true
 		}
+	}
+
+	// A dangling flag must reach flag.Parse as the final token so it reports
+	// "flag needs an argument". Appending anything after it — the "--"
+	// terminator below, or a positional — would be consumed as that flag's
+	// VALUE instead, turning a clean exit-2 usage error into a silent success
+	// with a nonsense value. `awis workflow show wf --namespace` used to parse
+	// as namespace="--" and then fail with a confusing "workflow not found".
+	//
+	// Dropping the positionals here loses nothing: parsing is about to fail,
+	// so they would never be read.
+	if danglingFlag {
+		return flagArgs
 	}
 
 	if len(positional) == 0 {
