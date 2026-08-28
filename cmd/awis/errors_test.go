@@ -9,6 +9,7 @@ package main
 import (
 	"bytes"
 	"flag"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -188,4 +189,66 @@ func TestEmitJSON(t *testing.T) {
 	if string(got) != want {
 		t.Errorf("emitJSON output = %q, want %q", string(got), want)
 	}
+}
+
+// TestPermuteArgsDanglingFlagStillErrors: a non-boolean flag written last with
+// no value is a user error, and flag.Parse must be allowed to say so.
+//
+// permuteArgs used to append its "--" positional terminator unconditionally.
+// When the last token was a value-less flag, flag.Parse consumed that "--" as
+// the flag's VALUE — turning a clean exit-2 "flag needs an argument" into a
+// silent success with namespace="--", which then surfaced as a baffling
+// "workflow not found". Reproduced against the real binary as:
+//
+//	awis workflow show myworkflow --namespace
+func TestPermuteArgsDanglingFlagStillErrors(t *testing.T) {
+	newFS := func() *flag.FlagSet {
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		fs.String("namespace", "", "ns")
+		fs.Bool("full", false, "full")
+		return fs
+	}
+
+	t.Run("dangling flag after a positional errors", func(t *testing.T) {
+		fs := newFS()
+		got := permuteArgs(fs, []string{"myworkflow", "--namespace"})
+		if err := fs.Parse(got); err == nil {
+			t.Fatalf("permuteArgs(%v) = %v; Parse succeeded with namespace=%q, want an error",
+				[]string{"myworkflow", "--namespace"}, got, fs.Lookup("namespace").Value)
+		}
+	})
+
+	t.Run("dangling flag with no positional errors", func(t *testing.T) {
+		fs := newFS()
+		if err := fs.Parse(permuteArgs(fs, []string{"--namespace"})); err == nil {
+			t.Error("Parse succeeded on a value-less flag, want an error")
+		}
+	})
+
+	t.Run("a dangling BOOLEAN flag is fine", func(t *testing.T) {
+		fs := newFS()
+		if err := fs.Parse(permuteArgs(fs, []string{"myworkflow", "--full"})); err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if fs.Lookup("full").Value.String() != "true" {
+			t.Error("--full was not set")
+		}
+		if len(fs.Args()) != 1 || fs.Args()[0] != "myworkflow" {
+			t.Errorf("positionals = %v, want [myworkflow]", fs.Args())
+		}
+	})
+
+	t.Run("the normal case still works", func(t *testing.T) {
+		fs := newFS()
+		if err := fs.Parse(permuteArgs(fs, []string{"myworkflow", "--namespace", "examples"})); err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if got := fs.Lookup("namespace").Value.String(); got != "examples" {
+			t.Errorf("namespace = %q, want examples", got)
+		}
+		if len(fs.Args()) != 1 || fs.Args()[0] != "myworkflow" {
+			t.Errorf("positionals = %v, want [myworkflow]", fs.Args())
+		}
+	})
 }

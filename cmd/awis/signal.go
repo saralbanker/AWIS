@@ -88,15 +88,24 @@ func runSignal(args []string) {
 	// So next_step is reported only when it genuinely differs from the step
 	// that was parked. Otherwise it stays nil and the human output says the
 	// runtime will resume the instance on its next tick, which is the truth.
-	var waitingStep string
-	if len(inst.CurrentSteps) > 0 {
-		waitingStep = inst.CurrentSteps[0]
+	// Compare the whole SET of parked steps, not just index 0. An instance can
+	// hold several concurrent waits (a parallel join of signal steps — see
+	// status.go's lookupWait), and the signal just delivered may resolve a
+	// branch that is not at index 0. Comparing only CurrentSteps[0] would then
+	// see an unchanged value and report "not resumed yet" even though a
+	// different branch genuinely advanced.
+	wasParked := make(map[string]bool, len(inst.CurrentSteps))
+	for _, s := range inst.CurrentSteps {
+		wasParked[s] = true
 	}
 	var nextStep *string
 	if updated, serr := store.GetInstance(ctx, instanceID); serr == nil {
-		if len(updated.CurrentSteps) > 0 && updated.CurrentSteps[0] != waitingStep {
-			s := updated.CurrentSteps[0]
-			nextStep = &s
+		for _, s := range updated.CurrentSteps {
+			if !wasParked[s] {
+				step := s
+				nextStep = &step
+				break
+			}
 		}
 	}
 
