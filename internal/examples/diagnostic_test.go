@@ -198,6 +198,13 @@ func TestAsIntAcceptsEveryInputEncoding(t *testing.T) {
 		{"nil falls back", nil, 99},
 		{"unparseable string falls back", "not-a-number", 99},
 		{"wrong type falls back", []string{"7"}, 99},
+		// Sscanf used to stop at the first non-numeric byte and report
+		// success, so these were silently reinterpreted rather than rejected.
+		{"trailing garbage falls back", "12abc", 99},
+		{"scientific notation falls back", "1e3", 99},
+		{"surrounding space is tolerated", " 12 ", 12},
+		{"negative is accepted", "-5", -5},
+		{"empty string falls back", "", 99},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

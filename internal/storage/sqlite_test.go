@@ -494,3 +494,25 @@ func insertRawEventRow(t *testing.T, s *SQLiteStorage, instanceID, namespace str
 		t.Fatalf("insertRawEventRow: insert event: %v", err)
 	}
 }
+
+// TestPageSizeBoundsAreThePinnedValues pins storage's pagination bounds to
+// literals.
+//
+// sdk/runtime_readmodel.go restates these values (storageDefaultPageSize /
+// storageMaxPageSize) because sdk must not import the concrete adapter. That
+// duplication needs a guard on BOTH sides or it drifts silently: the sdk-side
+// test can only compare against sdk's own copy, which is a tautology. Pinning
+// the literals here means a change to storage's bounds fails this test, and
+// whoever fixes it is pointed at the sdk copy that must move with it.
+func TestPageSizeBoundsAreThePinnedValues(t *testing.T) {
+	// Keep in sync with sdk/runtime_readmodel.go's storageDefaultPageSize
+	// and storageMaxPageSize.
+	if defaultInstancesPageSize != 100 {
+		t.Errorf("defaultInstancesPageSize = %d, want 100; update sdk's storageDefaultPageSize too",
+			defaultInstancesPageSize)
+	}
+	if maxInstancesPageSize != 1000 {
+		t.Errorf("maxInstancesPageSize = %d, want 1000; update sdk's storageMaxPageSize too",
+			maxInstancesPageSize)
+	}
+}
