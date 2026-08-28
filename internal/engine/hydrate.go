@@ -128,9 +128,17 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 	// step with step.Fallback set never reaches routeTerminalFailure's on_error
 	// branch, so recomputing firingOnError for it here would wrongly resurrect
 	// a target that never actually fired live).
+	// A target that has ITSELF terminally failed must not be reconstructed as
+	// pending. It is caught by neither `completed` (a terminally-failed step
+	// never enters Variables) nor `current` (it was removed from
+	// current_steps), so without this check a fallback target that later
+	// failed on its own would land in BOTH e.pending and e.failed after a
+	// restart. activatableFor happens to test failed[] before pend[], so the
+	// phantom entry is masked today — but "correct only because of the order
+	// of two checks in another file" is not an invariant worth relying on.
 	pendingTargets := make(map[string]bool)
 	for _, target := range fallbackTargets {
-		if completed[target] || current[target] {
+		if completed[target] || current[target] || failedSteps[target] {
 			continue
 		}
 		pendingTargets[target] = true
@@ -141,7 +149,7 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 			continue
 		}
 		for _, target := range firingOnError(dv, stepID, buildEnv(inst)) {
-			if completed[target] || current[target] {
+			if completed[target] || current[target] || failedSteps[target] {
 				continue
 			}
 			pendingTargets[target] = true
