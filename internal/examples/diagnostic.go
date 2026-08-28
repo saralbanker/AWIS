@@ -34,6 +34,8 @@ package examples
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/awis/awis/internal/core"
@@ -165,8 +167,11 @@ func asInt(v any, def int) int {
 	case float64:
 		return int(n)
 	case string:
-		var parsed int
-		if _, err := fmt.Sscanf(n, "%d", &parsed); err == nil {
+		// strconv.Atoi, not fmt.Sscanf: Sscanf stops at the first
+		// non-numeric byte and reports success, so "12abc" silently became 12
+		// and "1e3" became 1. A diagnostic that quietly reinterprets a
+		// malformed input is worse than one that falls back to its default.
+		if parsed, err := strconv.Atoi(strings.TrimSpace(n)); err == nil {
 			return parsed
 		}
 	}

@@ -111,8 +111,14 @@ func (r *Runtime) ListPaged(ctx context.Context, filter core.InstanceFilter, lim
 // storageDefaultPageSize and storageMaxPageSize mirror the bounds enforced by
 // internal/storage. They are duplicated rather than exported from storage
 // because sdk must not import the concrete adapter — the whole point of the
-// interface assertion above. TestSDKPageBoundsMatchStorage pins them to the
-// real values so the two cannot drift silently.
+// interface assertion above.
+//
+// The duplication is guarded on BOTH sides, because a guard here alone is a
+// tautology (this package comparing its own constant to itself):
+// TestSDKPageBoundsMatchStorage submits more rows than the default page size
+// and asserts the row count storage ACTUALLY returns, and
+// TestPageSizeBoundsAreThePinnedValues in internal/storage pins the literals
+// and names these constants as the ones that must move with them.
 const (
 	storageDefaultPageSize = 100
 	storageMaxPageSize     = 1000
