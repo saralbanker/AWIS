@@ -1,7 +1,7 @@
 # AWIS Engine Freeze Report
 
 Branch `engine-hardening`, base `7146214`. 22 commits.
-Companion to `ENGINE_HARDENING_PLAN.md`, which carries the root-cause analysis
+Companion to [ENGINE_HARDENING_PLAN.md](ENGINE_HARDENING_PLAN.md), which carries the root-cause analysis
 and the defect→commit map.
 
 Every claim below is **tier-1 evidence** (executed behaviour of the shipped
