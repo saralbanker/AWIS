@@ -33,7 +33,7 @@ const (
 	// modelFast maps to the "fast" model_hint (claude-haiku class).
 	modelFast = "claude-haiku-4-5"
 	// modelQuality maps to the "quality" model_hint (claude-sonnet class).
-	modelQuality = "claude-sonnet-4-5"
+	modelQuality = "claude-sonnet-5"
 )
 
 const (

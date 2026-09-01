@@ -103,6 +103,24 @@ const (
 	// CodeIntelligenceConfigMissing: a type=intelligence step has no intelligence
 	// config.
 	CodeIntelligenceConfigMissing = "intelligence-config-missing"
+	// CodeStepTypeUnknown: a step.type is not one of the frozen StepType values
+	// (native|subprocess|plugin|intelligence|signal).
+	CodeStepTypeUnknown = "step-type-unknown"
+	// CodeTriggerTypeUnknown: a trigger.type is not one of the frozen TriggerType
+	// values (manual|schedule|event|webhook).
+	CodeTriggerTypeUnknown = "trigger-type-unknown"
+	// CodeSignalTimeoutAction: a wait_signal.timeout_action is not one of
+	// fail|compensate|continue. Unlike model_hint/backoff, empty is REJECTED: the
+	// DDL column is NOT NULL and there is no documented default.
+	CodeSignalTimeoutAction = "signal-timeout-action"
+	// CodeRetryBackoff: a retry.backoff is not one of immediate|linear|exponential
+	// or empty (empty means "unspecified", handled by the engine's default path).
+	CodeRetryBackoff = "retry-backoff"
+	// CodeIntelligenceCapability: an intelligence step's capability is not one of
+	// draft|synthesize|classify|embed. classify/embed are legal-but-not-dispatchable
+	// (FR-IL-10, CONTRA-3) — that is a runtime concern, not a schema error, so they
+	// are accepted here.
+	CodeIntelligenceCapability = "intelligence-capability"
 )
 
 // Validate runs every PRD §18 required check over def and returns all Issues it
@@ -344,6 +362,13 @@ func Validate(def core.WorkflowDefinition) []Issue {
 					Message: fmt.Sprintf("type=%s step requires a non-empty handler", s.Type),
 				})
 			}
+		default:
+			issues = append(issues, Issue{
+				Code:    CodeStepTypeUnknown,
+				StepID:  s.ID,
+				Field:   "type",
+				Message: fmt.Sprintf("type must be one of native|subprocess|plugin|intelligence|signal, got %q", s.Type),
+			})
 		}
 	}
 
@@ -368,6 +393,74 @@ func Validate(def core.WorkflowDefinition) []Issue {
 				Message: fmt.Sprintf("model_hint must be one of fast|quality|local or empty, got %q", s.Intelligence.ModelHint),
 			})
 		}
+		if !validIntelligenceCapability(s.Intelligence.Capability) {
+			issues = append(issues, Issue{
+				Code:    CodeIntelligenceCapability,
+				StepID:  s.ID,
+				Field:   "intelligence.capability",
+				Message: fmt.Sprintf("capability must be one of draft|synthesize|classify|embed, got %q", s.Intelligence.Capability),
+			})
+		}
+	}
+
+	// 11. Trigger types are one of the frozen TriggerType values.
+	for j, tr := range def.Triggers {
+		if !validTriggerType(tr.Type) {
+			issues = append(issues, Issue{
+				Code:    CodeTriggerTypeUnknown,
+				Field:   fmt.Sprintf("triggers[%d].type", j),
+				Message: fmt.Sprintf("trigger type must be one of manual|schedule|event|webhook, got %q", tr.Type),
+			})
+		}
+	}
+
+	// 12. wait_signal.timeout_action, when a signal wait is configured, is one of
+	// fail|compensate|continue. Empty is REJECTED (NOT NULL DDL column, no
+	// documented default).
+	for _, s := range def.Steps {
+		if s.WaitSignal == nil {
+			continue
+		}
+		if !validTimeoutAction(s.WaitSignal.TimeoutAction) {
+			issues = append(issues, Issue{
+				Code:    CodeSignalTimeoutAction,
+				StepID:  s.ID,
+				Field:   "wait_signal.timeout_action",
+				Message: fmt.Sprintf("timeout_action must be one of fail|compensate|continue, got %q", s.WaitSignal.TimeoutAction),
+			})
+		}
+	}
+
+	// 13. retry.backoff, when a retry policy is configured, is one of
+	// immediate|linear|exponential or empty. Applies to both a step's own Retry
+	// and a CompensationStep's Retry (same field, different location).
+	for _, s := range def.Steps {
+		if s.Retry == nil {
+			continue
+		}
+		if !validBackoff(s.Retry.Backoff) {
+			issues = append(issues, Issue{
+				Code:    CodeRetryBackoff,
+				StepID:  s.ID,
+				Field:   "retry.backoff",
+				Message: fmt.Sprintf("backoff must be one of immediate|linear|exponential or empty, got %q", s.Retry.Backoff),
+			})
+		}
+	}
+	if def.Compensation != nil {
+		for i, cs := range def.Compensation.Steps {
+			if cs.Retry == nil {
+				continue
+			}
+			if !validBackoff(cs.Retry.Backoff) {
+				issues = append(issues, Issue{
+					Code:    CodeRetryBackoff,
+					StepID:  cs.StepID,
+					Field:   fmt.Sprintf("compensation.steps[%d].retry.backoff", i),
+					Message: fmt.Sprintf("backoff must be one of immediate|linear|exponential or empty, got %q", cs.Retry.Backoff),
+				})
+			}
+		}
 	}
 
 	if len(issues) == 0 {
@@ -381,6 +474,56 @@ func Validate(def core.WorkflowDefinition) []Issue {
 func validModelHint(h string) bool {
 	switch h {
 	case "", "fast", "quality", "local":
+		return true
+	default:
+		return false
+	}
+}
+
+// validIntelligenceCapability reports whether c is one of the frozen
+// intelligence capabilities (draft|synthesize|classify|embed). classify/embed
+// are legal-but-not-dispatchable (FR-IL-10, CONTRA-3); rejecting dispatch is a
+// runtime concern (internal/runner/intelligence), not a schema error.
+func validIntelligenceCapability(c string) bool {
+	switch c {
+	case "draft", "synthesize", "classify", "embed":
+		return true
+	default:
+		return false
+	}
+}
+
+// validTriggerType reports whether t is one of the frozen TriggerType values
+// (manual|schedule|event|webhook).
+func validTriggerType(t core.TriggerType) bool {
+	switch t {
+	case core.TriggerTypeManual, core.TriggerTypeSchedule, core.TriggerTypeEvent, core.TriggerTypeWebhook:
+		return true
+	default:
+		return false
+	}
+}
+
+// validTimeoutAction reports whether a is one of the frozen timeout actions
+// (fail|compensate|continue). Unlike validModelHint/validBackoff, the empty
+// string is REJECTED: WaitConfig.TimeoutAction maps to a NOT NULL DDL column
+// (Blueprint §9 L1411) and there is no documented default.
+func validTimeoutAction(a string) bool {
+	switch a {
+	case "fail", "compensate", "continue":
+		return true
+	default:
+		return false
+	}
+}
+
+// validBackoff reports whether b is an accepted retry backoff strategy
+// (immediate|linear|exponential or the empty string, meaning "unspecified" —
+// RetryPolicy with no backoff is legal; the engine's parseDurationOr/default
+// path handles it).
+func validBackoff(b string) bool {
+	switch b {
+	case "", "immediate", "linear", "exponential":
 		return true
 	default:
 		return false

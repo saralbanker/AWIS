@@ -48,8 +48,11 @@ func backoffDelay(p core.RetryPolicy, attempt int) time.Duration {
 		d = initial * time.Duration(int64(1)<<(attempt-1))
 	default:
 		// The grammar freezes backoff ∈ {immediate,linear,exponential} and the
-		// validator rejects others; an unknown value here is treated as immediate
-		// (0) so a malformed policy never blocks forever (judgment call, C2r).
+		// validator now rejects any other value at submit/validate time
+		// (internal/validate CodeRetryBackoff). This branch is a defensive
+		// backstop for RetryPolicy values persisted BEFORE that validation
+		// existed: an unknown value here is treated as immediate (0) so a
+		// malformed policy never blocks forever (judgment call, C2r).
 		d = 0
 	}
 	if d > maxDelay {

@@ -8,7 +8,7 @@
       "text": "{\"result\": \"draft output\"}"
     }
   ],
-  "model": "claude-sonnet-4-5",
+  "model": "claude-sonnet-5",
   "stop_reason": "end_turn",
   "usage": {
     "input_tokens": 10,

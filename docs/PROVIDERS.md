@@ -70,7 +70,7 @@ construction is the only provider-specific step.
 | `model_hint` | Anthropic model (V1 pin) |
 |---|---|
 | `fast` | `claude-haiku-4-5` |
-| `quality` | `claude-sonnet-4-5` |
+| `quality` | `claude-sonnet-5` |
 
 Model IDs are pinned in a single const block in `anthropic.go` with a comment
 marking them as config-overridable post-V1.
