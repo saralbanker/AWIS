@@ -211,7 +211,7 @@ func TestAdapter_RetryOn429ThenSuccess(t *testing.T) {
 			"type": "message",
 			"role": "assistant",
 			"content": [{"type": "text", "text": "ok"}],
-			"model": "claude-sonnet-4-5",
+			"model": "claude-sonnet-5",
 			"stop_reason": "end_turn",
 			"usage": {"input_tokens": 5, "output_tokens": 1}
 		}`))

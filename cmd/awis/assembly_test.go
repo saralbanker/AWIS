@@ -9,6 +9,7 @@ import (
 	"github.com/awis/awis/internal/core"
 	"github.com/awis/awis/internal/dsl"
 	"github.com/awis/awis/internal/examples"
+	"github.com/awis/awis/internal/validate"
 )
 
 // TestUnresolvedHandlers covers the B-9 startup diagnostic: `awis start` must
@@ -75,6 +76,21 @@ func TestUnresolvedHandlers(t *testing.T) {
 				t.Errorf("unresolvedHandlers() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestScaffoldWorkflowsValidateCleanly is the B-31 regression: the scaffold
+// shipped `wait_signal.timeout_action: cancel`, an illegal value with no
+// validator rule to catch it, so `awis workflow validate` and the runtime
+// submit path both accepted it silently and the engine's degrade-on-unknown
+// backstop routed every timeout as a failure. Every embedded scaffold
+// workflow must produce zero Issues from validate.Validate — the same check
+// `awis workflow validate` and engine/submit.go run.
+func TestScaffoldWorkflowsValidateCleanly(t *testing.T) {
+	for i, def := range parseScaffoldWorkflows(t) {
+		if issues := validate.Validate(*def); len(issues) > 0 {
+			t.Errorf("scaffold workflow %d (%s) has validation issues: %+v", i, def.ID, issues)
+		}
 	}
 }
 

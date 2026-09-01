@@ -443,7 +443,7 @@ func TestQG3_CaptureSignalPath(t *testing.T) {
 				Type: sdk.StepTypeSignal,
 				WaitSignal: &sdk.WaitConfig{
 					SignalName:    "entry_confirmed",
-					TimeoutAction: "cancel",
+					TimeoutAction: "fail",
 				},
 			},
 			{

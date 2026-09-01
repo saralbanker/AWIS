@@ -80,6 +80,18 @@ func TestAnthropicContract(t *testing.T) {
 	})
 }
 
+// TestModelConstants pins modelQuality/modelFast to their expected strings so a
+// silent drift (e.g. a stale "-4-5" suffix left behind by a model-tier bump)
+// fails loudly instead of shipping unnoticed.
+func TestModelConstants(t *testing.T) {
+	if modelQuality != "claude-sonnet-5" {
+		t.Errorf("modelQuality = %q, want %q", modelQuality, "claude-sonnet-5")
+	}
+	if modelFast != "claude-haiku-4-5" {
+		t.Errorf("modelFast = %q, want %q", modelFast, "claude-haiku-4-5")
+	}
+}
+
 // ── capability + identity tests ───────────────────────────────────────────────
 
 func TestCapabilities_ExcludesEmbed(t *testing.T) {

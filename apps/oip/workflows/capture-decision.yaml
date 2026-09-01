@@ -53,7 +53,7 @@ steps:
     wait_signal:
       name: entry_confirmed
       timeout: 72h
-      timeout_action: cancel
+      timeout_action: fail
 
   - id: append-to-record
     name: Append to Record

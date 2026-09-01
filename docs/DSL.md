@@ -80,7 +80,7 @@ steps:                        # TDS-02 §2 — ordered list of step nodes
     wait_signal:              # TDS-02 §2 WaitConfig — required when type=signal
       name: manual_draft_provided   # signal_name (Blueprint §7 alias; TDS-02 uses signal_name)
       timeout: 24h
-      timeout_action: fail    # fail | cancel | continue
+      timeout_action: fail    # fail | compensate | continue
 
   - id: confirm-entry
     name: Human Confirmation
@@ -88,7 +88,7 @@ steps:                        # TDS-02 §2 — ordered list of step nodes
     wait_signal:
       name: entry_confirmed
       timeout: 72h
-      timeout_action: cancel
+      timeout_action: fail
 
   - id: append-to-record
     name: Append to Record

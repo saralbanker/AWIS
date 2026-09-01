@@ -22,7 +22,7 @@ steps:
     wait_signal:
       signal_name: approved
       timeout: 72h
-      timeout_action: cancel
+      timeout_action: fail
 
   - id: finalize
     name: Finalize
