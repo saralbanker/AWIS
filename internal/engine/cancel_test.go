@@ -448,3 +448,134 @@ func TestCancel_DuringRetryWait(t *testing.T) {
 
 	assertProjectionEquivalence(t, s, iid)
 }
+
+// TestCancel_DurableIntentSurvivesRestart verifies that cancellation reason and
+// compensation intent survive process restart (RC-2).
+func TestCancel_DurableIntentSurvivesRestart(t *testing.T) {
+	undoHandler := &stepHandler{id: "undo-s1", outputs: map[string]any{"undone": true}}
+	h1 := &stepHandler{id: "h1", outputs: map[string]any{"ok": true}}
+	h2 := &stepHandler{id: "h2", outputs: map[string]any{"ok": true}}
+
+	def := core.WorkflowDefinition{
+		SchemaVersion: 1, ID: "t.c-restart", Version: "1.0.0", Namespace: "t", Name: "c-restart",
+		Triggers: []core.Trigger{{Type: core.TriggerTypeManual, Config: map[string]any{}}},
+		Steps: []core.Step{
+			nativeStep("s1", "h1"),
+			nativeStep("s2", "h2"),
+		},
+		Transitions: []core.Transition{{From: "s1", To: "s2"}},
+		Compensation: &core.CompensationPlan{Steps: []core.CompensationStep{
+			{StepID: "s1", UndoHandler: "undo-s1"},
+			{StepID: "s2", UndoHandler: "undo-s2"},
+		}},
+		InitialStep: "s1", FinalSteps: []string{"s2"}, Metadata: map[string]any{},
+	}
+
+	clk := newManualClock(engineStart)
+	e1, s := newNativeEngine(t, def, 1, clk.now, h1, h2, undoHandler)
+	ctx := context.Background()
+
+	iid, err := e1.Submit(ctx, "t.c-restart", "1.0.0", nil)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	// Tick 1: s1 completes.
+	if err := e1.Tick(ctx); err != nil {
+		t.Fatalf("Tick 1: %v", err)
+	}
+
+	// Request cancellation with compensation and reason.
+	cancelReason := "critical-security-stop"
+	if err := e1.Cancel(ctx, iid, cancelReason, true); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+
+	// Simulate restart: construct fresh e2 over the same storage.
+	// e2 starts with an empty in-memory e.cancels map.
+	nr2 := native.New()
+	nr2.Register(h1)
+	nr2.Register(h2)
+	nr2.Register(undoHandler)
+	e2 := New(s, map[core.StepType]Runner{core.StepTypeNative: nr2},
+		Config{MaxParallelSteps: 1, Clock: clk.now}, discardLogger())
+
+	// Tick e2 to finalize cancellation.
+	if err := e2.Tick(ctx); err != nil {
+		t.Fatalf("e2.Tick: %v", err)
+	}
+
+	inst, err := s.GetInstance(ctx, iid)
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
+	if inst.Status != core.InstanceStatusCompensated {
+		t.Fatalf("status = %q, want compensated (compensation must run after restart)", inst.Status)
+	}
+	if got := atomic.LoadInt32(&undoHandler.calls); got != 1 {
+		t.Fatalf("undoCalls = %d, want 1 (compensation handler must run after restart)", got)
+	}
+}
+
+func TestCancel_DurableReasonSurvivesRestart(t *testing.T) {
+	h1 := &stepHandler{id: "h1", outputs: map[string]any{"ok": true}}
+	def := core.WorkflowDefinition{
+		SchemaVersion: 1, ID: "t.c-reason-restart", Version: "1.0.0", Namespace: "t", Name: "c-reason-restart",
+		Triggers: []core.Trigger{{Type: core.TriggerTypeManual, Config: map[string]any{}}},
+		Steps: []core.Step{
+			nativeStep("s1", "h1"),
+		},
+		InitialStep: "s1", FinalSteps: []string{"s1"}, Metadata: map[string]any{},
+	}
+
+	clk := newManualClock(engineStart)
+	e1, s := newNativeEngine(t, def, 1, clk.now, h1)
+	ctx := context.Background()
+
+	iid, err := e1.Submit(ctx, "t.c-reason-restart", "1.0.0", nil)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	cancelReason := "critical-security-shutdown-reason"
+	if err := e1.Cancel(ctx, iid, cancelReason, false); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+
+	// Simulate restart
+	nr2 := native.New()
+	nr2.Register(h1)
+	e2 := New(s, map[core.StepType]Runner{core.StepTypeNative: nr2},
+		Config{MaxParallelSteps: 1, Clock: clk.now}, discardLogger())
+
+	if err := e2.Tick(ctx); err != nil {
+		t.Fatalf("e2.Tick: %v", err)
+	}
+
+	inst, err := s.GetInstance(ctx, iid)
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
+	if inst.Status != core.InstanceStatusCancelled {
+		t.Fatalf("status = %q, want cancelled", inst.Status)
+	}
+
+	evs, err := s.ReadEvents(ctx, iid, 0)
+	if err != nil {
+		t.Fatalf("ReadEvents: %v", err)
+	}
+	foundCancelled := false
+	for _, ev := range evs {
+		if ev.EventType == core.EventTypeWorkflowCancelled {
+			foundCancelled = true
+			var p workflowCancelledPayload
+			decodePayload(t, ev, &p)
+			if p.Reason != cancelReason {
+				t.Fatalf("WorkflowCancelled reason = %q, want %q", p.Reason, cancelReason)
+			}
+		}
+	}
+	if !foundCancelled {
+		t.Fatalf("WorkflowCancelled event not found in event log")
+	}
+}

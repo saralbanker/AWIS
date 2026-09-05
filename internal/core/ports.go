@@ -204,6 +204,9 @@ type InstanceFilter struct {
 	Namespace string
 	// Status restricts results to the given lifecycle status. Empty = no predicate.
 	Status InstanceStatus
+	// DefinitionID restricts results to instances of the given workflow
+	// definition id. Empty = no predicate. Additive (GUI Beta, BE-1).
+	DefinitionID string
 }
 
 // HistoryQuery selects execution history for RecallAPI.QueryHistory

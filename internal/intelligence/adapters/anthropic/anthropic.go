@@ -30,10 +30,13 @@ import (
 // Model IDs pinned at M16. These are config-overridable post-V1; changing the
 // const block is the only required edit (IMP §27.M16 note).
 const (
-	// modelFast maps to the "fast" model_hint (claude-haiku class).
-	modelFast = "claude-haiku-4-5"
-	// modelQuality maps to the "quality" model_hint (claude-sonnet class).
-	modelQuality = "claude-sonnet-5"
+	// defaultModelFast maps to the "fast" model_hint (claude-haiku class).
+	defaultModelFast = "claude-haiku-4-5-20251001"
+	// defaultModelQuality maps to the "quality" model_hint (claude-sonnet class).
+	defaultModelQuality = "claude-sonnet-5"
+
+	modelFast    = defaultModelFast
+	modelQuality = defaultModelQuality
 )
 
 const (
@@ -77,6 +80,10 @@ type Config struct {
 	// MaxAttempts is the maximum number of attempts for retryable errors.
 	// Defaults to 3 when 0.
 	MaxAttempts int
+	// ModelFast is the model identifier for fast tasks. Defaults to claude-haiku-4-5-20251001.
+	ModelFast string
+	// ModelQuality is the model identifier for quality tasks. Defaults to claude-sonnet-5.
+	ModelQuality string
 }
 
 // Adapter is the Anthropic IntelligencePort implementation.
@@ -98,6 +105,12 @@ func New(cfg Config) *Adapter {
 	maxAttempts := cfg.MaxAttempts
 	if maxAttempts <= 0 {
 		maxAttempts = 3
+	}
+	if cfg.ModelFast == "" {
+		cfg.ModelFast = defaultModelFast
+	}
+	if cfg.ModelQuality == "" {
+		cfg.ModelQuality = defaultModelQuality
 	}
 	return &Adapter{
 		cfg:    cfg,
@@ -129,7 +142,7 @@ func (a *Adapter) ProviderName() string { return providerName }
 // model and returns a DraftResponse containing structured output plus usage.
 func (a *Adapter) Draft(ctx context.Context, req core.DraftRequest) (core.DraftResponse, error) {
 	prompt := buildDraftPrompt(req)
-	text, usage, err := a.complete(ctx, modelQuality, prompt, maxTokensDefault)
+	text, usage, err := a.complete(ctx, a.cfg.ModelQuality, prompt, maxTokensDefault)
 	if err != nil {
 		return core.DraftResponse{}, err
 	}
@@ -151,7 +164,7 @@ func (a *Adapter) Synthesize(ctx context.Context, req core.SynthesisRequest) (co
 	if maxTok <= 0 {
 		maxTok = maxTokensDefault
 	}
-	text, usage, err := a.complete(ctx, modelQuality, prompt, maxTok)
+	text, usage, err := a.complete(ctx, a.cfg.ModelQuality, prompt, maxTok)
 	if err != nil {
 		return core.SynthesisResponse{}, err
 	}
@@ -165,7 +178,7 @@ func (a *Adapter) Classify(ctx context.Context, text string, categories []string
 		return core.Classification{}, errors.New("anthropic: classify requires at least one category")
 	}
 	prompt := buildClassifyPrompt(text, categories)
-	out, usage, err := a.complete(ctx, modelFast, prompt, 256)
+	out, usage, err := a.complete(ctx, a.cfg.ModelFast, prompt, 256)
 	if err != nil {
 		return core.Classification{}, err
 	}

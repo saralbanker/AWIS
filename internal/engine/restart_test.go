@@ -94,3 +94,138 @@ func TestRestart_DurableVersionSurvivesProcessRestart(t *testing.T) {
 
 	assertProjectionEquivalence(t, s, iid)
 }
+
+// TestRestart_InFlightStepCrashRecovery_WithRetry verifies that an in-flight step
+// that was running when a process crashed is recovered upon restart and retried (RC-1).
+func TestRestart_InFlightStepCrashRecovery_WithRetry(t *testing.T) {
+	retryPolicy := &core.RetryPolicy{
+		Attempts: 2,
+		Backoff:  "immediate",
+	}
+	stepDef := nativeStep("a", "ha")
+	stepDef.Retry = retryPolicy
+
+	def := core.WorkflowDefinition{
+		SchemaVersion: 1, ID: "t.rc1-retry", Version: "1.0.0", Namespace: "t", Name: "rc1-retry",
+		Triggers: []core.Trigger{{Type: core.TriggerTypeManual, Config: map[string]any{}}},
+		Steps: []core.Step{
+			stepDef,
+		},
+		InitialStep: "a", FinalSteps: []string{"a"}, Metadata: map[string]any{},
+	}
+
+	startedCh := make(chan struct{})
+	blockCh := make(chan struct{})
+	defer close(blockCh)
+
+	ha1 := &invocBlockingHandler{id: "ha", startedCh: startedCh, blockCh: blockCh}
+	e1, s := newNativeEngine(t, def, 1, newManualClock(engineStart).now, ha1)
+	ctx := context.Background()
+	iid, err := e1.Submit(ctx, "t.rc1-retry", "1.0.0", nil)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	go func() { _ = e1.Tick(ctx) }()
+
+	select {
+	case <-startedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for step a to start")
+	}
+
+	// At this point, step a is in-flight (claimed, StepStarted emitted).
+	// Simulate process crash: discard e1.
+	// Boot fresh engine e2 over the SAME storage with a handler that succeeds.
+	ha2 := &stepHandler{id: "ha", outputs: map[string]any{"recovered": true}}
+	nr2 := native.New()
+	nr2.Register(ha2)
+	clk2 := newManualClock(engineStart.Add(time.Second))
+	e2 := New(s, map[core.StepType]Runner{core.StepTypeNative: nr2},
+		Config{MaxParallelSteps: 1, Clock: clk2.now}, discardLogger())
+
+	// Tick e2 to recover and re-dispatch.
+	for i := 0; i < 5; i++ {
+		if err := e2.Tick(ctx); err != nil {
+			t.Fatalf("e2.Tick(%d): %v", i, err)
+		}
+	}
+
+	instAfter, err := s.GetInstance(ctx, iid)
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
+	if instAfter.Status != core.InstanceStatusCompleted {
+		t.Fatalf("status = %q, want completed (current_steps=%v)", instAfter.Status, instAfter.CurrentSteps)
+	}
+}
+
+// TestRestart_InFlightStepCrashRecovery_NoRetry verifies that an in-flight step
+// without retry that crashed transitions to terminal failure without hanging (RC-1).
+func TestRestart_InFlightStepCrashRecovery_NoRetry(t *testing.T) {
+	def := core.WorkflowDefinition{
+		SchemaVersion: 1, ID: "t.rc1-noretry", Version: "1.0.0", Namespace: "t", Name: "rc1-noretry",
+		Triggers: []core.Trigger{{Type: core.TriggerTypeManual, Config: map[string]any{}}},
+		Steps: []core.Step{
+			nativeStep("a", "ha"),
+		},
+		InitialStep: "a", FinalSteps: []string{"a"}, Metadata: map[string]any{},
+	}
+
+	startedCh := make(chan struct{})
+	blockCh := make(chan struct{})
+	defer close(blockCh)
+
+	ha1 := &invocBlockingHandler{id: "ha", startedCh: startedCh, blockCh: blockCh}
+	e1, s := newNativeEngine(t, def, 1, newManualClock(engineStart).now, ha1)
+	ctx := context.Background()
+	iid, err := e1.Submit(ctx, "t.rc1-noretry", "1.0.0", nil)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	go func() { _ = e1.Tick(ctx) }()
+
+	select {
+	case <-startedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for step a to start")
+	}
+
+	// Simulate crash and restart
+	ha2 := &stepHandler{id: "ha", outputs: map[string]any{"recovered": true}}
+	nr2 := native.New()
+	nr2.Register(ha2)
+	clk2 := newManualClock(engineStart.Add(time.Second))
+	e2 := New(s, map[core.StepType]Runner{core.StepTypeNative: nr2},
+		Config{MaxParallelSteps: 1, Clock: clk2.now}, discardLogger())
+
+	// Tick e2
+	if err := e2.Tick(ctx); err != nil {
+		t.Fatalf("e2.Tick: %v", err)
+	}
+
+	instAfter, err := s.GetInstance(ctx, iid)
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
+	if instAfter.Status != core.InstanceStatusFailed {
+		t.Fatalf("status = %q, want failed (current_steps=%v)", instAfter.Status, instAfter.CurrentSteps)
+	}
+	if len(instAfter.CurrentSteps) != 0 {
+		t.Fatalf("current_steps not empty after failure: %v", instAfter.CurrentSteps)
+	}
+}
+
+type invocBlockingHandler struct {
+	id        string
+	startedCh chan struct{}
+	blockCh   chan struct{}
+}
+
+func (h *invocBlockingHandler) ID() string { return h.id }
+func (h *invocBlockingHandler) Execute(_ core.StepContext) (core.StepResult, error) {
+	close(h.startedCh)
+	<-h.blockCh
+	return core.StepResult{Outputs: map[string]any{"ok": true}}, nil
+}

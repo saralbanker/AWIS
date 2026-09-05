@@ -23,27 +23,54 @@ import (
 	"github.com/awis/awis/internal/core"
 )
 
+// SetCancellationIntent sets workflow_instances.cancellation_requested=1,
+// cancellation_reason, and cancellation_compensate for instanceID.
+func (s *SQLiteStorage) SetCancellationIntent(ctx context.Context, instanceID core.InstanceID, reason string, compensate bool) error {
+	compInt := 0
+	if compensate {
+		compInt = 1
+	}
+	res, err := s.db.db.ExecContext(ctx,
+		`UPDATE workflow_instances SET cancellation_requested = 1, cancellation_reason = ?, cancellation_compensate = ? WHERE instance_id = ?`,
+		reason, compInt, string(instanceID),
+	)
+	if err != nil {
+		return fmt.Errorf("storage: SetCancellationIntent update: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("storage: SetCancellationIntent rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+	}
+	return nil
+}
+
 // SetCancellationRequested sets workflow_instances.cancellation_requested=1 for
 // instanceID (Finalization B4 step 1). It does NOT touch status or version:
 // cancellation is a request flag consumed by the engine's tick, never a status
 // (CONTRA-6 — claims/flags never a status). Returns ErrInstanceNotFound when no
 // row exists.
 func (s *SQLiteStorage) SetCancellationRequested(ctx context.Context, instanceID core.InstanceID) error {
-	res, err := s.db.db.ExecContext(ctx,
-		`UPDATE workflow_instances SET cancellation_requested = 1 WHERE instance_id = ?`,
+	return s.SetCancellationIntent(ctx, instanceID, "", false)
+}
+
+// CancellationIntent reads the cancellation requested flag, reason, and compensation intent.
+func (s *SQLiteStorage) CancellationIntent(ctx context.Context, instanceID core.InstanceID) (reason string, compensate bool, requested bool, err error) {
+	var flag, comp int
+	var r sql.NullString
+	err = s.db.db.QueryRowContext(ctx,
+		`SELECT cancellation_requested, cancellation_reason, cancellation_compensate FROM workflow_instances WHERE instance_id = ?`,
 		string(instanceID),
-	)
+	).Scan(&flag, &r, &comp)
 	if err != nil {
-		return fmt.Errorf("storage: SetCancellationRequested update: %w", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", false, false, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+		}
+		return "", false, false, fmt.Errorf("storage: CancellationIntent query: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("storage: SetCancellationRequested rows affected: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
-	}
-	return nil
+	return r.String, comp != 0, flag != 0, nil
 }
 
 // CancellationRequested reports whether cancellation has been requested for

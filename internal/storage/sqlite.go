@@ -56,6 +56,10 @@ var (
 	// ErrInstanceNotFound is returned by GetInstance when no row exists for the
 	// given instance_id (M03).
 	ErrInstanceNotFound = errors.New("storage: instance not found")
+
+	// ErrWorkflowNotFound is returned by GetWorkflow when no row exists for the
+	// given (id, version) pair (E-G1-3).
+	ErrWorkflowNotFound = errors.New("storage: workflow not found")
 )
 
 // SQLiteStorage is the SQLite-backed implementation of core.StoragePort.
@@ -72,6 +76,14 @@ func NewSQLiteStorage(db *DB, clock func() time.Time) *SQLiteStorage {
 		clock = time.Now
 	}
 	return &SQLiteStorage{db: db, now: clock}
+}
+
+// Ping verifies the underlying database connection is live (SEC-12). It is
+// additive — not part of the frozen 12-method StoragePort — so callers that
+// need a liveness check (internal/api's healthz handler) type-assert for it,
+// the same pattern used for cancellationStore and the other additive slices.
+func (s *SQLiteStorage) Ping(ctx context.Context) error {
+	return s.db.db.PingContext(ctx)
 }
 
 // ── EventLog ──────────────────────────────────────────────────────────────────
@@ -171,6 +183,49 @@ func (s *SQLiteStorage) ReadEvents(ctx context.Context, instanceID core.Instance
 	)
 	if err != nil {
 		return nil, fmt.Errorf("storage: ReadEvents query: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	return scanEvents(rows)
+}
+
+// Pagination bounds for ReadEventsPaged (E-G4-6). DefaultEventsPageSize
+// applies when a caller passes limit <= 0; MaxEventsPageSize is a hard
+// ceiling, mirroring ListInstancesPaged's B-17 pattern so a caller can never
+// force an unbounded scan through this method either. Exported (unlike
+// ListInstancesPaged's equivalents) because internal/api needs to know the
+// applied default to detect a full page — see ReadEventsPaged's doc comment.
+const (
+	DefaultEventsPageSize = 100
+	MaxEventsPageSize     = 1000
+)
+
+// ReadEventsPaged returns at most limit events for instanceID with
+// sequence_num >= fromSeq, ordered by sequence_num ascending — the same
+// predicate and ordering as ReadEvents, with a bound added. limit <= 0 is
+// normalised to DefaultEventsPageSize; limit above MaxEventsPageSize is
+// clamped down to it. This is purely additive: it does not change
+// ReadEvents, which remains part of the frozen 12-method StoragePort and
+// stays unbounded.
+func (s *SQLiteStorage) ReadEventsPaged(ctx context.Context, instanceID core.InstanceID, fromSeq, limit int) ([]core.ExecutionEvent, error) {
+	if limit <= 0 {
+		limit = DefaultEventsPageSize
+	}
+	if limit > MaxEventsPageSize {
+		limit = MaxEventsPageSize
+	}
+
+	rows, err := s.db.db.QueryContext(ctx, `
+		SELECT event_id, instance_id, namespace, event_type, step_id, payload,
+		       emitted_at, sequence_num, schema_version
+		FROM execution_events
+		WHERE instance_id = ? AND sequence_num >= ?
+		ORDER BY sequence_num
+		LIMIT ?`,
+		string(instanceID), fromSeq, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("storage: ReadEventsPaged query: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -293,7 +348,7 @@ func (s *SQLiteStorage) GetWorkflow(ctx context.Context, id string, version core
 	).Scan(&data)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return core.WorkflowDefinition{}, fmt.Errorf("storage: GetWorkflow %q %q: not found", id, version)
+			return core.WorkflowDefinition{}, fmt.Errorf("%w: id=%s version=%s", ErrWorkflowNotFound, id, version)
 		}
 		return core.WorkflowDefinition{}, fmt.Errorf("storage: GetWorkflow query: %w", err)
 	}
@@ -733,7 +788,7 @@ const (
 // result set returns an empty (not error) slice, matching normal SQL
 // LIMIT/OFFSET semantics.
 //
-// Ordering is "ORDER BY started_at, instance_id": started_at alone is not a
+// Ordering is "ORDER BY started_at DESC, instance_id DESC": started_at alone is not a
 // unique key (multiple instances can share the same started_at value,
 // especially with a coarse or injected clock), so a tiebreak on the unique
 // instance_id is required for pagination to be stable — without it, a row
@@ -762,7 +817,7 @@ func (s *SQLiteStorage) ListInstancesPaged(ctx context.Context, filter core.Inst
 		       current_steps, variables, started_at, updated_at, completed_at
 		FROM workflow_instances
 		` + where + `
-		ORDER BY started_at, instance_id
+		ORDER BY started_at DESC, instance_id DESC
 		LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
 
@@ -923,6 +978,10 @@ func instanceFilterPredicate(filter core.InstanceFilter) (string, []any) {
 	if filter.Status != "" {
 		where += " AND status = ?"
 		args = append(args, string(filter.Status))
+	}
+	if filter.DefinitionID != "" {
+		where += " AND definition_id = ?"
+		args = append(args, filter.DefinitionID)
 	}
 	return where, args
 }

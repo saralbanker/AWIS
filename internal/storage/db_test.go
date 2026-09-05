@@ -28,8 +28,8 @@ func TestOpenAppliesMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("currentVersion: %v", err)
 	}
-	if v != 6 {
-		t.Fatalf("want schema_version 6, got %d", v)
+	if v != 7 {
+		t.Fatalf("want schema_version 7, got %d", v)
 	}
 }
 
@@ -61,8 +61,8 @@ func TestOpenIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("currentVersion after reopen: %v", err)
 	}
-	if v != 6 {
-		t.Fatalf("want schema_version 6 after reopen, got %d", v)
+	if v != 7 {
+		t.Fatalf("want schema_version 7 after reopen, got %d", v)
 	}
 }
 
@@ -118,8 +118,8 @@ func TestNMinus1Fixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("currentVersion after migration: %v", err)
 	}
-	if v1 != 6 {
-		t.Fatalf("want head version 6 after migration, got %d", v1)
+	if v1 != 7 {
+		t.Fatalf("want head version 7 after migration, got %d", v1)
 	}
 }
 
@@ -199,10 +199,10 @@ func TestNMinus1Fixture0002(t *testing.T) {
 		t.Fatalf("currentVersion after migration: %v", err)
 	}
 	// Open applies every pending migration, so a version-1 fixture advances to
-	// the current head (6) — not merely to 2. This test still proves 0002
+	// the current head (7) — not merely to 2. This test still proves 0002
 	// created domain_events (below); the head just moves with later migrations.
-	if v2 != 6 {
-		t.Fatalf("want head version 6 after migration, got %d", v2)
+	if v2 != 7 {
+		t.Fatalf("want head version 7 after migration, got %d", v2)
 	}
 	if err := db.db.QueryRow(
 		`SELECT name FROM sqlite_master WHERE type='table' AND name='domain_events'`,
