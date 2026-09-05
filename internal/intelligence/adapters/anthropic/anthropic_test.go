@@ -81,14 +81,27 @@ func TestAnthropicContract(t *testing.T) {
 }
 
 // TestModelConstants pins modelQuality/modelFast to their expected strings so a
-// silent drift (e.g. a stale "-4-5" suffix left behind by a model-tier bump)
-// fails loudly instead of shipping unnoticed.
+// silent drift (e.g. a stale fictional model suffix) fails loudly instead of shipping unnoticed.
 func TestModelConstants(t *testing.T) {
 	if modelQuality != "claude-sonnet-5" {
 		t.Errorf("modelQuality = %q, want %q", modelQuality, "claude-sonnet-5")
 	}
-	if modelFast != "claude-haiku-4-5" {
-		t.Errorf("modelFast = %q, want %q", modelFast, "claude-haiku-4-5")
+	if modelFast != "claude-haiku-4-5-20251001" {
+		t.Errorf("modelFast = %q, want %q", modelFast, "claude-haiku-4-5-20251001")
+	}
+}
+
+func TestConfigurableModels(t *testing.T) {
+	a := New(Config{
+		APIKey:       "sk-ant-test",
+		ModelFast:    "custom-fast-model",
+		ModelQuality: "custom-quality-model",
+	})
+	if a.cfg.ModelFast != "custom-fast-model" {
+		t.Errorf("ModelFast = %q, want custom-fast-model", a.cfg.ModelFast)
+	}
+	if a.cfg.ModelQuality != "custom-quality-model" {
+		t.Errorf("ModelQuality = %q, want custom-quality-model", a.cfg.ModelQuality)
 	}
 }
 
@@ -234,7 +247,7 @@ func TestClassify_ReturnsCategory(t *testing.T) {
 			"type": "message",
 			"role": "assistant",
 			"content": [{"type": "text", "text": "positive"}],
-			"model": "claude-haiku-4-5",
+			"model": "claude-haiku-4-5-20251001",
 			"stop_reason": "end_turn",
 			"usage": {"input_tokens": 15, "output_tokens": 1}
 		}`))

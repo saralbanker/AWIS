@@ -87,3 +87,24 @@ func TestCancellationRequested_NotFound(t *testing.T) {
 		t.Fatalf("err = %v, want ErrInstanceNotFound", err)
 	}
 }
+
+func TestSetCancellationIntent_Durability(t *testing.T) {
+	s, iid := seedInstance(t, core.InstanceStatusRunning)
+	reason := "user requested cancel with compensation"
+	if err := s.SetCancellationIntent(context.Background(), iid, reason, true); err != nil {
+		t.Fatalf("SetCancellationIntent: %v", err)
+	}
+	r, comp, req, err := s.CancellationIntent(context.Background(), iid)
+	if err != nil {
+		t.Fatalf("CancellationIntent: %v", err)
+	}
+	if !req {
+		t.Fatalf("requested = false, want true")
+	}
+	if r != reason {
+		t.Fatalf("reason = %q, want %q", r, reason)
+	}
+	if !comp {
+		t.Fatalf("compensate = false, want true")
+	}
+}

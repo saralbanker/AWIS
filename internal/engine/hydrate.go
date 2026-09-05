@@ -58,16 +58,29 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 	}
 	last := make(map[string]lastFailure)
 	relevant := make(map[string]core.EventType)
+	startedAttempts := make(map[string]int)
 	var fallbackTargets []string
 
 	for _, ev := range evs {
 		switch ev.EventType {
-		case core.EventTypeStepStarted, core.EventTypeStepCompleted:
+		case core.EventTypeStepStarted:
 			if ev.StepID == "" {
 				continue
 			}
 			relevant[ev.StepID] = ev.EventType
 			delete(last, ev.StepID)
+			var p stepStartedPayload
+			if err := json.Unmarshal(ev.Payload, &p); err == nil {
+				startedAttempts[ev.StepID] = p.Attempt
+			}
+
+		case core.EventTypeStepCompleted:
+			if ev.StepID == "" {
+				continue
+			}
+			relevant[ev.StepID] = ev.EventType
+			delete(last, ev.StepID)
+			delete(startedAttempts, ev.StepID)
 
 		case core.EventTypeStepFailed:
 			if ev.StepID == "" {
@@ -79,6 +92,7 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 			}
 			relevant[ev.StepID] = ev.EventType
 			last[ev.StepID] = lastFailure{retrying: p.Retrying, attempt: p.Attempt, emittedAt: ev.EmittedAt}
+			delete(startedAttempts, ev.StepID)
 
 		case core.EventTypeStepFallbackActivated:
 			var p stepFallbackActivatedPayload
@@ -157,8 +171,8 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 	}
 
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	if e.hydrated[inst.InstanceID] {
+		e.mu.Unlock()
 		return nil // a concurrent hydrate for this instance already ran.
 	}
 	for stepID, re := range retries {
@@ -181,5 +195,38 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 		}
 	}
 	e.hydrated[inst.InstanceID] = true
+	e.mu.Unlock()
+
+	// In-flight crash recovery (RC-1): any step in current_steps whose latest
+	// event is StepStarted was running in a previous worker process that crashed
+	// or was killed before settling. Settle it with worker_crash so it can either
+	// retry under its retry policy or route terminally.
+	for _, stepID := range inst.CurrentSteps {
+		if relevant[stepID] == core.EventTypeStepStarted {
+			step, ok := dv.steps[stepID]
+			if !ok {
+				continue
+			}
+			attempt := startedAttempts[stepID]
+			if attempt <= 0 {
+				attempt = 1
+			}
+			serr := core.StepError{
+				Code:    "worker_crash",
+				Message: "worker process crashed while step was in-flight",
+			}
+			terminal, err := e.settleFailure(ctx, dv, inst, step, attempt, serr)
+			if err != nil {
+				return fmt.Errorf("engine: hydrate recover crashed step %s: %w", stepID, err)
+			}
+			if terminal {
+				return nil
+			}
+			if cur, found, err := e.getInstance(ctx, inst.InstanceID); err == nil && found {
+				inst = cur
+			}
+		}
+	}
+
 	return nil
 }

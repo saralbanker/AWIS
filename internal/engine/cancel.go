@@ -25,6 +25,8 @@ import (
 type cancellationStore interface {
 	SetCancellationRequested(ctx context.Context, instanceID core.InstanceID) error
 	CancellationRequested(ctx context.Context, instanceID core.InstanceID) (bool, error)
+	SetCancellationIntent(ctx context.Context, instanceID core.InstanceID, reason string, compensate bool) error
+	CancellationIntent(ctx context.Context, instanceID core.InstanceID) (reason string, compensate bool, requested bool, err error)
 }
 
 // waitDeleteByInstanceStore is the additive storage slice for bulk wait_record
@@ -111,12 +113,18 @@ func (e *Engine) Cancel(ctx context.Context, instanceID core.InstanceID, reason 
 
 	// Running (or any non-terminal, non-pending, non-waiting status): flag it
 	// and remember the mode; the tick finalizes once in-flight work settles.
-	store, ok := e.storage.(cancellationStore)
-	if !ok {
+	if cis, ok := e.storage.(interface {
+		SetCancellationIntent(ctx context.Context, instanceID core.InstanceID, reason string, compensate bool) error
+	}); ok {
+		if err := cis.SetCancellationIntent(ctx, instanceID, reason, compensate); err != nil {
+			return fmt.Errorf("engine: Cancel: set intent: %w", err)
+		}
+	} else if store, ok := e.storage.(cancellationStore); ok {
+		if err := store.SetCancellationRequested(ctx, instanceID); err != nil {
+			return fmt.Errorf("engine: Cancel: set flag: %w", err)
+		}
+	} else {
 		return fmt.Errorf("engine: Cancel: storage does not support the cancellation flag")
-	}
-	if err := store.SetCancellationRequested(ctx, instanceID); err != nil {
-		return fmt.Errorf("engine: Cancel: set flag: %w", err)
 	}
 	// B4.6: delete wait_records alongside the cancellation flag write so the
 	// timeout scan cannot fire on a wait_record after cancellation is requested.
@@ -203,9 +211,19 @@ func (e *Engine) handleCancellation(ctx context.Context, dv *defView, inst core.
 // compensation machinery WITHOUT a prior WorkflowFailed (B4 step 4).
 func (e *Engine) finalizeCancellation(ctx context.Context, dv *defView, inst core.WorkflowInstance) error {
 	e.mu.Lock()
-	intent := e.cancels[inst.InstanceID]
+	intent, hasIntent := e.cancels[inst.InstanceID]
 	delete(e.cancels, inst.InstanceID)
 	e.mu.Unlock()
+
+	if !hasIntent {
+		if cis, ok := e.storage.(interface {
+			CancellationIntent(ctx context.Context, instanceID core.InstanceID) (string, bool, bool, error)
+		}); ok {
+			if r, comp, req, err := cis.CancellationIntent(ctx, inst.InstanceID); err == nil && req {
+				intent = cancelIntent{reason: r, compensate: comp}
+			}
+		}
+	}
 
 	if intent.compensate && dv.def.Compensation != nil && len(completedSet(inst)) > 0 {
 		// --compensate ⇒ compensating → compensated (from_step empty: no failure).

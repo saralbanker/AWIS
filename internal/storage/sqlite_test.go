@@ -13,6 +13,9 @@ package storage
 //   TestReadEventsRejectsRowAboveSchemaVersionCeiling   — B-22 read side (ReadEvents)
 //   TestReadEventRangeRejectsRowAboveSchemaVersionCeiling — B-22 read side (ReadEventRange)
 //   TestSchemaVersionZeroAndOneStillWork                — B-22 regression guard
+//   TestGetWorkflowNotFound                             — E-G1-3 typed sentinel
+//   TestReadEventsPaged                                 — E-G4-6 pagination
+//   TestReadEventsPagedLimitClamping                    — E-G4-6 limit bounds
 //
 // These are internal (package storage) tests so they can reach the
 // unexported db handle (for direct-SQL fixtures that bypass AppendEvent /
@@ -84,6 +87,21 @@ func TestListWorkflowsEmptyNamespaceMeansAllNamespaces(t *testing.T) {
 	}
 }
 
+// ── E-G1-3: GetWorkflow typed sentinel ──────────────────────────────────────
+
+// TestGetWorkflowNotFound verifies that GetWorkflow returns an error
+// satisfying errors.Is(err, ErrWorkflowNotFound) for a missing (id, version)
+// pair (E-G1-3).
+func TestGetWorkflowNotFound(t *testing.T) {
+	s := newSQLiteTestStore(t)
+	ctx := context.Background()
+
+	_, err := s.GetWorkflow(ctx, "no-such-workflow", core.SemVer("1.0.0"))
+	if !errors.Is(err, ErrWorkflowNotFound) {
+		t.Fatalf("err = %v, want ErrWorkflowNotFound", err)
+	}
+}
+
 // ── B-17: ListInstancesPaged / CountInstances ──────────────────────────────
 
 type pagingSeedRow struct {
@@ -149,13 +167,13 @@ func TestListInstancesPagedCoversAllRowsExactlyOnce(t *testing.T) {
 	}
 	seedInstancesForPaging(t, s, namespace, "running", rows)
 
-	// Expected total order: sort a copy by (startedAt, id) ascending.
+	// Expected total order: sort a copy by (startedAt, id) descending.
 	expected := append([]pagingSeedRow(nil), rows...)
 	sort.Slice(expected, func(i, j int) bool {
 		if expected[i].startedAt != expected[j].startedAt {
-			return expected[i].startedAt < expected[j].startedAt
+			return expected[i].startedAt > expected[j].startedAt
 		}
-		return expected[i].id < expected[j].id
+		return expected[i].id > expected[j].id
 	})
 
 	filter := core.InstanceFilter{Namespace: namespace}
@@ -514,5 +532,114 @@ func TestPageSizeBoundsAreThePinnedValues(t *testing.T) {
 	if maxInstancesPageSize != 1000 {
 		t.Errorf("maxInstancesPageSize = %d, want 1000; update sdk's storageMaxPageSize too",
 			maxInstancesPageSize)
+	}
+}
+
+// ── E-G4-6: ReadEventsPaged ──────────────────────────────────────────────
+
+// TestReadEventsPaged verifies ReadEventsPaged returns events in
+// sequence_num order, bounded by limit, with no gap or duplicate across a
+// cursor-driven walk of the full set — the pagination guarantee the API
+// layer's next_cursor logic (internal/api/events.go) depends on.
+func TestReadEventsPaged(t *testing.T) {
+	s := newSQLiteTestStore(t)
+	ctx := context.Background()
+	const instanceID = core.InstanceID("inst-events-paged")
+
+	const total = 5
+	for i := 1; i <= total; i++ {
+		ev := core.ExecutionEvent{
+			EventID:       fmt.Sprintf("evt-paged-%d", i),
+			InstanceID:    instanceID,
+			Namespace:     "ns-paged",
+			EventType:     core.EventTypeStepCompleted,
+			Payload:       []byte(`{}`),
+			EmittedAt:     time.Unix(int64(1000+i), 0).UTC(),
+			SequenceNum:   i,
+			SchemaVersion: 1,
+		}
+		if err := s.AppendEvent(ctx, ev); err != nil {
+			t.Fatalf("AppendEvent %d: %v", i, err)
+		}
+	}
+
+	// Walk the full set two at a time and confirm no gap/duplicate.
+	var walked []int
+	fromSeq := 0
+	for {
+		page, err := s.ReadEventsPaged(ctx, instanceID, fromSeq, 2)
+		if err != nil {
+			t.Fatalf("ReadEventsPaged from=%d: %v", fromSeq, err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		if len(page) > 2 {
+			t.Fatalf("page len = %d, want <= 2 (limit)", len(page))
+		}
+		for _, ev := range page {
+			walked = append(walked, ev.SequenceNum)
+		}
+		fromSeq = page[len(page)-1].SequenceNum + 1
+		if len(page) < 2 {
+			break // short page: exhausted
+		}
+	}
+	if len(walked) != total {
+		t.Fatalf("walked %d events across pages, want %d: %v", len(walked), total, walked)
+	}
+	for i, seq := range walked {
+		if seq != i+1 {
+			t.Fatalf("walked[%d] = %d, want %d (no gap/duplicate)", i, seq, i+1)
+		}
+	}
+}
+
+// TestReadEventsPagedLimitClamping verifies limit<=0 normalises to
+// DefaultEventsPageSize and a limit above MaxEventsPageSize clamps down to
+// it — mirroring ListInstancesPaged's B-17 clamping test for the same
+// guarantee on this method.
+func TestReadEventsPagedLimitClamping(t *testing.T) {
+	s := newSQLiteTestStore(t)
+	ctx := context.Background()
+	const instanceID = core.InstanceID("inst-events-clamp")
+
+	ev := core.ExecutionEvent{
+		EventID:       "evt-clamp-1",
+		InstanceID:    instanceID,
+		Namespace:     "ns-clamp",
+		EventType:     core.EventTypeStepCompleted,
+		Payload:       []byte(`{}`),
+		EmittedAt:     time.Unix(5000, 0).UTC(),
+		SequenceNum:   1,
+		SchemaVersion: 1,
+	}
+	if err := s.AppendEvent(ctx, ev); err != nil {
+		t.Fatalf("AppendEvent: %v", err)
+	}
+
+	// limit <= 0 must not error and must still return the row (proves the
+	// query ran with a real LIMIT clause, not a broken one).
+	got, err := s.ReadEventsPaged(ctx, instanceID, 0, 0)
+	if err != nil {
+		t.Fatalf("ReadEventsPaged limit=0: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("limit=0 (normalised to default): got %d rows, want 1", len(got))
+	}
+
+	got, err = s.ReadEventsPaged(ctx, instanceID, 0, MaxEventsPageSize+500)
+	if err != nil {
+		t.Fatalf("ReadEventsPaged oversized limit: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("oversized limit (clamped): got %d rows, want 1", len(got))
+	}
+
+	if DefaultEventsPageSize != 100 {
+		t.Errorf("DefaultEventsPageSize = %d, want 100", DefaultEventsPageSize)
+	}
+	if MaxEventsPageSize != 1000 {
+		t.Errorf("MaxEventsPageSize = %d, want 1000", MaxEventsPageSize)
 	}
 }

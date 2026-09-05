@@ -59,8 +59,8 @@ func TestMigrationsReapplyIsNoOp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("currentVersion: %v", err)
 	}
-	if v != 6 {
-		t.Fatalf("want head 6 after re-apply, got %d", v)
+	if v != 7 {
+		t.Fatalf("want head 7 after re-apply, got %d", v)
 	}
 }
 

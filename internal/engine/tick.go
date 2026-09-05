@@ -103,6 +103,16 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 		return err
 	}
 
+	// Refresh instance after hydrate in case crash recovery updated status/current_steps.
+	cur, found, err := e.getInstance(ctx, inst.InstanceID)
+	if err != nil {
+		return err
+	}
+	if !found || isTerminalStatus(cur.Status) {
+		return nil
+	}
+	inst = cur
+
 	// ── Cancellation gate (top of tick) — Finalization B4 step 3 ──────────────
 	// If cancellation was requested on a prior tick, NO new step activates and NO
 	// retry re-dispatches; retry-waiting steps are terminally failed and the
@@ -203,7 +213,22 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 	}
 	finals := completedFinalOutputs(dv, inst2)
 	if len(finals) == 0 {
-		return nil // stalled (join stall / no final reached) — author semantics, EDR-011 §1.
+		// SEC-08: no step is running, none is activatable, and no final step has
+		// completed — every path the instance actually took has terminated
+		// without ever reaching final_steps (e.g. an unconditional branch led to
+		// a step with no outgoing transition, while the sibling branch that DID
+		// reach a final step never fired). activatableFor is a stateless
+		// function of persisted completed-step state (EDR-011 §1), so this is a
+		// permanent fixed point, not a transient join-wait: a step awaiting a
+		// signal keeps the instance in status "waiting" (excluded from this
+		// running-instance scan), and a step with a pending retry stays in
+		// CurrentSteps (project() only removes it on a non-retrying StepFailed),
+		// so neither can reach this branch. Route to WorkflowFailed instead of
+		// leaving the instance wedged in "running" forever.
+		return e.emitWorkflowFailed(ctx, inst2, "", core.StepError{
+			Code:    "stalled",
+			Message: "workflow reached a dead end: no final step was completed and no further step is activatable",
+		})
 	}
 	return e.emitWorkflowCompleted(ctx, inst2, finals)
 }
