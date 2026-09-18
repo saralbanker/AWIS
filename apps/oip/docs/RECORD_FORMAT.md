@@ -1,4 +1,7 @@
 **DRAFT — PENDING FOUNDER SIGN-OFF (Gate G3 / TDS-06); the Record format is OIP's irreversible artifact.**
+**Corrected 2026-09-18: three specification defects resolved (superseded made a derived
+state, `distinguishes` keys/values requirement clarified, ID allocation concurrency rule
+added). Still PENDING FOUNDER SIGN-OFF.**
 
 # OIP Record Format — TDS-06
 
@@ -19,7 +22,7 @@ was held (Articles 5, 7, 9, 10, 11, 13 of the OIP Constitution).
 | `id` | string | yes | Entry identifier — ID scheme D-YYYY-MM-DD-NNN (see below) |
 | `date` | string (ISO 8601) | yes | Date the entry was created (YYYY-MM-DD) |
 | `title` | string | yes | Short human-readable title of the decision |
-| `status` | enum: `decided` \| `superseded` | yes | Lifecycle state of this entry |
+| `status` | enum: `decided` | yes | Lifecycle state of this entry as stored on disk. `superseded` is never a stored value — see "Derived state" below. |
 | `tags` | array of strings | no | Organizational classification tags |
 | `corrects` | string or null | no | ID of a prior entry this entry corrects (Art. 7/8) |
 | `provenance` | object | yes | Attribution block — see sub-fields below |
@@ -28,9 +31,9 @@ was held (Articles 5, 7, 9, 10, 11, 13 of the OIP Constitution).
 | `provenance.sources` | array of strings | no | Source references (commit SHAs, URLs, step IDs) |
 | `provenance.confidence` | string | yes | Epistemic confidence level (e.g., `high`, `medium`, `low`) |
 | `distinguishes` | object | yes | Honesty register (Art. 10) — see sub-fields below |
-| `distinguishes.observation` | string or null | no | What was actually observed (evidence of what happened) |
-| `distinguishes.description` | string or null | no | What someone said or described |
-| `distinguishes.intention` | string or null | no | What someone intended or wanted to happen |
+| `distinguishes.observation` | string or null | yes | What was actually observed (evidence of what happened) |
+| `distinguishes.description` | string or null | yes | What someone said or described |
+| `distinguishes.intention` | string or null | yes | What someone intended or wanted to happen |
 
 ### Body Sections (Markdown)
 
@@ -70,6 +73,19 @@ D-YYYY-MM-DD-NNN
 
 Files are stored at `.decisions/entries/<id>.md`.
 
+### ID allocation
+
+- The allocator scans `.decisions/entries/` for existing entries bearing the same
+  `YYYY-MM-DD` and selects the next unused counter (max existing `NNN` + 1, or `001`
+  if none exist for that date).
+- Entry files MUST be created atomically and exclusively (`O_CREAT|O_EXCL` semantics,
+  i.e. creation fails if the path already exists). On a collision — another appender
+  claimed the same `NNN` first — the allocator retries with the next counter.
+- Consequently, two concurrent appenders can never overwrite one another; an existing
+  entry file is never replaced.
+- Counter order reflects allocation order only and carries no semantic meaning (it is
+  not a priority, sequence-of-truth, or ranking signal).
+
 ---
 
 ## Append-Only and Corrects Semantics
@@ -95,6 +111,14 @@ status: decided
 
 This signals: "D-2026-07-10-002 is the current truth; D-2026-07-10-001 has been corrected."
 
+### Derived state
+
+An entry is considered SUPERSEDED when another entry's `corrects` field points at its
+`id`. This is computed by the reader/index at read time — it is NEVER written into the
+entry file, and no stored entry is ever rewritten to change its `status`. `status` on
+disk therefore only ever holds `decided`; "superseded" is a label a reader applies after
+walking the `corrects` chain, not a value that appears in any frontmatter block.
+
 ---
 
 ## Provenance (Article 9)
@@ -105,7 +129,7 @@ with what confidence. An unattributed assertion has no standing in the Record.
 ```yaml
 provenance:
   origin: git-context-plugin      # capture mechanism
-  authority: markus@example.com   # human who authorized the append
+  authority: markus@example.com   # human who authorized the append (illustrative placeholder)
   sources:
     - "commit:abc123"
     - "pr:42"
@@ -117,8 +141,10 @@ provenance:
 ## Observation / Description / Intention Block (Article 10)
 
 The `distinguishes` block prevents the Record from laundering one epistemic register
-into another (observation ≠ description ≠ intention). All three fields may be null if
-genuinely absent; they must not be omitted from the frontmatter block.
+into another (observation ≠ description ≠ intention). The three KEYS
+(`observation`, `description`, `intention`) MUST be present in every entry's
+`distinguishes` block; their VALUES MAY be null when genuinely absent. An entry that
+omits any of the three keys is malformed, even if the value it would have held is null.
 
 ```yaml
 distinguishes:
@@ -144,7 +170,7 @@ tags:
 corrects: null
 provenance:
   origin: manual
-  authority: markus@example.com
+  authority: markus@example.com   # illustrative placeholder
   sources:
     - "docs/05-implementation/M15-oip-on-awis/IMPLEMENTATION_SPEC.md"
   confidence: high
