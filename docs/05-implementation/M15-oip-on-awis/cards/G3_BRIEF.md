@@ -9,8 +9,8 @@
 ## What G3 judges
 
 1. **Platform boundary (QG-4):** Did the milestone touch platform code only through the
-   two disclosed seams (P0 + P1)? Zero undisclosed changes to `internal/`, frozen interfaces,
-   or platform go.mod?
+   three disclosed seams (P0 + P1 + P2)? Zero undisclosed changes to `internal/`, frozen
+   interfaces, or platform go.mod?
 2. **TDS-06 sign-off:** Is `apps/oip/docs/RECORD_FORMAT.md` (currently DRAFT — PENDING FOUNDER
    SIGN-OFF) acceptable as the canonical OIP Record format? This is a founder-only decision per
    IMPLEMENTATION_SPEC.md disposition.
@@ -122,3 +122,17 @@ production Record exists).
 ---
 
 ## G3 VERDICT (founder): ______
+
+### G3 Question 1 (platform boundary / QG-4) — PASS, founder ruling 2026-09-18
+
+All three seams disclosed in this brief and in `BOUNDARY_EVIDENCE.md` and `STATE.md` — P0
+(`sdk/dsl.go`), P1 (`sdk/runtime.go`, `sdk/runtime_runner.go`), and P2 (the engine
+fallback-join sentinel in `internal/engine/emit.go` and `internal/storage/rebuild.go`) — were
+properly disclosed. The "two seams" phrasing above ("two disclosed seams (P0 + P1)") was a
+drafting error that omitted P2; it has been corrected to name all three. There are zero
+UNDISCLOSED changes to `internal/`, frozen interfaces, or platform go.mod.
+
+### G3 Question 2 (TDS-06 sign-off) — STILL PENDING founder sign-off
+
+`apps/oip/docs/RECORD_FORMAT.md` remains DRAFT — PENDING FOUNDER SIGN-OFF. This question has
+not been ruled on and is not addressed by this entry.
