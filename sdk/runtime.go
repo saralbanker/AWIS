@@ -40,6 +40,12 @@ type Config struct {
 	Clock func() time.Time
 	// NewID is the injectable instance-id source; nil ⇒ engine default (UUIDv4).
 	NewID func() string
+	// PluginUser optionally configures dedicated-UID plugin isolation (D-11,
+	// PRD §32 rows 38/53, founder ruling DEC-9). Accepts a username or a
+	// numeric uid[:gid] — see internal/plugin.ResolvePluginUser for the exact
+	// grammar. Empty (the default) preserves pre-D-11 behaviour: plugins
+	// spawn under the engine's own UID, with a one-time warning.
+	PluginUser string
 }
 
 // Runtime wraps the internal engine and exposes the application-facing sdk
@@ -92,6 +98,19 @@ func NewRuntime(cfg Config) (*Runtime, error) {
 	}
 	disp := intel.NewDispatcher(router)
 
+	// Resolve the optional plugins_user setting (D-11) up front: a bad spec
+	// (unknown user, malformed uid:gid) must fail NewRuntime outright rather
+	// than silently falling back to an unisolated spawn.
+	var pluginUID, pluginGID uint32
+	var pluginUIDSet bool
+	if cfg.PluginUser != "" {
+		uid, gid, uerr := plugin.ResolvePluginUser(cfg.PluginUser)
+		if uerr != nil {
+			return nil, fmt.Errorf("awis: NewRuntime: %w", uerr)
+		}
+		pluginUID, pluginGID, pluginUIDSet = uid, gid, true
+	}
+
 	// Wire plugin manager: type-assert PluginStore from storage (additive
 	// interface — SPEC §3; StoragePort 12-method set is NOT changed).
 	// If storage does not implement PluginStore, the plugin runner always
@@ -100,7 +119,10 @@ func NewRuntime(cfg Config) (*Runtime, error) {
 	var pluginRunner engine.Runner
 	if ps, ok := cfg.Storage.(storage.PluginStore); ok {
 		pluginMgr = plugin.NewManager(ps, plugin.ManagerConfig{
-			Clock: cfg.Clock,
+			Clock:        cfg.Clock,
+			PluginUID:    pluginUID,
+			PluginGID:    pluginGID,
+			PluginUIDSet: pluginUIDSet,
 		})
 		pluginRunner = plugin.NewPluginRunner(pluginMgr)
 	} else {

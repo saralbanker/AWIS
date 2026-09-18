@@ -14,6 +14,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -915,4 +916,56 @@ func inDrainStatusQueue(lines []string, i int) bool {
 		}
 	}
 	return false
+}
+
+// TestManager_UnisolatedWarning_FiresOnce verifies the D-11 requirement that,
+// when no plugins_user is configured, spawning a plugin logs a clear warning
+// that isolation is not enforced — and that the warning fires at most once
+// per Manager even across a respawn (idle-kill then a second call), not once
+// per spawn.
+func TestManager_UnisolatedWarning_FiresOnce(t *testing.T) {
+	s := openTestStorage(t)
+	// Very short idle interval so a second spawn is cheap to force (pattern:
+	// TestManager_IdleKillRespawn above).
+	mgr := newTestManager(t, s, 50*time.Millisecond)
+	ctx := context.Background()
+
+	if !mgr.cfg.PluginUIDSet {
+		t.Log("sanity: PluginUIDSet is false, as newTestManager leaves it (unconfigured default)")
+	} else {
+		t.Fatal("sanity check failed: newTestManager unexpectedly set PluginUIDSet")
+	}
+
+	var logBuf strings.Builder
+	prevOut := log.Writer()
+	prevFlags := log.Flags()
+	log.SetOutput(&logBuf)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(prevOut)
+		log.SetFlags(prevFlags)
+	})
+
+	manifestPath := resolveManifestPath(t, "test-plugin.yaml")
+	if err := mgr.Register(ctx, manifestPath); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// First spawn.
+	if _, stepErr := mgr.Call(ctx, "test.cap", "step-1", map[string]any{"value": "a"}, ""); stepErr != nil {
+		t.Fatalf("first Call: %v", stepErr)
+	}
+
+	// Force idle-kill, then a second spawn (transparent respawn).
+	time.Sleep(200 * time.Millisecond)
+	if _, stepErr := mgr.Call(ctx, "test.cap", "step-2", map[string]any{"value": "b"}, ""); stepErr != nil {
+		t.Fatalf("second Call (after idle respawn): %v", stepErr)
+	}
+
+	mgr.Shutdown(ctx)
+
+	occurrences := strings.Count(logBuf.String(), "plugins_user is not configured")
+	if occurrences != 1 {
+		t.Errorf("unisolated warning logged %d time(s) across 2 spawns, want exactly 1:\n%s", occurrences, logBuf.String())
+	}
 }
