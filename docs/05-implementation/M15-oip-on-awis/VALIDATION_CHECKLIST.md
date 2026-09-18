@@ -18,7 +18,7 @@
       (fallback/degraded paths); WAIT step consumes entry_confirmed signal
 - [x] CLI e2e: real binary submit → signal entry_confirmed → entry file appended → recall
       workflow finds it (evidence transcript)
-- [x] G3 brief exists (docs/05-implementation/M15-oip-on-awis/G3_BRIEF.md): boundary evidence,
+- [x] G3 brief exists (docs/05-implementation/M15-oip-on-awis/cards/G3_BRIEF.md): boundary evidence,
       P0 disclosure, TDS-06 sign-off request, QG-3/QG-4 results — verdict line EMPTY (founder)
 - [x] oip.db lives at .decisions/.index/oip.db, git-ignored; entries/*.md in git (layout per
       Finalization B5)
