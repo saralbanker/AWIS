@@ -401,7 +401,14 @@ func TestSystemRehearsalInitStartSubmitTrace(t *testing.T) {
 	}
 
 	var finalStatus string
-	terminalBudget := 10 * time.Second * raceScale
+	// terminalBudget covers the whole polling phase below, not just the terminal
+	// transition itself. Measured steady-state (isolated runs, both with and
+	// without -race): 5/5 PASS at 11.13-11.23s. The previous 10s budget was
+	// below that steady state, so it failed intermittently under full-package
+	// CPU contention even though it always passed in isolation. 45s is a
+	// generous multiple of the ~11.2s observed steady state, chosen to absorb
+	// contention without being unbounded.
+	terminalBudget := 45 * time.Second * raceScale
 	deadline := time.Now().Add(terminalBudget)
 	for time.Now().Before(deadline) {
 		statusCmd := exec.Command(bin, "--data-dir="+dataDir, "--json", "status", "--all")

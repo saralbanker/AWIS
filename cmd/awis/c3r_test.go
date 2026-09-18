@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/awis/awis/internal/buildinfo"
 	"github.com/awis/awis/internal/core"
 	"github.com/awis/awis/sdk"
 )
@@ -90,7 +91,7 @@ func openGoldenStorage(t *testing.T) (dir string, restore func()) {
 func TestStartGoldenJSON(t *testing.T) {
 	out := startOutput{
 		Event:        "started",
-		Version:      version,
+		Version:      buildinfo.Version,
 		DBPath:       "<data-dir>/runtime.db",
 		Workflows:    []string{"test-hello 1.0.0"},
 		Plugins:      []string{},

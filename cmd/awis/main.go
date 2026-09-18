@@ -9,11 +9,9 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-)
 
-// version is the AWIS release string.
-// Freeze: update alongside go.mod module tag at release time.
-const version = "0.1.0-dev"
+	"github.com/awis/awis/internal/buildinfo"
+)
 
 // Global flags — parsed before the subcommand name.
 var (
@@ -86,12 +84,12 @@ func runVersion(args []string) {
 
 	if globalJSON {
 		out := versionOutput{
-			Version:   version,
+			Version:   buildinfo.Version,
 			GoVersion: goVer,
 		}
 		emitJSON(out)
 		return
 	}
 
-	fmt.Printf("awis version %s  go %s\n", version, goVer)
+	fmt.Printf("awis version %s  go %s\n", buildinfo.Version, goVer)
 }

@@ -29,6 +29,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/awis/awis/internal/buildinfo"
 	"github.com/awis/awis/internal/core"
 	"github.com/awis/awis/internal/dsl"
 	"github.com/awis/awis/internal/examples"
@@ -225,7 +226,7 @@ func runStart(args []string) {
 	if globalJSON {
 		out := startOutput{
 			Event:        "started",
-			Version:      version,
+			Version:      buildinfo.Version,
 			DBPath:       dbPath,
 			Workflows:    workflowIDs,
 			Plugins:      pluginNames,
@@ -242,7 +243,7 @@ func runStart(args []string) {
 		// ● running  PID 12345
 		wfSummary := formatListSummary(workflowIDs)
 		pluginSummary := formatPluginSummary(pluginNames)
-		fmt.Printf("AWIS v%s  db: %s\n", version, dbPath)
+		fmt.Printf("AWIS v%s  db: %s\n", buildinfo.Version, dbPath)
 		fmt.Printf("Workflows registered: %d  %s\n", len(workflowIDs), wfSummary)
 		fmt.Printf("Plugins registered:   %d  %s\n", len(pluginNames), pluginSummary)
 		fmt.Printf("Intelligence:         %s\n", intelligenceLevel)
@@ -253,7 +254,7 @@ func runStart(args []string) {
 	// Creates <data-dir>/awis.log on startup (append); 'awis logs' reads this file.
 	// Best-effort: errors do not abort start.
 	logPath := filepath.Join(dataDir, "awis.log")
-	openFileSink(logPath, pid, version, intelligenceLevel, workflowIDs)
+	openFileSink(logPath, pid, buildinfo.Version, intelligenceLevel, workflowIDs)
 
 	// 9. Write PID file.
 	pidPath := filepath.Join(dataDir, "awis.pid")
