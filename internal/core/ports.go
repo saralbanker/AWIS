@@ -204,6 +204,9 @@ type InstanceFilter struct {
 	Namespace string
 	// Status restricts results to the given lifecycle status. Empty = no predicate.
 	Status InstanceStatus
+	// DefinitionID restricts results to instances of the given workflow
+	// definition id. Empty = no predicate. Additive (GUI Beta, BE-1).
+	DefinitionID string
 }
 
 // HistoryQuery selects execution history for RecallAPI.QueryHistory
@@ -248,7 +251,24 @@ type ExecutionRecord struct {
 //
 // Shape completed at M08 (owning milestone); not part of the G1 format freeze
 // (IMP §13 — sdk surface mutable until M08).
-type ReplayTrace struct{}
+type ReplayTrace struct {
+	// InstanceID is the unique identity of the replayed instance.
+	InstanceID InstanceID
+	// DefinitionID is the id of the workflow definition.
+	DefinitionID string
+	// Version is the SemVer of the workflow definition.
+	Version SemVer
+	// Namespace is the owning namespace.
+	Namespace string
+	// Status is the instance's lifecycle status as recorded in storage.
+	Status InstanceStatus
+	// StartedAt is when the instance started.
+	StartedAt time.Time
+	// CompletedAt is when the instance completed; nil if still active.
+	CompletedAt *time.Time
+	// Events is the full ordered EventLog for the instance, from sequence 0.
+	Events []ExecutionEvent
+}
 
 // StepStatistics are aggregate statistics for a step (Blueprint §12).
 //

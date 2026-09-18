@@ -1,0 +1,10 @@
+REPLAY (dry-run)  capture-decision / det-000001
+Status: completed  (original)
+
+The following steps WOULD run if this instance were re-executed:
+
+  00:00  ● WorkflowStarted                → initialize workflow state
+  00:13  ► StepStarted  draft-entry       → dispatch step to worker
+  01:29  ✓ WorkflowCompleted              → mark instance completed
+
+NOTE: This is a dry-run. No steps were executed and no state was written.

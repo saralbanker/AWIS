@@ -13,5 +13,5 @@ capabilities:
 
 runtime:
   command: sh
-  args: ["testdata/bin/crash-on-call-plugin.sh"]
+  args: ["../bin/crash-on-call-plugin.sh"]
   idle_timeout_s: 300

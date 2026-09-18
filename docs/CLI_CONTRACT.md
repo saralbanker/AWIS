@@ -110,43 +110,43 @@ awis
     └── plugin list                      List installed plugins                    [C4]
 ```
 
-### M17 — Planned Commands (not yet implemented)
+### M17 — Implemented Commands (added by M17-C1, C2, C3, C1r)
 
 ```
 awis
 │
 ├── RUNTIME MANAGEMENT
-│   └── init [name]                      Initialize project structure + config     [M17]
+│   └── init [directory]                 Initialize project structure + config     [M17-C3] ✓
 │
 ├── OBSERVABILITY
-│   ├── history [--workflow=<id>]        Recent completed instances                [M17]
+│   ├── history [--workflow=<id>]        Recent completed instances                [M17-C1] ✓
 │   │   [--n=20] [--namespace=<ns>]
 │   │   [--status=failed|completed]
-│   ├── logs [--instance=<id>]           Structured log stream                     [M17]
+│   ├── logs [--instance=<id>]           Structured log stream                     [M17-C1] ✓
 │   │   [--level=error|info|debug] [--tail]
-│   ├── metrics [--namespace=<ns>]       Aggregate execution statistics            [M17]
+│   ├── metrics [--namespace=<ns>]       Aggregate execution statistics            [M17-C1] ✓
 │   │   [--workflow=<id>]
-│   ├── recall "<natural query>"         Query execution history                   [M17]
+│   ├── recall "<natural query>"         Query execution history                   [M17-C1] ✓
 │   │   [--namespace=<ns>] [--synthesize]
-│   ├── replay <instance-id>             Re-run completed instance (dry-run)      [M17]
-│   └── audit [--from=<date>]            View audit log entries                   [M17]
+│   ├── replay <instance-id>             Re-run completed instance (dry-run)      [M17-C1] ✓
+│   └── audit [--limit=<int>]            View audit log entries                   [M17-C1] ✓
 │
 ├── PLUGIN MANAGEMENT
-│   ├── plugin remove <name>             Remove a plugin                          [M17]
-│   └── plugin status <name>             Plugin health and call statistics        [M17]
+│   ├── plugin remove <name>             Remove a plugin                          [M17-C1] ✓
+│   └── plugin status <name>             Plugin health and call statistics        [M17-C1] ✓
 │
 ├── CONFIGURATION
-│   ├── config show                      View current configuration               [M17]
-│   ├── config set <key> <value>         Set a configuration value                [M17]
-│   ├── config validate                  Validate configuration file              [M17]
-│   └── config edit                      Open config in $EDITOR                  [M17]
+│   ├── config show                      View current configuration               [M17-C2] ✓
+│   ├── config set <key> <value>         Set a configuration value                [M17-C2] ✓
+│   ├── config validate                  Validate configuration file              [M17-C2] ✓
+│   └── config edit                      Open config in $EDITOR                   [M17-C2] ✓
 │
 └── MAINTENANCE
-    ├── rebuild-state [--namespace=x]    Rebuild StateStore from EventLog         [M17]
-    ├── export [--format=json]           Export execution history                 [M17]
+    ├── rebuild-state [--namespace=x]    Rebuild StateStore from EventLog         [M17-C2] ✓
+    ├── export [--format=json]           Export execution history                 [M17-C1] ✓
     │   [--namespace=<ns>]
     │   [--from=<date>] [--to=<date>]
-    └── prune-events --before=<date>     Prune EventLog (--dry-run required first)[M17]
+    └── prune-events --before=<date>     Prune EventLog (--dry-run required first)[M17-C1] ✓
         [--dry-run]
 ```
 
@@ -154,8 +154,11 @@ awis
 
 ## §4 Per-Command Contracts (M14 Commands)
 
-> **Global flags:** every command accepts `--json` and `--data-dir` as global
-> flags preceding the subcommand name: `awis [--json] [--data-dir D] <cmd> …`.
+> **Global flags:** every command accepts `--json`, `--data-dir`, and
+> `--namespace` as global flags preceding the subcommand name:
+> `awis [--json] [--data-dir D] [--namespace NS] <cmd> …`.
+> `--namespace` (default `"default"`) targets the workflow namespace for
+> submit/signal/cancel/status/trace; it is ignored by version/start/stop/workflow/plugin.
 > Per-command synopses below omit these global flags for brevity.
 
 ### version
@@ -716,6 +719,683 @@ INSTALLED PLUGINS
 ```
 
 **Exit codes:** 0 always
+
+---
+
+### init
+
+**Synopsis:** `awis init [--force] [directory]` (M17-C3; FR-RM-01)
+
+Scaffold a new AWIS project into `[directory]` (default: current directory)
+from an embedded file set (`//go:embed all:scaffold`; the `all:` prefix is
+required so `scaffold/.gitignore` — a dot-file — is not silently excluded by
+Go's default embed rule):
+
+- `config.yaml` — minimal project config (`namespace`, `tick`, commented
+  `anthropic_api_key` note)
+- `.gitignore` — excludes `.awis/` and `*.pid`
+- `workflows/hello-world.yaml`, `workflows/with-signal.yaml`,
+  `workflows/with-intelligence.yaml` — the three M10 example workflows,
+  embedded byte-identical to `examples/workflows/`
+- `handlers/example_handler.go` — native step handler stubs for an
+  embedding Go program to register via `sdk.Runtime.RegisterHandler`
+- `README_AWIS.md` — quick-start + project-structure reference
+
+Refuses to write into a non-empty target directory unless `--force` is
+given (existing files are left in place; scaffold files are written
+alongside them).
+
+**Flags:**
+- `--force` — allow writing into a non-empty target directory
+
+**Human output:**
+```
+Initialized AWIS project in /abs/path/my-project
+
+  created  config.yaml
+  created  .gitignore
+  created  workflows/hello-world.yaml
+  created  workflows/with-signal.yaml
+  created  workflows/with-intelligence.yaml
+  created  handlers/example_handler.go
+  created  README_AWIS.md
+
+Next steps:
+  awis start
+  awis submit hello-world --input name=World
+  awis status
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "target": "string",
+  "files":  ["string"]
+}
+```
+
+**Errors:**
+- Exit 1: target directory not empty and `--force` not given
+- Exit 1: cannot resolve/create the target directory (permissions)
+- Exit 1: cannot write a scaffold file (permissions, disk space)
+
+**Exit codes:** 0 scaffolded, 1 error
+
+**Note:** the scaffolded `workflows/hello-world.yaml` carries its own YAML
+`namespace: examples`. `sdk.Runtime.Submit`'s cross-process lookup filters
+`ListWorkflows` by the CALLING process's `--namespace` (not the
+definition's namespace), so submitting it requires
+`awis --namespace=examples submit hello-world`.
+
+---
+
+### history
+
+**Synopsis:** `awis history [--workflow=<id>] [--n=20] [--namespace=<ns>] [--status=failed|completed]`
+
+List completed, failed, and cancelled instances (terminal states) from the database.
+Shows instance ID, workflow ID, namespace, status, duration, and failure details.
+
+**Flags:**
+- `--workflow=<id>` — filter by workflow definition ID
+- `--n=<int>` — number of instances to show (default 20)
+- `--namespace=<ns>` — filter by namespace
+- `--status=<status>` — filter by status: `completed`, `failed`, or `cancelled`
+
+**Human output:**
+```
+RECENT INSTANCES (last 20)
+
+  INSTANCE         WORKFLOW           STATUS      DURATION  COMPLETED AT
+  i-a1b2c3         capture-decision   completed   89s       2026-07-10 14:21:32
+  i-d4e5f6         recall-decision    failed      12s       2026-07-10 14:20:15
+  i-g7h8i9         capture-decision   completed   156s      2026-07-10 14:18:47
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "instances": [
+    {
+      "instance_id":   "string",
+      "workflow_id":   "string",
+      "namespace":     "string",
+      "status":        "string",
+      "duration_ms":   "integer",
+      "failed_step":   "string|null",
+      "completed_at":  "string (RFC3339)"
+    }
+  ]
+}
+```
+
+**Errors:**
+- Exit 1: storage open failed
+
+**Exit codes:** 0 always (empty list is not an error)
+
+---
+
+### logs
+
+**Synopsis:** `awis logs [--tail=<int>] [--level=<level>] [--instance=<id>]`
+
+Display structured runtime log from `<data-dir>/awis.log`. Filters by log level
+and instance ID. Default shows last 50 lines.
+
+**Flags:**
+- `--tail=<int>` — number of log lines to show (default 50)
+- `--level=<level>` — filter by level: `error`, `info`, or `debug`
+- `--instance=<id>` — filter by instance ID
+
+**Human output (excerpt):**
+```
+Log file: .awis/awis.log
+
+[2026-07-10 14:23:01] info   engine started (PID 12345)
+[2026-07-10 14:23:00] debug  discovering workflows...
+[2026-07-10 14:22:59] info   registered 2 workflows
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "log_file": "string",
+  "lines":    ["string"]
+}
+```
+
+**Errors:**
+- Exit 1: log file not found (runtime not started yet)
+- Exit 1: cannot read log file (permissions)
+
+**Exit codes:** 0 always (missing log file shows usage hint, not error)
+
+---
+
+### metrics
+
+**Synopsis:** `awis metrics [--namespace=<ns>] [--workflow=<id>]`
+
+Show aggregate execution statistics: instance counts by status, average duration,
+step success rates, plugin call counts.
+
+**Flags:**
+- `--namespace=<ns>` — filter by namespace
+- `--workflow=<id>` — filter by workflow definition ID
+
+**Human output:**
+```
+EXECUTION METRICS
+
+  Workflows Executed:    2
+  Total Instances:       145
+    Completed:           120  (82.8%)
+    Failed:              18   (12.4%)
+    Cancelled:           7    (4.8%)
+
+  Average Duration:      42.3s
+  Slowest Step:          draft-entry (22.1s avg)
+  Plugin Calls:          284
+    git-context-plugin:  187
+    other:               97
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "namespace":        "string",
+  "workflows_count":  "integer",
+  "instances_total":  "integer",
+  "status_breakdown": {
+    "completed":      "integer",
+    "failed":         "integer",
+    "cancelled":      "integer"
+  },
+  "avg_duration_ms":  "integer",
+  "plugin_calls":     {
+    "<plugin-name>":  "integer"
+  }
+}
+```
+
+**Errors:**
+- Exit 1: storage open failed
+
+**Exit codes:** 0 always
+
+---
+
+### recall
+
+**Synopsis:** `awis recall "<query>" [--namespace=<ns>] [--synthesize]`
+
+Query execution history using full-text search. Returns instances and events
+matching the query string. With `--synthesize`, uses AI summarization (future).
+
+**Flags:**
+- `--namespace=<ns>` — search within namespace only
+- `--synthesize` — use intelligence to summarize results (requires config)
+
+**Human output:**
+```
+RECALL RESULTS for "anthropic"
+
+  Matching Instances:
+    i-a1b2c3  capture-decision   2026-07-10 14:21:32  (mentions: anthropic API timeout)
+    i-d4e5f6  recall-decision    2026-07-10 14:20:15  (mentions: anthropic error)
+
+  Matching Events:
+    [i-a1b2c3] 00:13  StepCompleted  draft-entry  adapter: anthropic, tokens: 847
+    [i-d4e5f6] 00:08  StepFailed     draft-entry  anthropic: rate limit exceeded
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "query":       "string",
+  "results": [
+    {
+      "type":       "string (instance|event)",
+      "instance_id": "string",
+      "workflow_id": "string|null",
+      "timestamp":  "string (RFC3339)",
+      "snippet":    "string",
+      "score":      "number (relevance 0-1)"
+    }
+  ]
+}
+```
+
+**Errors:**
+- Exit 1: storage open failed
+- Exit 1: query parse error (empty or malformed)
+
+**Exit codes:** 0 always (no matches returns empty results, not error)
+
+---
+
+### replay
+
+**Synopsis:** `awis replay <instance-id>`
+
+Dry-run re-execution of a completed instance. Walks the event log and prints
+what WOULD happen if the instance were re-run. No state is written.
+
+**Flags:** none beyond global `--json`, `--data-dir`
+
+**Human output:**
+```
+REPLAY (dry-run)  capture-decision / i-a1b2c3
+Status: completed  (original)
+
+The following steps WOULD run if this instance were re-executed:
+
+  00:00  ● WorkflowStarted         → initialize workflow state
+  00:13  ► StepStarted  draft-entry → dispatch step to worker
+  00:13  ✓ StepCompleted draft-entry → record step result; advance to next step
+  00:89  ✓ WorkflowCompleted        → mark instance completed
+
+NOTE: This is a dry-run. No steps were executed and no state was written.
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "instance_id":   "string",
+  "workflow_id":   "string",
+  "namespace":     "string",
+  "status":        "string",
+  "dry_run":       true,
+  "steps": [
+    {
+      "order":       "integer",
+      "event_type":  "string",
+      "step_id":     "string|null",
+      "emitted_at":  "string (RFC3339)",
+      "relative_ms": "integer",
+      "action":      "string"
+    }
+  ]
+}
+```
+
+**Errors:**
+- Exit 1: instance not found
+- Exit 1: cannot read events (storage corruption)
+
+**Exit codes:** 0 found, 1 error
+
+---
+
+### audit
+
+**Synopsis:** `awis audit [--limit=<int>]`
+
+View the audit log: records of all configuration changes, plugin registrations,
+removals, and other administrative actions.
+
+**Flags:**
+- `--limit=<int>` — maximum number of entries to show (default 50)
+
+**Human output:**
+```
+AUDIT LOG (last 50)
+
+  TIME                    EVENT            ACTOR     DETAILS
+  2026-07-10 14:23:15     ConfigChanged    cli       key=namespace, value=staging
+  2026-07-10 14:22:50     PluginRegistered cli       git-context-plugin v0.1.0
+  2026-07-10 14:21:32     WorkflowStarted  engine    capture-decision
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "entries": [
+    {
+      "id":              "integer",
+      "timestamp":       "string (RFC3339)",
+      "event_type":      "string",
+      "actor":           "string",
+      "payload_summary": "string (JSON-encoded)"
+    }
+  ]
+}
+```
+
+**Errors:**
+- Exit 1: storage open failed
+
+**Exit codes:** 0 always
+
+---
+
+### config show
+
+**Synopsis:** `awis config show`
+
+Display the current configuration from `<data-dir>/config.yaml`. Shows all
+key-value pairs.
+
+**Flags:** none beyond global `--json`, `--data-dir`
+
+**Human output:**
+```
+Config: .awis/config.yaml
+
+  namespace:  default
+  tick:       100ms
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "config_file": "string",
+  "keys": {
+    "<key>": "string"
+  }
+}
+```
+
+**Errors:**
+- Exit 1: config file not found (will show hint to run `awis init`)
+
+**Exit codes:** 0 found, 1 error
+
+---
+
+### config set
+
+**Synopsis:** `awis config set <key> <value>`
+
+Set a configuration key-value pair in `<data-dir>/config.yaml`. Creates the
+file if it does not exist. API keys are masked in output.
+
+**Flags:** none beyond global `--json`, `--data-dir`
+
+**Human output:**
+```
+Set: namespace = staging
+Written to: .awis/config.yaml
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "config_file": "string",
+  "key":         "string",
+  "value":       "string",
+  "masked":      "boolean"
+}
+```
+
+**Errors:**
+- Exit 1: cannot write config file (permissions, disk space)
+
+**Exit codes:** 0 set, 1 error
+
+---
+
+### config validate
+
+**Synopsis:** `awis config validate`
+
+Validate the configuration file against the schema. Reports unknown keys and
+malformed entries.
+
+**Flags:** none beyond global `--json`, `--data-dir`
+
+**Human output (valid):**
+```
+.awis/config.yaml  valid
+```
+
+**Human output (invalid):**
+```
+awis: config validation failed
+  Line 3: unknown key 'invalid_key'
+  Suggestion: Remove the line or use a valid key (namespace, tick, etc.)
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "config_file": "string",
+  "valid":       "boolean",
+  "errors":      ["string"]
+}
+```
+
+**Errors:**
+- Exit 1: config file not found
+- Exit 1: cannot read file (permissions)
+
+**Exit codes:** 0 valid, 1 invalid or read error
+
+---
+
+### config edit
+
+**Synopsis:** `awis config edit`
+
+Open `<data-dir>/config.yaml` in `$EDITOR` for manual editing. Returns after
+the editor closes.
+
+**Flags:** none beyond global `--data-dir`
+
+**Human output:**
+```
+Opening .awis/config.yaml in $EDITOR...
+(editor window opens)
+```
+
+**Errors:**
+- Exit 1: $EDITOR not set
+- Exit 1: cannot open config file (permissions)
+- Exit 1: editor exited with error
+
+**Exit codes:** 0 edited, 1 error
+
+---
+
+### plugin remove
+
+**Synopsis:** `awis plugin remove <name>`
+
+Remove (uninstall) a plugin from the PluginStore. Marks it as `removed` and
+writes a PluginRemoved audit entry.
+
+**Flags:** none beyond global `--json`, `--data-dir`
+
+**Human output:**
+```
+Plugin removed: git-context-plugin
+  Status set to: removed
+  Audit row written: PluginRemoved
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "name":    "string",
+  "status":  "string",
+  "removed": "boolean"
+}
+```
+
+**Errors:**
+- Exit 1: plugin not found
+- Exit 1: storage open failed
+
+**Exit codes:** 0 removed, 1 error
+
+---
+
+### plugin status
+
+**Synopsis:** `awis plugin status <name>`
+
+Show plugin health and call statistics: registration status, version, path,
+and cumulative call count.
+
+**Flags:** none beyond global `--json`, `--data-dir`
+
+**Human output:**
+```
+Plugin:   git-context-plugin
+Version:  0.1.0
+Status:   registered
+Path:     plugins/git-context-plugin
+Registered: 2026-07-10T14:23:00Z
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "name":          "string",
+  "version":       "string",
+  "status":        "string",
+  "path":          "string",
+  "registered_at": "string (RFC3339)"
+}
+```
+
+**Errors:**
+- Exit 1: plugin not found
+- Exit 1: storage open failed
+
+**Exit codes:** 0 found, 1 error
+
+---
+
+### rebuild-state
+
+**Synopsis:** `awis rebuild-state [--namespace=<ns>]`
+
+Rebuild the `workflow_instances` projection from the EventLog. Useful after
+manual EventLog edits or corruption recovery. Safe to run before starting
+the engine.
+
+**Flags:**
+- `--namespace=<ns>` — rebuild only for specified namespace (default: all)
+
+**Human output:**
+```
+rebuild-state: projection rebuilt from EventLog
+  Mode:    all
+  DB:      .awis/runtime.db
+
+  What now: awis start  (resume engine; rebuild is safe before start)
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "mode":    "string (all|namespace)",
+  "success": "boolean",
+  "message": "string"
+}
+```
+
+**Errors:**
+- Exit 1: storage open failed
+- Exit 1: EventLog corruption detected (data integrity error)
+
+**Exit codes:** 0 success, 1 error
+
+---
+
+### export
+
+**Synopsis:** `awis export [--format=json] [--namespace=<ns>] [--from=<date>] [--to=<date>]`
+
+Export execution history to JSON format. Includes workflow definitions, instances,
+events, and audit log. Optionally filters by namespace and date range.
+
+**Flags:**
+- `--format=json` — output format (currently only `json` supported)
+- `--namespace=<ns>` — export only specified namespace
+- `--from=<date>` — start date (RFC3339 or YYYY-MM-DD)
+- `--to=<date>` — end date (RFC3339 or YYYY-MM-DD)
+
+**Human output (summary):**
+```
+Exporting execution history...
+  Format:      json
+  Namespace:   oip
+  Range:       2026-07-01 to 2026-07-10
+  Workflows:   2
+  Instances:   145
+  Events:      1247
+  Audit rows:  89
+
+Output written to: .awis/export-20260710.json
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "export_date":  "string (RFC3339)",
+  "namespace":    "string",
+  "workflows":    ["object"],
+  "instances":    ["object"],
+  "events":       ["object"],
+  "audit_log":    ["object"]
+}
+```
+
+**Errors:**
+- Exit 1: storage open failed
+- Exit 1: date parse error (invalid format)
+
+**Exit codes:** 0 exported, 1 error
+
+---
+
+### prune-events
+
+**Synopsis:** `awis prune-events --before=<date> [--dry-run]`
+
+Prune (delete) EventLog entries older than a given date. Requires `--dry-run`
+on first run to preview what will be deleted.
+
+**Flags:**
+- `--before=<date>` — delete events before this date (RFC3339 or YYYY-MM-DD)
+- `--dry-run` — preview what would be deleted without actually deleting
+
+**Human output (dry-run):**
+```
+prune-events: dry-run mode
+  Before:        2026-06-01
+  Events found:  342
+  Space freed:   ~45 MB
+
+  What now: awis prune-events --before=2026-06-01  (no --dry-run to confirm)
+```
+
+**Human output (confirmed):**
+```
+prune-events: 342 events deleted
+  Before:        2026-06-01
+  Space freed:   ~45 MB
+```
+
+**JSON schema (`--json`):**
+```json
+{
+  "before":           "string (RFC3339)",
+  "dry_run":          "boolean",
+  "events_deleted":   "integer",
+  "estimated_bytes":  "integer"
+}
+```
+
+**Errors:**
+- Exit 1: date parse error (invalid format)
+- Exit 1: storage open failed
+- Exit 2: `--dry-run` not provided (required safety measure)
+
+**Exit codes:** 0 success, 1 operational error, 2 usage error
 
 ---
 

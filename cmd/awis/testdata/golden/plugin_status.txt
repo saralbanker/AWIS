@@ -1,0 +1,5 @@
+Plugin:   example-plugin
+Version:  0.1.0
+Status:   registered
+Path:     /plugins/example-plugin
+Registered: 2026-01-01T00:00:00Z

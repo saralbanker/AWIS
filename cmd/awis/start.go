@@ -19,16 +19,21 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/awis/awis/internal/buildinfo"
 	"github.com/awis/awis/internal/core"
 	"github.com/awis/awis/internal/dsl"
+	"github.com/awis/awis/internal/examples"
+	"github.com/awis/awis/internal/intelligence/adapters/anthropic"
 	"github.com/awis/awis/internal/storage"
 	"github.com/awis/awis/sdk"
 )
@@ -61,9 +66,30 @@ func runStart(args []string) {
 	fs.StringVar(&namespace, "namespace", "default", "Namespace for this runtime instance")
 	mustParse(fs, args)
 
+	// Apply config.yaml (B-10). `awis init` writes a config.yaml declaring
+	// namespace / tick / anthropic_api_key, and until now the runtime read none
+	// of it — the file was decorative. Precedence is the conventional one:
+	// an explicitly-supplied flag wins over the config file, which wins over the
+	// built-in default. fs.Visit reports only flags the user actually set, which
+	// is how "explicitly supplied" is distinguished from "left at its default".
+	cfg := loadConfigKeys()
+	setFlags := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) { setFlags[f.Name] = true })
+	if !setFlags["tick"] {
+		if v, ok := cfg["tick"]; ok && v != "" {
+			tickStr = v
+		}
+	}
+	if !setFlags["namespace"] {
+		if v, ok := cfg["namespace"]; ok && v != "" {
+			namespace = v
+		}
+	}
+
 	tick, err := time.ParseDuration(tickStr)
 	if err != nil {
-		fail(1, fmt.Sprintf("start: invalid --tick value %q: %s", tickStr, err), "", "use a valid Go duration, e.g. 100ms")
+		fail(1, fmt.Sprintf("start: invalid --tick value %q: %s", tickStr, err),
+			configPath(), "use a valid Go duration, e.g. 100ms")
 	}
 
 	// Resolve data-dir and db path.
@@ -104,14 +130,51 @@ func runStart(args []string) {
 		os.Exit(3)
 	}
 
-	// 4. Build runtime.
+	// 4. Construct intelligence adapter.
+	// If ANTHROPIC_API_KEY is set, use the Anthropic cloud adapter; otherwise
+	// the runtime falls through to NullAdapter behaviour (zero-AI mode).
+	var intelligencePort core.IntelligencePort
+	var intelligenceLevel = "none (zero-AI mode)"
+	// The environment wins over config.yaml so a key never has to be written to
+	// disk; a config value is the fallback for projects that prefer it. The key
+	// itself is NEVER logged or echoed — only the resolved provider name is.
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" {
+		apiKey = cfg["anthropic_api_key"]
+		// A scaffolded config may carry the literal placeholder "$ANTHROPIC_API_KEY";
+		// treat any unexpanded $VAR as absent rather than sending it as a credential.
+		if strings.HasPrefix(apiKey, "$") {
+			apiKey = ""
+		}
+	}
+	if apiKey != "" {
+		intelligencePort = anthropic.New(anthropic.Config{APIKey: apiKey})
+		intelligenceLevel = "anthropic (cloud)"
+	}
+
+	// Build runtime.
 	rt, err := sdk.NewRuntime(sdk.Config{
 		Namespace:    namespace,
 		Storage:      store,
 		TickInterval: tick,
+		Intelligence: intelligencePort,
 	})
 	if err != nil {
 		fail(1, fmt.Sprintf("start: cannot create runtime: %s", err), "", "")
+	}
+
+	// 4b. Register the built-in native handlers (B-9).
+	// The CLI daemon is a pre-compiled binary, so the only native handlers it can
+	// dispatch are the ones compiled into it. Without this the scaffolded example
+	// workflows fail on their first step with handler_not_found and the `native`
+	// step type is unreachable through the shipped binary entirely. Users' own
+	// native handlers require embedded SDK mode — see internal/examples for the
+	// full rationale, and the unresolved-handler diagnostic below, which makes
+	// that limitation visible at startup rather than at dispatch time.
+	for _, h := range examples.Handlers() {
+		if rerr := rt.RegisterHandler(h); rerr != nil {
+			fail(1, fmt.Sprintf("start: cannot register built-in handler %q: %s", h.ID(), rerr), "", "this is a build error; reinstall awis")
+		}
 	}
 
 	// 5. Register workflows + write WorkflowRegistered audit rows.
@@ -133,29 +196,44 @@ func runStart(args []string) {
 		// WorkflowRegistered audit row is written inside RegisterWorkflow (sdk/registration.go F-4).
 	}
 
+	// 5b. Warn about native handlers a discovered workflow references but that
+	// this binary cannot dispatch (B-9 diagnostic). Previously such a workflow
+	// started normally and then failed mid-run with handler_not_found, which
+	// gives the operator no hint that the cause is structural rather than
+	// transient.
+	if missing := unresolvedHandlers(defs, examples.IDs()); len(missing) > 0 {
+		fmt.Fprintf(os.Stderr,
+			"awis: warning: %d native handler(s) referenced by your workflows are not compiled into this binary: %s\n",
+			len(missing), strings.Join(missing, ", "))
+		fmt.Fprintf(os.Stderr,
+			"awis:   steps using them will fail with handler_not_found. Native handlers you write must be\n"+
+				"awis:   registered in-process via the SDK (rt.RegisterHandler) — see examples/hello_workflow/main.go.\n")
+	}
+
 	// 6. Optional plugin discovery — if PluginStore supported.
+	// Registration goes through rt.RegisterPlugin, NOT the raw PluginStore: the
+	// store write only records a row, while the runtime's plugin.Manager is what
+	// actually dispatches type=plugin steps. Writing the row alone left every
+	// plugin step failing with plugin_not_found (B-19).
 	var pluginNames []string
-	if ps, ok := store.(storage.PluginStore); ok {
-		pluginNames = discoverPlugins(cwd, ps)
+	if _, ok := store.(storage.PluginStore); ok {
+		pluginNames = discoverPlugins(cwd, rt)
 	}
 
 	// 7. Print startup header.
 	pid := os.Getpid()
-	intelligenceLevel := "none (zero-AI mode)"
 
 	if globalJSON {
 		out := startOutput{
 			Event:        "started",
-			Version:      version,
+			Version:      buildinfo.Version,
 			DBPath:       dbPath,
 			Workflows:    workflowIDs,
 			Plugins:      pluginNames,
 			Intelligence: intelligenceLevel,
 			PID:          pid,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 	} else {
 		// TDS-07 §4 startup header (verbatim shape):
 		// AWIS v0.1.0-dev  db: .awis/runtime.db
@@ -165,14 +243,20 @@ func runStart(args []string) {
 		// ● running  PID 12345
 		wfSummary := formatListSummary(workflowIDs)
 		pluginSummary := formatPluginSummary(pluginNames)
-		fmt.Printf("AWIS v%s  db: %s\n", version, dbPath)
+		fmt.Printf("AWIS v%s  db: %s\n", buildinfo.Version, dbPath)
 		fmt.Printf("Workflows registered: %d  %s\n", len(workflowIDs), wfSummary)
 		fmt.Printf("Plugins registered:   %d  %s\n", len(pluginNames), pluginSummary)
 		fmt.Printf("Intelligence:         %s\n", intelligenceLevel)
 		fmt.Printf("● running  PID %d\n", pid)
 	}
 
-	// 8. Write PID file.
+	// 8. Open file-sink log (sanctioned M17-C1 addition; SPEC §CE pins).
+	// Creates <data-dir>/awis.log on startup (append); 'awis logs' reads this file.
+	// Best-effort: errors do not abort start.
+	logPath := filepath.Join(dataDir, "awis.log")
+	openFileSink(logPath, pid, buildinfo.Version, intelligenceLevel, workflowIDs)
+
+	// 9. Write PID file.
 	pidPath := filepath.Join(dataDir, "awis.pid")
 	if err := writePIDFile(pidPath, pid); err != nil {
 		fail(1, fmt.Sprintf("start: cannot write PID file: %s", err), pidPath, "check file permissions")
@@ -187,17 +271,105 @@ func runStart(args []string) {
 		cancel()
 	}()
 
-	// 10. Block until engine returns.
+	// 10. Start cron scanner goroutine (F-2).
+	// Scans definitions with type:schedule triggers on a per-minute cadence.
+	// Engine and core are NOT touched (SPEC non-scope); scanner lives here only.
+	cronDefs := defsToCronDefs(defs)
+	cronEntries := buildCronEntries(cronDefs, func(id, expr string, err error) {
+		fmt.Fprintf(os.Stderr, "awis cron: workflow %q schedule %q invalid: %s\n", id, expr, err)
+	})
+	if len(cronEntries) > 0 {
+		go runCronScanner(ctx, rt, cronEntries, time.Now)
+	}
+
+	// 11. Block until engine returns.
 	_ = rt.Start(ctx)
 
 	// Clean up PID file on graceful exit.
 	_ = os.Remove(pidPath)
 }
 
+// defsToCronDefs converts parsed *core.WorkflowDefinition slices to the minimal
+// cronWorkflowDef representation used by the cron scanner.
+func defsToCronDefs(defs []*core.WorkflowDefinition) []cronWorkflowDef {
+	result := make([]cronWorkflowDef, 0, len(defs))
+	for _, d := range defs {
+		triggers := make([]cronWorkflowTrigger, 0, len(d.Triggers))
+		for _, t := range d.Triggers {
+			triggers = append(triggers, cronWorkflowTrigger{
+				triggerType: string(t.Type),
+				config:      t.Config,
+			})
+		}
+		result = append(result, cronWorkflowDef{
+			id:        d.ID,
+			namespace: d.Namespace,
+			triggers:  triggers,
+		})
+	}
+	return result
+}
+
+// cronSubmitter is the interface the cron scanner uses to enqueue workflow instances.
+// Matches *sdk.Runtime so tests can inject a fake.
+type cronSubmitter interface {
+	Submit(ctx context.Context, definitionID string, inputs map[string]any) (core.InstanceID, error)
+}
+
+// runCronScanner is the cron trigger goroutine (F-2; SPEC: stdlib only, engine untouched).
+// It fires when ctx is cancelled and sleeps until the next minute boundary on each cycle.
+// now is injectable for deterministic fake-clock tests.
+// afterFn is injectable for testing; pass nil to use time.After.
+func runCronScanner(ctx context.Context, rt cronSubmitter, entries []cronEntry, now func() time.Time) {
+	runCronScannerWith(ctx, rt, entries, now, nil)
+}
+
+// runCronScannerWith is the testable variant that accepts an injectable afterFn.
+// afterFn(d) returns a channel that fires after d — same contract as time.After.
+// If afterFn is nil, time.After is used (production path).
+func runCronScannerWith(ctx context.Context, rt cronSubmitter, entries []cronEntry, now func() time.Time, afterFn func(time.Duration) <-chan time.Time) {
+	if afterFn == nil {
+		afterFn = time.After
+	}
+
+	// Align to the next minute boundary before starting the main loop.
+	// This ensures the scanner fires at :00 of each minute.
+	sleepUntilNextMinuteWith(ctx, now, afterFn)
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		t := now().Truncate(time.Minute)
+		for _, e := range entries {
+			if e.schedule.Matches(t) {
+				// Enqueue the instance through the same intake path as 'awis submit'.
+				// Fire-and-forget: cron enqueue errors are best-effort (start must not fail).
+				_, _ = rt.Submit(ctx, e.workflowID, nil)
+			}
+		}
+		sleepUntilNextMinuteWith(ctx, now, afterFn)
+	}
+}
+
+// sleepUntilNextMinuteWith is the injectable variant for tests.
+func sleepUntilNextMinuteWith(ctx context.Context, now func() time.Time, afterFn func(time.Duration) <-chan time.Time) {
+	t := now()
+	next := t.Truncate(time.Minute).Add(time.Minute)
+	d := next.Sub(t)
+	if d <= 0 {
+		d = time.Minute
+	}
+	select {
+	case <-ctx.Done():
+	case <-afterFn(d):
+	}
+}
+
 // discoverPlugins finds plugins/*/awis-plugin.yaml files and registers them.
 // Returns a list of plugin names that were successfully discovered/registered.
 // Errors during individual plugin registration are skipped silently (F-5 V1 local-path semantics).
-func discoverPlugins(cwd string, ps storage.PluginStore) []string {
+func discoverPlugins(cwd string, rt *sdk.Runtime) []string {
 	pattern := filepath.Join(cwd, "plugins", "*", "awis-plugin.yaml")
 	matches, err := filepath.Glob(pattern)
 	if err != nil || len(matches) == 0 {
@@ -214,17 +386,48 @@ func discoverPlugins(cwd string, ps storage.PluginStore) []string {
 		if err != nil {
 			continue
 		}
-		name, ver, manifestJSON, capIDs, perr := parsePluginManifestBytes(data)
+		name, _, _, _, perr := parsePluginManifestBytes(data)
 		if perr != nil || name == "" {
 			continue
 		}
-		_ = filepath.Dir(manifestPath) // plugin dir noted; path stored in manifest JSON
-		if err := ps.RegisterPlugin(ctx, name, ver, manifestJSON, capIDs); err != nil {
+		// rt.RegisterPlugin parses the manifest properly (internal/plugin.ParseManifest),
+		// persists it via the PluginStore AND adds it to the in-memory manager so the
+		// engine can dispatch to it. A failure here is reported rather than skipped:
+		// silently dropping a plugin the operator installed is how B-19 stayed hidden.
+		if err := rt.RegisterPlugin(ctx, manifestPath); err != nil {
+			fmt.Fprintf(os.Stderr, "awis: warning: plugin %q not registered: %s\n", name, err)
 			continue
 		}
 		names = append(names, name)
 	}
 	return names
+}
+
+// unresolvedHandlers returns, sorted and deduplicated, the native step handlers
+// referenced by defs that are not present in registered. It is the input to the
+// startup diagnostic that makes the CLI-daemon handler limitation explicit.
+func unresolvedHandlers(defs []*core.WorkflowDefinition, registered []string) []string {
+	have := make(map[string]bool, len(registered))
+	for _, id := range registered {
+		have[id] = true
+	}
+	seen := make(map[string]bool)
+	var missing []string
+	for _, def := range defs {
+		for _, step := range def.Steps {
+			if step.Type != core.StepTypeNative {
+				continue
+			}
+			ref := string(step.Handler)
+			if ref == "" || have[ref] || seen[ref] {
+				continue
+			}
+			seen[ref] = true
+			missing = append(missing, ref)
+		}
+	}
+	sort.Strings(missing)
+	return missing
 }
 
 // parsePluginManifestBytes does minimal YAML manifest parsing for the start
@@ -297,4 +500,26 @@ func formatPluginSummary(names []string) string {
 		return ""
 	}
 	return "(" + strings.Join(names, ", ") + ")"
+}
+
+// openFileSink creates/appends to <data-dir>/awis.log and writes a structured
+// startup JSON line. Best-effort: any error is silently ignored (start must not
+// fail due to a log write). Called by runStart after the startup header is printed.
+func openFileSink(logPath string, pid int, ver, intelligence string, workflows []string) {
+	lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer func() { _ = lf.Close() }()
+
+	line, _ := json.Marshal(map[string]any{
+		"time":         time.Now().UTC().Format(time.RFC3339),
+		"level":        "info",
+		"msg":          "runtime started",
+		"pid":          pid,
+		"version":      ver,
+		"intelligence": intelligence,
+		"workflows":    workflows,
+	})
+	_, _ = fmt.Fprintf(lf, "%s\n", line)
 }

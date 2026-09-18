@@ -1,0 +1,27 @@
+name: git-context-plugin
+version: 1.0.0
+description: Stub git context plugin for QG-3 tests
+author: test
+
+capabilities:
+  - id: git.context.assemble
+    inputs:
+      repo_path: string
+      ref: string
+    outputs:
+      context: object
+    timeout_ms: 5000
+
+  - id: git.diff.fetch
+    inputs:
+      repo_path: string
+      from_ref: string
+      to_ref: string
+    outputs:
+      diff: string
+    timeout_ms: 5000
+
+runtime:
+  command: sh
+  args: ["testdata/bin/git-context-stub.sh"]
+  idle_timeout_s: 60

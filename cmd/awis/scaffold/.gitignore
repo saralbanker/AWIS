@@ -1,0 +1,6 @@
+# AWIS runtime data — do not commit
+.awis/
+*.pid
+
+# Plugin binaries
+plugins/*/bin/

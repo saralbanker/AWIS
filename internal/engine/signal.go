@@ -38,6 +38,15 @@ type signalWaitStore interface {
 	CreateWaitRecord(ctx context.Context, wr storage.WaitRecord) error
 }
 
+// signalWaitListStore is the additive storage slice used by Resolve's durable
+// recovery path (engine-hardening Step 2.2, closes B-15): after a restart the
+// in-memory e.waits map is empty even though the wait durably survives in
+// wait_records, so Resolve falls back to listing an instance's live waits and
+// matching on signal_name (GetWaitRecord is keyed by step_id, not usable here).
+type signalWaitListStore interface {
+	ListWaitRecordsByInstance(ctx context.Context, instanceID core.InstanceID) ([]storage.WaitRecord, error)
+}
+
 // signalWaitDeleteStore is the additive storage slice for single wait_record
 // deletion: used at the delivery completion site (CompleteStep, OUTPUT 0) and
 // by the timeout scan (signal_timeout.go).
@@ -141,6 +150,10 @@ func (e *Engine) enterWait(ctx context.Context, inst core.WorkflowInstance, step
 	// write (EDR-007 §9): `waiting` is an engine tick-time decision, not an event,
 	// so a cold RebuildState reconstructs `running` (the documented §9 gap) — the
 	// forward and rebuild paths reconverge once SignalReceived is delivered.
+	//
+	// engine-hardening Step 1.4: guarded by the durable version (expectedVersion,
+	// same B-0 fix as project()), with one retry on ErrVersionConflict that
+	// re-reads the durable version rather than assuming expected+1.
 	cur, found, err := e.getInstance(ctx, inst.InstanceID)
 	if err != nil {
 		return err
@@ -150,15 +163,20 @@ func (e *Engine) enterWait(ctx context.Context, inst core.WorkflowInstance, step
 	}
 	cur.Status = core.InstanceStatusWaiting
 	cur.UpdatedAt = now
-	e.mu.Lock()
-	expected := e.ver[inst.InstanceID]
-	e.mu.Unlock()
-	if err := e.storage.UpsertInstance(ctx, cur, expected); err != nil {
+	for attempt := 0; ; attempt++ {
+		expected := e.expectedVersion(ctx, inst.InstanceID)
+		err := e.storage.UpsertInstance(ctx, cur, expected)
+		if err == nil {
+			e.mu.Lock()
+			e.ver[inst.InstanceID] = expected + 1
+			e.mu.Unlock()
+			break
+		}
+		if errors.Is(err, storage.ErrVersionConflict) && attempt == 0 {
+			continue // one retry: re-read the durable version and try again.
+		}
 		return fmt.Errorf("engine: enterWait set waiting %s: %w", inst.InstanceID, err)
 	}
-	e.mu.Lock()
-	e.ver[inst.InstanceID] = expected + 1
-	e.mu.Unlock()
 
 	e.rememberWait(inst.InstanceID, wc.SignalName, step.ID)
 	e.logger.Info("wait entry",
@@ -180,20 +198,57 @@ func (e *Engine) rememberWait(iid core.InstanceID, signalName, stepID string) {
 }
 
 // Resolve implements signal.Waits: it reports whether iid is actively waiting on
-// signalName and, if so, returns the awaited step id and the current tracked
+// signalName and, if so, returns the awaited step id and the durable
 // optimistic-lock version (the B3 step-3 <expected_version>).
-func (e *Engine) Resolve(iid core.InstanceID, signalName string) (string, int, bool) {
+//
+// engine-hardening (Step 1.6 + Step 2.2, closes B-15): the in-memory e.waits
+// map is V1 runtime state that is EMPTY right after a restart even though the
+// instance is durably `waiting` — the wait_record row and the projection both
+// survive the process boundary. On an in-memory miss, Resolve consults
+// storage's wait_records for iid and matches on signalName; a hit repopulates
+// e.waits (so the next Resolve for the same wait is a pure map lookup again).
+// The returned version is always the durable one (expectedVersion — the same
+// B-0 fix project() uses), never the possibly-stale e.ver cache directly.
+func (e *Engine) Resolve(ctx context.Context, iid core.InstanceID, signalName string) (string, int, bool) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	m, ok := e.waits[iid]
-	if !ok {
-		return "", 0, false
+	var stepID string
+	if ok {
+		stepID, ok = m[signalName]
 	}
-	stepID, ok := m[signalName]
+	e.mu.Unlock()
+
 	if !ok {
-		return "", 0, false
+		stepID, ok = e.recoverWait(ctx, iid, signalName)
+		if !ok {
+			return "", 0, false
+		}
 	}
-	return stepID, e.ver[iid], true
+	return stepID, e.expectedVersion(ctx, iid), true
+}
+
+// recoverWait durably resolves a live wait for (iid, signalName) when the
+// in-memory index has no entry, by scanning storage's wait_records and
+// matching on signal_name. A hit remembers the wait in-memory so subsequent
+// Resolve calls for the same wait are warm again (B-15).
+func (e *Engine) recoverWait(ctx context.Context, iid core.InstanceID, signalName string) (string, bool) {
+	store, ok := e.storage.(signalWaitListStore)
+	if !ok {
+		return "", false
+	}
+	wrs, err := store.ListWaitRecordsByInstance(ctx, iid)
+	if err != nil {
+		e.logger.Warn("Resolve: durable wait-record recovery failed",
+			"instance_id", string(iid), "signal_name", signalName, "error", err.Error())
+		return "", false
+	}
+	for _, wr := range wrs {
+		if wr.SignalName == signalName {
+			e.rememberWait(iid, signalName, wr.StepID)
+			return wr.StepID, true
+		}
+	}
+	return "", false
 }
 
 // OnDelivered implements signal.Waits: after the B3 tx commits it advances the

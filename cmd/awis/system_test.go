@@ -11,6 +11,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -285,5 +286,198 @@ func TestSystemScenarioB(t *testing.T) {
 	case <-time.After(12 * time.Second):
 		startCmd2.Process.Kill() //nolint:errcheck
 		t.Error("runtime 2 did not exit within 12s after stop")
+	}
+}
+
+// TestSystemRehearsalInitStartSubmitTrace is the M17-C3 CE-pinned rehearsal:
+// "init → start → submit → trace" (QG-1 path, measured loosely here, formally at M18).
+//
+// It runs the real binary through the full round trip a new user would follow after
+// 'awis init': init a fresh project directory, start the runtime against it, submit the
+// scaffolded hello-world workflow, and trace the resulting instance.
+//
+// Completion note: the hello-world scaffold's native steps (handler:
+// examples.hello.greet / examples.hello.log) are stubs documented in
+// handlers/example_handler.go for an EMBEDDING Go program to register (FR-RM-01); the
+// generic 'awis' CLI binary run here does not compile in any application handlers (by
+// design — that is the sdk-embedding seam, not the CLI's job). With no handler
+// registered, native.Run returns a non-retryable "handler_not_found" StepError (no
+// retry policy is set on the step, so ADJ-6 makes it a single, immediate attempt) and
+// the engine settles the instance to a TERMINAL status on the very next tick. This test
+// therefore asserts the instance reaches ANY terminal status (not specifically
+// "completed") — proving init→start→submit→trace mechanically works end-to-end, which
+// is what "measured loosely" calls for; a full successful-execution QG-1 gate with a
+// real registered handler is out of this card's scope and is formalized at M18.
+func TestSystemRehearsalInitStartSubmitTrace(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping system test under -short")
+	}
+
+	binDir := t.TempDir()
+	bin := buildBinary(t, binDir)
+
+	// 1. awis init <projDir> — scaffold a fresh project.
+	projDir := t.TempDir()
+	initCmd := exec.Command(bin, "init", projDir)
+	initOut, err := initCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("awis init failed: %v\noutput: %s", err, initOut)
+	}
+	t.Logf("init output:\n%s", initOut)
+
+	dataDir := filepath.Join(projDir, ".awis")
+
+	// 2. awis start — start the runtime against the scaffolded project.
+	startCmd := exec.Command(bin, "--data-dir="+dataDir, "start")
+	startCmd.Dir = projDir
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	startCmd.Stdout = pw
+	startCmd.Stderr = pw
+	if err := startCmd.Start(); err != nil {
+		t.Fatalf("start runtime: %v", err)
+	}
+	_ = pw.Close()
+
+	if !waitForHeader(t, pr, 15*time.Second) {
+		startCmd.Process.Kill() //nolint:errcheck
+		t.Fatal("runtime did not print startup header within 15s")
+	}
+
+	// Ensure the runtime is stopped at the end of the test regardless of outcome.
+	defer func() {
+		stopCmd := exec.Command(bin, "--data-dir="+dataDir, "stop")
+		stopCmd.Dir = projDir
+		_ = stopCmd.Run()
+		done := make(chan error, 1)
+		go func() { done <- startCmd.Wait() }()
+		select {
+		case <-done:
+		case <-time.After(12 * time.Second):
+			startCmd.Process.Kill() //nolint:errcheck
+		}
+	}()
+
+	// 3. awis submit hello-world — the scaffolded workflow is registered under its own
+	// YAML namespace ("examples"; sdk.Runtime.Submit's cross-process fallback filters
+	// ListWorkflows by the CALLING process's --namespace, not the definition's namespace,
+	// so this must match the scaffold's workflows/hello-world.yaml `namespace: examples`).
+	//
+	// Uses Output() (stdout only), not CombinedOutput(): the engine's default slog
+	// handler writes structured JSON log lines to stderr, which would otherwise
+	// interleave with the command's own --json stdout payload and break parsing.
+	submitCmd := exec.Command(bin, "--data-dir="+dataDir, "--namespace=examples", "--json", "submit", "hello-world")
+	submitCmd.Dir = projDir
+	var submitStderr strings.Builder
+	submitCmd.Stderr = &submitStderr
+	submitOut, err := submitCmd.Output()
+	if err != nil {
+		t.Fatalf("awis submit hello-world failed: %v\nstderr: %s", err, submitStderr.String())
+	}
+	var submitResult submitOutput
+	if jerr := json.Unmarshal(submitOut, &submitResult); jerr != nil {
+		t.Fatalf("submit --json output is not valid JSON: %v\nstdout: %s\nstderr: %s", jerr, submitOut, submitStderr.String())
+	}
+	if submitResult.InstanceID == "" {
+		t.Fatalf("submit --json output missing instance_id: %s", submitOut)
+	}
+	t.Logf("submitted instance: %s", submitResult.InstanceID)
+
+	// 4. awis status — poll (status+trace, as the card sanctions) until the instance
+	// leaves the active list and appears in the terminal "recent" list.
+	//
+	// This step uses 'status --json' rather than 'trace --json' for polling: it does
+	// not touch execution_events payloads at all (it aggregates from
+	// workflow_instances), so it is unaffected by trace's --json payload-encoding
+	// path. 'trace' (human mode, below) supplies the full timeline the card asks for.
+	terminal := map[string]bool{
+		string(core.InstanceStatusCompleted):          true,
+		string(core.InstanceStatusFailed):             true,
+		string(core.InstanceStatusCancelled):          true,
+		string(core.InstanceStatusCompensated):        true,
+		string(core.InstanceStatusCompensationFailed): true,
+	}
+
+	var finalStatus string
+	// terminalBudget covers the whole polling phase below, not just the terminal
+	// transition itself. Measured steady-state (isolated runs, both with and
+	// without -race): 5/5 PASS at 11.13-11.23s. The previous 10s budget was
+	// below that steady state, so it failed intermittently under full-package
+	// CPU contention even though it always passed in isolation. 45s is a
+	// generous multiple of the ~11.2s observed steady state, chosen to absorb
+	// contention without being unbounded.
+	terminalBudget := 45 * time.Second * raceScale
+	deadline := time.Now().Add(terminalBudget)
+	for time.Now().Before(deadline) {
+		statusCmd := exec.Command(bin, "--data-dir="+dataDir, "--json", "status", "--all")
+		statusCmd.Dir = projDir
+		var statusStderr strings.Builder
+		statusCmd.Stderr = &statusStderr
+		statusOut, serr := statusCmd.Output()
+		if serr != nil {
+			t.Fatalf("awis status failed: %v\nstderr: %s", serr, statusStderr.String())
+		}
+		var statusResult statusOutputJSON
+		if jerr := json.Unmarshal(statusOut, &statusResult); jerr != nil {
+			t.Fatalf("status --json output is not valid JSON: %v\nstdout: %s", jerr, statusOut)
+		}
+		found := false
+		for _, r := range statusResult.Recent {
+			if r.InstanceID == submitResult.InstanceID {
+				finalStatus = r.Status
+				found = true
+				break
+			}
+		}
+		if found && terminal[finalStatus] {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if !terminal[finalStatus] {
+		t.Fatalf("instance %s did not reach a terminal status within %s (last observed status: %q)",
+			submitResult.InstanceID, terminalBudget, finalStatus)
+	}
+	t.Logf("instance %s reached terminal status %q", submitResult.InstanceID, finalStatus)
+
+	// 5. awis trace <instance-id> — full execution timeline (human mode; TDS-07 §4
+	// shape). Confirms the engine actually ran the instance end-to-end, not merely
+	// that storage reports a terminal row.
+	traceCmd := exec.Command(bin, "--data-dir="+dataDir, "trace", submitResult.InstanceID)
+	traceCmd.Dir = projDir
+	traceOut, terr := traceCmd.CombinedOutput()
+	if terr != nil {
+		t.Fatalf("awis trace failed: %v\noutput: %s", terr, traceOut)
+	}
+	traceStr := string(traceOut)
+	t.Logf("trace output:\n%s", traceStr)
+
+	if !strings.Contains(traceStr, "hello-world") {
+		t.Errorf("trace output does not mention workflow id 'hello-world': %s", traceStr)
+	}
+	if !strings.Contains(traceStr, submitResult.InstanceID) {
+		t.Errorf("trace output does not mention instance id %q: %s", submitResult.InstanceID, traceStr)
+	}
+	if !strings.Contains(traceStr, "WorkflowStarted") {
+		t.Errorf("trace timeline does not include WorkflowStarted: %s", traceStr)
+	}
+	// One of the terminal workflow events must appear in the timeline, matching the
+	// terminal status observed via 'status' above.
+	terminalEventNames := []string{
+		"WorkflowCompleted", "WorkflowFailed", "WorkflowCancelled",
+		"WorkflowCompensated", "WorkflowCompensationFailed",
+	}
+	sawTerminalEvent := false
+	for _, name := range terminalEventNames {
+		if strings.Contains(traceStr, name) {
+			sawTerminalEvent = true
+			break
+		}
+	}
+	if !sawTerminalEvent {
+		t.Errorf("trace timeline does not include a terminal workflow event: %s", traceStr)
 	}
 }

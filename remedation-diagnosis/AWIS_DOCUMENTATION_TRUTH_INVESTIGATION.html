@@ -1,0 +1,1146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AWIS Documentation Truth Investigation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --paper:      #F1F2F4;
+    --surface:    #FCFCFD;
+    --surface-2:  #E9EBEE;
+    --ink:        #15181C;
+    --ink-2:      #565E6A;
+    --ink-3:      #7C8794;
+    --rule:       #CFD5DC;
+    --rule-soft:  #E2E6EB;
+    --accent:     #8E322B;
+    --accent-bg:  #F4E7E5;
+    --verify:     #2E6A66;
+    --verify-bg:  #E1EDEB;
+    --warn:       #8A6410;
+    --warn-bg:    #F4EBDA;
+
+    --serif: "Spectral", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --sans:  "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+    --mono:  "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+
+    --measure: 70ch;
+    --gutter: 4.25rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:     #131619;
+      --surface:   #1A1E22;
+      --surface-2: #222830;
+      --ink:       #E6E9EC;
+      --ink-2:     #9AA4AF;
+      --ink-3:     #737E89;
+      --rule:      #2F363E;
+      --rule-soft: #242A31;
+      --accent:    #DB8279;
+      --accent-bg: #33201E;
+      --verify:    #72B9B3;
+      --verify-bg: #16302E;
+      --warn:      #C99E4E;
+      --warn-bg:   #302818;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:     #131619;
+    --surface:   #1A1E22;
+    --surface-2: #222830;
+    --ink:       #E6E9EC;
+    --ink-2:     #9AA4AF;
+    --ink-3:     #737E89;
+    --rule:      #2F363E;
+    --rule-soft: #242A31;
+    --accent:    #DB8279;
+    --accent-bg: #33201E;
+    --verify:    #72B9B3;
+    --verify-bg: #16302E;
+    --warn:      #C99E4E;
+    --warn-bg:   #302818;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.62;
+    margin: 0;
+    padding: 0 1.25rem 7rem;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: calc(var(--measure) + var(--gutter));
+    margin: 0 auto;
+    padding-left: 0;
+  }
+
+  @media (min-width: 900px) {
+    .wrap { padding-left: var(--gutter); }
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    margin: 4.5rem 0 3rem;
+    padding-bottom: 1.75rem;
+    border-bottom: 2px solid var(--ink);
+  }
+
+  .eyebrow {
+    font-family: var(--sans);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1.1rem;
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 6vw, 3.15rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 0 0 1.1rem;
+  }
+
+  .standfirst {
+    font-size: 1.1rem;
+    color: var(--ink-2);
+    max-width: 58ch;
+    margin: 0 0 1.9rem;
+  }
+
+  .meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 0.9rem 2rem;
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    color: var(--ink-2);
+  }
+  .meta dt {
+    font-weight: 600;
+    font-size: 0.66rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 0.2rem;
+  }
+  .meta dd { margin: 0; }
+  .meta code { font-size: 0.76rem; }
+
+  /* ---------- headings ---------- */
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.62rem;
+    line-height: 1.2;
+    letter-spacing: -0.008em;
+    text-wrap: balance;
+    margin: 3.6rem 0 1.1rem;
+    position: relative;
+  }
+
+  h2 .num {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: 0.02em;
+    display: block;
+    margin-bottom: 0.45rem;
+  }
+
+  @media (min-width: 900px) {
+    h2 .num {
+      position: absolute;
+      left: calc(-1 * var(--gutter));
+      top: 0.55rem;
+      margin: 0;
+      width: 3.2rem;
+      text-align: right;
+    }
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 0.82rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    margin: 2.4rem 0 0.75rem;
+  }
+
+  h4 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.06rem;
+    margin: 1.9rem 0 0.5rem;
+  }
+
+  p { margin: 0 0 1.05rem; }
+  p.lede { font-size: 1.06rem; color: var(--ink-2); }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, .toc a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+
+  code, .mono {
+    font-family: var(--mono);
+    font-size: 0.845em;
+    background: var(--surface-2);
+    padding: 0.08em 0.34em;
+    border-radius: 2px;
+    word-break: break-word;
+  }
+
+  ul, ol { margin: 0 0 1.05rem; padding-left: 1.3rem; }
+  li { margin-bottom: 0.5rem; }
+  li::marker { color: var(--ink-3); }
+
+  /* ---------- index ---------- */
+
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 1.5rem 1.6rem 1.3rem;
+    margin: 0 0 2rem;
+  }
+  .toc h3 { margin-top: 0; }
+  .toc ol {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 0.1rem;
+    font-family: var(--sans);
+    font-size: 0.86rem;
+  }
+  .toc li { margin: 0; }
+  .toc a {
+    display: flex;
+    gap: 0.85rem;
+    padding: 0.3rem 0;
+    text-decoration: none;
+    color: var(--ink);
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .toc li:last-child a { border-bottom: 0; }
+  .toc a:hover { color: var(--accent); }
+  .toc .tnum {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--ink-3);
+    flex: none;
+    width: 2.1rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- verdict block ---------- */
+
+  .verdict {
+    border-top: 2px solid var(--accent);
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+    padding: 1.8rem 1.7rem 1.5rem;
+    margin: 2.4rem 0 1rem;
+  }
+  .verdict .eyebrow { color: var(--accent); margin-bottom: 0.8rem; }
+  .verdict p { font-size: 1.12rem; }
+  .verdict p:last-child { margin-bottom: 0; }
+
+  /* ---------- evidence chips ---------- */
+
+  .chip {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 0.14em 0.44em;
+    border-radius: 2px;
+    white-space: nowrap;
+    vertical-align: 0.12em;
+    background: var(--surface-2);
+    color: var(--ink-2);
+    border: 1px solid var(--rule);
+  }
+  .chip-t1, .chip-t2 { background: var(--verify-bg); color: var(--verify); border-color: var(--verify); }
+  .chip-t4 { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
+  .chip-t5 { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+
+  /* ---------- callouts ---------- */
+
+  .note {
+    border-left: 3px solid var(--rule);
+    padding: 0.1rem 0 0.1rem 1.15rem;
+    margin: 1.5rem 0;
+    color: var(--ink-2);
+    font-size: 0.97rem;
+  }
+  .note.finding { border-left-color: var(--accent); color: var(--ink); }
+  .note.verified { border-left-color: var(--verify); color: var(--ink); }
+  .note p:last-child { margin-bottom: 0; }
+  .note .label {
+    font-family: var(--sans);
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 0.35rem;
+    color: var(--ink-3);
+  }
+  .note.finding .label { color: var(--accent); }
+  .note.verified .label { color: var(--verify); }
+
+  /* ---------- breakout blocks ---------- */
+
+  .breakout {
+    margin: 1.7rem 0;
+    max-width: none;
+  }
+  @media (min-width: 1080px) {
+    .breakout { width: calc(100% + var(--gutter)); margin-left: calc(-1 * var(--gutter) / 1); }
+  }
+
+  .scroller { overflow-x: auto; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: var(--sans);
+    font-size: 0.83rem;
+    line-height: 1.45;
+    background: var(--surface);
+  }
+  caption {
+    caption-side: top;
+    text-align: left;
+    font-family: var(--sans);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    padding-bottom: 0.55rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.62rem 0.8rem;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+  }
+  thead th {
+    border-bottom: 1.5px solid var(--ink);
+    font-weight: 600;
+    font-size: 0.68rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: 1px solid var(--rule); }
+  td code { background: none; padding: 0; font-size: 0.8rem; color: var(--ink-2); }
+  .num-col { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rc-id { font-family: var(--mono); font-weight: 500; color: var(--accent); white-space: nowrap; }
+
+  .sev {
+    font-family: var(--sans);
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .sev-crit { color: var(--accent); }
+  .sev-high { color: var(--warn); }
+  .sev-med  { color: var(--ink-2); }
+
+  pre {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.62;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--ink-3);
+    padding: 0.95rem 1.05rem;
+    overflow-x: auto;
+    margin: 1.5rem 0;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  /* ---------- timeline ---------- */
+
+  .timeline { margin: 1.8rem 0; }
+  .tl-row {
+    display: grid;
+    grid-template-columns: 6.2rem 1fr;
+    gap: 0 1.2rem;
+    padding: 0.85rem 0;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .tl-row:first-child { border-top: 1.5px solid var(--ink); }
+  .tl-row:last-child { border-bottom: 1px solid var(--rule); }
+  .tl-date {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+    padding-top: 0.22rem;
+    white-space: nowrap;
+  }
+  .tl-body { font-size: 0.95rem; }
+  .tl-body b { font-weight: 600; }
+  .tl-row.pivot { background: var(--accent-bg); }
+  .tl-row.pivot .tl-date { color: var(--accent); }
+  .tl-row.gap {
+    background: var(--surface-2);
+    font-style: italic;
+    color: var(--ink-2);
+  }
+  @media (max-width: 560px) {
+    .tl-row { grid-template-columns: 1fr; gap: 0.3rem; }
+  }
+
+  /* ---------- answer grid ---------- */
+
+  .answers { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin: 1.8rem 0; }
+  .answer { background: var(--surface); padding: 1.15rem 1.25rem; }
+  .answer .q {
+    font-family: var(--sans);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 0.5rem;
+  }
+  .answer .a {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.22rem;
+    margin: 0 0 0.45rem;
+  }
+  .answer .a.no { color: var(--accent); }
+  .answer .a.qual { color: var(--warn); }
+  .answer p:last-child { margin-bottom: 0; font-size: 0.94rem; color: var(--ink-2); }
+
+  hr {
+    border: 0;
+    border-top: 1px solid var(--rule);
+    margin: 3rem 0;
+  }
+
+  .colophon {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    color: var(--ink-3);
+    border-top: 1px solid var(--rule);
+    padding-top: 1.2rem;
+    margin-top: 3.5rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Forensic diagnosis · Documentation system</p>
+    <h1>AWIS Documentation Truth Investigation</h1>
+    <p class="standfirst">Why the record stopped describing the repository — established from git history, source, and runtime rather than from any prior investigation's conclusions.</p>
+    <dl class="meta">
+      <div><dt>Conducted</dt><dd>2026-09-11</dd></div>
+      <div><dt>Repository state</dt><dd><code>engine-hardening</code> @ <code>8a87f70</code>, working tree as found</dd></div>
+      <div><dt>Corpus measured</dt><dd>319 AWIS Markdown files · 265 Go files · 24 local / 21 remote branches</dd></div>
+      <div><dt>Method</dt><dd>Independent re-derivation. No prior audit's conclusion inherited.</dd></div>
+    </dl>
+  </header>
+
+  <nav class="toc" aria-label="Contents">
+    <h3>Contents</h3>
+    <ol>
+      <li><a href="#s0"><span class="tnum">00</span><span>The answer, stated first</span></a></li>
+      <li><a href="#s1"><span class="tnum">01</span><span>The architecture that originally existed</span></a></li>
+      <li><a href="#s2"><span class="tnum">02</span><span>Was it sufficient?</span></a></li>
+      <li><a href="#s3"><span class="tnum">03</span><span>What changed — the timeline</span></a></li>
+      <li><a href="#s4"><span class="tnum">04</span><span>Where fragmentation began</span></a></li>
+      <li><a href="#s5"><span class="tnum">05</span><span>What caused fragmentation</span></a></li>
+      <li><a href="#s6"><span class="tnum">06</span><span>The GUI planning question</span></a></li>
+      <li><a href="#s7"><span class="tnum">07</span><span>Latent defects in the foundation</span></a></li>
+      <li><a href="#s8"><span class="tnum">08</span><span>Primary sources of inconsistency</span></a></li>
+      <li><a href="#s9"><span class="tnum">09</span><span>Root causes, ranked</span></a></li>
+      <li><a href="#s10"><span class="tnum">10</span><span>Earliest point of divergence</span></a></li>
+      <li><a href="#s11"><span class="tnum">11</span><span>Can any model work here today?</span></a></li>
+      <li><a href="#s12"><span class="tnum">12</span><span>Required characteristics</span></a></li>
+      <li><a href="#s13"><span class="tnum">13</span><span>Which categories are trustworthy</span></a></li>
+      <li><a href="#s14"><span class="tnum">14</span><span>The milestone framework verdict</span></a></li>
+      <li><a href="#s15"><span class="tnum">15</span><span>Evidence register</span></a></li>
+    </ol>
+  </nav>
+
+  <!-- ================= 00 ================= -->
+  <h2 id="s0"><span class="num">00</span>The answer, stated first</h2>
+
+  <div class="verdict">
+    <p class="eyebrow">What actually caused the AWIS documentation crisis</p>
+    <p><strong>Every truth-preserving mechanism AWIS built — the <code>STATE.md</code> ledger, the archive, the indices, the frozen canon — depended on continuous human attention and had no failure mode. A forty-day dormancy broke that attention. When work resumed, reading the record had become more expensive and less trustworthy than re-deriving it from the code, so the project re-derived. Re-derivation appends rather than replaces, and nothing in the system could retire what it superseded, so every subsequent session multiplied the number of authorities instead of reducing them.</strong></p>
+    <p>The crisis is not drift between documentation and code. It is the replacement of a <em>maintained</em> record by an <em>accumulating</em> one.</p>
+  </div>
+
+  <p>The rest of this report is the evidence for that sentence, and the corrections it forces on several intuitively appealing alternatives — including the hypothesis that GUI planning caused this.</p>
+
+  <!-- ================= 01 ================= -->
+  <h2 id="s1"><span class="num">01</span>The architecture that originally existed</h2>
+
+  <p>On 2026-07-02–03 AWIS was given a complete, deliberately-designed documentation architecture in essentially a single act. Commit <code>441f017</code> — the first commit in the repository, literally titled <em>"canonical planning corpus + Implementation Knowledge Base as-is"</em> — landed the whole thing at once. It had four layers, and they were coherent.</p>
+
+  <h3>Layer 1 — the frozen canon</h3>
+  <p>Fourteen root-level documents totalling roughly 700KB: <code>OIP_CONSTITUTION.md</code>, <code>AWIS_ARCHITECTURE_FINALIZATION.md</code>, <code>AWIS_ARCHITECTURE_BLUEPRINT.md</code>, <code>AWIS_PRD.md</code>, <code>IMPLEMENTATION_MASTER_PLAN.md</code> and its verification report. <code>docs/README.md</code> declares these <strong>IMMUTABLE</strong> and fixes a strict authority order in which conflicts resolve upward.</p>
+
+  <h3>Layer 2 — the Implementation Knowledge Base</h3>
+  <p>The <code>docs/</code> tree, numbered <code>00-foundation</code> through <code>07-indices</code>. Its stated contract is unusually disciplined: <em>"this tree partitions and cross-references them — it never restates them."</em> It carries a deterministic five-step session loading protocol designed to keep a model's context under 8k tokens, and a contradiction protocol requiring a session to <strong>STOP</strong> and record rather than silently resolve.</p>
+
+  <h3>Layer 3 — the milestone modules</h3>
+  <p>One directory per milestone, <code>M00</code>–<code>M18</code>, each bound to a seven-file contract: <code>README</code>, <code>IMPLEMENTATION_SPEC</code>, <code>AI_EXECUTION_CONTEXT</code>, <code>VALIDATION_CHECKLIST</code>, <code>HANDOFF</code>, <code>TRACEABILITY</code>, <code>DEPENDENCY_MAP</code>. Modules are lazily materialised at milestone entry, with a recorded rationale: pre-writing a <code>HANDOFF</code> would <em>"fabricate actuals."</em> This is a genuinely sophisticated anti-drift design.</p>
+
+  <h3>Layer 4 — the execution operating system</h3>
+  <p>Added 2026-07-08 at M06: <code>EEOS.md</code> (bootstrap) and <code>AWIS_EEOS.md</code> (normative), with <code>AWIS_ENGINEERING_ORGANIZATION.md</code> defining four roles. A five-phase machine — <span class="mono">A-INIT → B-BUILD → C-VERIFY → D-CLOSE → E-MERGE</span> — with immutable Execution Cards, an independent verifier that never sees implementer reasoning, and one governing rule above all others:</p>
+
+  <div class="note finding">
+    <span class="label">EEOS Rule 1 — Ledger law</span>
+    <p>"No phase or card transition is real until it is written to <code>STATE.md</code>." <code>docs/05-implementation/STATE.md</code> is defined as the <em>single source of live execution state</em>.</p>
+  </div>
+
+  <!-- ================= 02 ================= -->
+  <h2 id="s2"><span class="num">02</span>Was that architecture sufficient?</h2>
+
+  <p class="lede">It was sufficient to produce excellent work, and insufficient to survive its own author's absence. Both halves are demonstrable.</p>
+
+  <p>Under this architecture, M00–M14 executed with a rigour that is rare. Every one of those fifteen modules carries all seven contract files. Every card maps to exactly one commit. Verification was independent and the verifier's reports were not sanitised — <code>STATE.md</code> contains an entry where an independent verifier explicitly refused to accept an implementer's self-trace as adjudication, and re-measured the diffs. Nine milestones carry git tags. That is a functioning system.</p>
+
+  <p>But the architecture contained no mechanism that enforced itself. Consider what it declared, and what actually happened to each declaration across eighteen milestones:</p>
+
+  <div class="breakout scroller">
+    <table>
+      <caption>Declared mechanisms vs. measured use</caption>
+      <thead>
+        <tr><th>Mechanism</th><th>Declared in</th><th>Measured outcome</th><th>Times enforced</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>archive/</code> for superseded documents</td>
+          <td><code>docs/README.md</code>, <code>archive/README.md</code></td>
+          <td>Contains exactly one file: its own README, describing a document that was <em>not</em> archived</td>
+          <td class="num-col">0</td>
+        </tr>
+        <tr>
+          <td>Indices maintained as the lookup surface</td>
+          <td><code>docs/07-indices/</code>, EEOS "Lookup discipline"</td>
+          <td>Five files, ~7KB, single commit at M00; still forward-references M14 work as future</td>
+          <td class="num-col">0</td>
+        </tr>
+        <tr>
+          <td>Seven-file module contract</td>
+          <td><code>docs/05-implementation/README.md</code></td>
+          <td>Held M00–M14; degraded M15–M17; M18 has a README only</td>
+          <td class="num-col">0</td>
+        </tr>
+        <tr>
+          <td>TDS files live in <code>docs/06-reference/</code></td>
+          <td><code>docs/06-reference/README.md</code>, IKB</td>
+          <td>Directory empty; all 6 repo-side TDS created at <code>docs/</code> root instead</td>
+          <td class="num-col">0</td>
+        </tr>
+        <tr>
+          <td>Ledger law (rule 1)</td>
+          <td><code>EEOS.md</code>, <code>AWIS_EEOS.md</code> §3.3</td>
+          <td>Violated by the merge authority itself on 2026-08-20; abandoned entirely from 2026-08-26</td>
+          <td class="num-col">1 <span style="color:var(--ink-3)">(manual, 2026-07-10)</span></td>
+        </tr>
+        <tr>
+          <td>Canonical documents are IMMUTABLE</td>
+          <td><code>docs/README.md</code></td>
+          <td>Held perfectly — and became the problem: no amendment path exists, so scope change routed around them</td>
+          <td class="num-col">n/a</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Every row except the last records a rule that was written down, believed, and never checked by anything. The one row that <em>was</em> enforced — immutability — turns out to have been enforced by nothing either; the canon simply stopped being relevant, which looks identical to compliance.</p>
+
+  <div class="note verified">
+    <span class="label">Verified</span>
+    <p><code>docs/00-foundation</code>, <code>01-vision</code>, <code>02-architecture</code>, <code>03-product</code>, <code>06-reference</code> and <code>07-indices</code> each have <strong>exactly one commit in the entire history of the project</strong> — <code>441f017</code>, 2026-07-03. Eighteen milestones ran on top of a foundation that was never touched again. <span class="chip chip-t4">T4</span> <span class="chip chip-t2">T2</span></p>
+  </div>
+
+  <p><strong>Answer:</strong> the original architecture was sufficient as a <em>specification</em> and insufficient as a <em>system</em>. It described a maintained record without building anything that would notice when maintenance stopped.</p>
+
+  <!-- ================= 03 ================= -->
+  <h2 id="s3"><span class="num">03</span>What changed — the timeline</h2>
+
+  <p>Commit dates across all branches cluster into four distinct regimes separated by one long silence. The shape of this timeline is itself the central finding.</p>
+
+  <div class="breakout timeline">
+    <div class="tl-row">
+      <div class="tl-date">07-02 → 07-03</div>
+      <div class="tl-body"><b>Foundation authored.</b> Canon, IKB, milestone partitioning, indices, archive — all in one act. 29 commits on 07-03. Also on 07-03: M01 creates <code>docs/EVENTLOG_FORMAT.md</code>, contradicting the <code>06-reference</code> path mapping written hours earlier.</div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-date">07-08 → 07-11</div>
+      <div class="tl-body"><b>The EEOS era.</b> 95 commits in four days. M06 through M17 A-INIT. Cards, independent verification, ledger writes for every transition. On 07-10 alone, 44 commits.</div>
+    </div>
+    <div class="tl-row pivot">
+      <div class="tl-date">07-10</div>
+      <div class="tl-body"><b>First ledger–repository contradiction.</b> <code>STATE.md</code> said M09 was blocked at E-MERGE; <code>main</code> already contained the founder's M09 squash-merge. Detected and repaired by a manual reconciliation pass — the only such repair in the project's history.</div>
+    </div>
+    <div class="tl-row gap">
+      <div class="tl-date">07-11 → 08-20</div>
+      <div class="tl-body"><b>Forty days. Zero commits on any branch.</b> M17 was left mid-flight with card C3 marked <code>DISPATCHED</code> and no commit — a run that died without finishing. Six milestones (M10–M15) sat simultaneously in <code>PHASE: E-MERGE (blocked on founder)</code>.</div>
+    </div>
+    <div class="tl-row pivot">
+      <div class="tl-date">08-20</div>
+      <div class="tl-body"><b>Resumption day — and the pivot.</b> Three things happen at once. The founder bulk-merges M10–M14 into <code>main</code> as a single conflicted merge commit <code>f6aa755</code>, not the per-milestone squash the protocol defines — and writes no ledger entry. CI runs for the first time in the project's history and immediately finds a toolchain-pinned test. And three separate branches produce a four-deep recursive audit stack in one day.</div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-date">08-21</div>
+      <div class="tl-body"><b>M17 stalls permanently.</b> <code>M17-V1</code> fails twice. Row 8 is recorded as closable only by founder adjudication, "not further self-tracing." That adjudication never comes. Commit <code>7146214</code> is the <strong>last write to <code>STATE.md</code> in the project's history</strong>.</div>
+    </div>
+    <div class="tl-row pivot">
+      <div class="tl-date">08-26</div>
+      <div class="tl-body"><b>EEOS abandoned.</b> Commit <code>87d2d9d</code> opens a new defect-numbering scheme (<code>B-0</code>…<code>B-31</code>) with no card, no checklist, no verifier dispatch, no ledger row. Thirty-three commits follow. <strong>Zero touch <code>docs/05-implementation</code>.</strong></div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-date">08-26 → 08-29</div>
+      <div class="tl-body"><b>Engine hardening.</b> Genuinely excellent work — 25 defects closed, a binary-level integration tier built from nothing, and a report that publicly corrects its own predecessor's evidence. Documented in <code>docs/08-engine-hardening/</code>, tracked, dated. But produced entirely outside the governance system.</div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-date">08-30 → 09-01</div>
+      <div class="tl-body"><b>GUI planning.</b> Six sedimentary passes producing 38 documents. <em>Nine days after the ledger stopped, four days after EEOS was abandoned.</em> None committed.</div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-date">09-03 → 09-09</div>
+      <div class="tl-body"><b>The audit explosion.</b> <code>docs/10</code>, <code>docs/11</code>, <code>docs/12</code> and ~20 root-level verdict documents. Two commits total in this window. Everything else lands in the working directory only. The final document, <code>TRUTH_CLOSURE.md</code> (09-09), declares itself canonical and is referenced by nothing.</div>
+    </div>
+  </div>
+
+  <!-- ================= 04 ================= -->
+  <h2 id="s4"><span class="num">04</span>Where fragmentation began</h2>
+
+  <p>Truth fragmentation has a precise mechanical origin, and it is not a document. It is the decision to store the single source of truth inside a medium that forks.</p>
+
+  <p><code>STATE.md</code> is defined as <em>the</em> live execution state. It lives at <code>docs/05-implementation/STATE.md</code> — inside git, on a branch. EEOS then instructed milestones to stack branch-on-branch (<span class="mono">m10 → m11 → … → m17</span>) while <code>E-MERGE</code> waited on a single human. The predictable consequence is measurable today:</p>
+
+  <div class="breakout scroller">
+    <table>
+      <caption>The single source of truth, as it exists right now</caption>
+      <thead>
+        <tr><th>Branch</th><th class="num-col">md5</th><th class="num-col">Lines</th><th class="num-col">Milestone blocks</th><th>Says the current milestone is</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>main</code></td><td class="num-col">265c6f10</td><td class="num-col">115</td><td class="num-col">6</td><td>M15 <span class="mono">A-INIT (in progress)</span>; M10–M14 blocked on founder</td></tr>
+        <tr><td><code>m14-core-cli</code></td><td class="num-col">265c6f10</td><td class="num-col">115</td><td class="num-col">6</td><td>identical to <code>main</code></td></tr>
+        <tr><td><code>m15-oip-on-awis</code></td><td class="num-col">22a5fd23</td><td class="num-col">132</td><td class="num-col">7</td><td>M15 <span class="mono">E-MERGE</span>, gated on G3</td></tr>
+        <tr><td><code>m16-anthropic-adapter</code></td><td class="num-col">58af763c</td><td class="num-col">142</td><td class="num-col">8</td><td>M16 <span class="mono">E-MERGE</span></td></tr>
+        <tr><td><code>m17-full-cli-init</code></td><td class="num-col">b1857495</td><td class="num-col">308</td><td class="num-col">8</td><td>M17 <span class="mono">C-VERIFY</span>, blocked on row 8</td></tr>
+        <tr><td><code>engine-hardening</code></td><td class="num-col">b1857495</td><td class="num-col">308</td><td class="num-col">8</td><td>M17 <span class="mono">C-VERIFY</span> — while 33 non-milestone commits sit on top</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Four simultaneously-live, mutually inconsistent versions of a document whose defining property is singularity. And the divergence is not merely between branches — it is between <code>main</code> and <code>main</code>'s own history:</p>
+
+  <div class="note finding">
+    <span class="label">Finding — the ledger contradicts its own branch</span>
+    <p>On <code>main</code>, <code>STATE.md</code> records M10, M11, M12, M13 and M14 as <code>PHASE: E-MERGE (blocked on founder)</code>, and <code>DONE-MILESTONES</code> ends at M09. <code>main</code>'s git log contains <code>f6aa755 "M10-M14"</code>, a merge commit by the founder dated 2026-08-20, and the code for all five milestones is present in the tree. The ledger has been false about its own branch for three weeks. <span class="chip chip-t2">T2</span> <span class="chip chip-t4">T4</span></p>
+  </div>
+
+  <p>This matters more than it first appears, because EEOS anticipated exactly this state and specified the response. Its phase-resume table has a row reading <span class="mono">"ledger contradicts repo → STOP — Fable wake; never 'fix' STATE to match a guess."</span> The system's own instruction for its current condition is to halt. Nobody halted; the work simply moved elsewhere.</p>
+
+  <!-- ================= 05 ================= -->
+  <h2 id="s5"><span class="num">05</span>What caused fragmentation</h2>
+
+  <p>The mechanism has three stages, and each is independently evidenced.</p>
+
+  <h4>Stage one — a gate that could not be bypassed and was not attended</h4>
+  <p>EEOS rule 6: <em>"Merges are human-only."</em> There is no timeout, no fallback authority, and no bound on queue depth. By 2026-07-11, six consecutive milestones were queued behind one person. The queue did not fail loudly; it simply grew, and the branches stacked on each other so that nothing could merge independently.</p>
+
+  <h4>Stage two — dormancy destroyed the cheapness of reading</h4>
+  <p>Forty days later, the ledger's accuracy was unknown, M17 was mid-card with a dead dispatch, and six merges were outstanding. EEOS <em>has</em> a resume protocol for precisely this. It was not used. The first artifact produced on resumption day was an audit — <code>1b98ee2</code>, <em>"repository truth audit — independent re-verification of M15/M16/M17"</em>, 420 lines.</p>
+
+  <h4>Stage three — re-derivation became self-reproducing</h4>
+  <p>Within the same day, on pushed branches, the project produced:</p>
+
+  <pre><code>2026-08-20  1b98ee2  audit: repository truth audit
+2026-08-20  6dccb89  audit: record live CI evidence from this branch's own push
+2026-08-20  f348b28  audit: independent audit of the Repository Truth Audit
+2026-08-20  8c7ac6a  audit: final architecture arbitration over both repository audits
+2026-08-20  8f88458  decision: final decision review over all three prior reviews
+2026-08-20  c672186  verify: final independent verification of the M18 A-INIT path</code></pre>
+
+  <p>A four-level recursive adjudication stack, produced in one day, on three separate branches, none of which was ever merged into <code>main</code> or <code>engine-hardening</code>. Those 1,700 lines of adjudication are invisible to every subsequent session. They created a new directory, <code>docs/06-audits/</code> — colliding with <code>docs/06-reference/</code> on <code>main</code>, so the <code>docs/</code> tree's own numbering now depends on which branch you are standing on.</p>
+
+  <p>This is the moment the project's epistemology changed. Before it, truth was <em>read</em> from a maintained ledger. After it, truth was <em>re-derived</em> from code. Re-derivation is sound as an act and catastrophic as a habit, for one structural reason: <strong>it produces a new document rather than correcting the old one.</strong> And because nothing could retire the old one, the population of authorities grew monotonically from that day forward — twenty root-level verdict documents, four numbered <code>docs/</code> folders, five files named <code>FINAL_VERDICT.md</code>.</p>
+
+  <div class="note finding">
+    <span class="label">The pattern, self-observed</span>
+    <p><code>DOCUMENTATION_DIVERGENCE_REPORT.md</code> records that the single most important fact in the repository — that the GUI and API were never committed — was independently rediscovered on 2026-08-30, 09-01, 09-03, and twice on 09-05, "each writing as though this were a fresh discovery." Between the first and last rediscovery, <strong>zero commits added any of those paths to git.</strong> The finding was documented five times and acted on zero times. That ratio <em>is</em> the crisis. <span class="chip chip-t4">T4</span></p>
+  </div>
+
+  <!-- ================= 06 ================= -->
+  <h2 id="s6"><span class="num">06</span>The GUI planning question</h2>
+
+  <p class="lede">Verdict: contributor and symptom. Not root cause, and not unrelated.</p>
+
+  <h3>Why it cannot be the root cause</h3>
+  <p>Chronology settles this. GUI planning's own README dates its evidence base to 2026-08-30. By that date:</p>
+  <ul>
+    <li>The last write to <code>STATE.md</code> was <strong>nine days</strong> old (2026-08-21).</li>
+    <li>EEOS had already been abandoned for <strong>four days</strong> — the <code>B-</code> series began 2026-08-26 with zero ledger rows.</li>
+    <li>The recursive-audit pattern was already <strong>ten days</strong> old.</li>
+    <li><code>main</code> and <code>engine-hardening</code> had already diverged irreconcilably.</li>
+  </ul>
+  <p>Every structural failure attributed to GUI planning predates it. It did not abandon the milestone system; it arrived after the milestone system had stopped.</p>
+
+  <h3>Why it is not innocent</h3>
+  <p>It is the largest single block of duplicate authority in the repository: 38 documents, flat, no subdirectories, zero commits. It contains <strong>five competing terminal answers</strong> — <code>FINAL_VERDICT.md</code>, <code>FINAL_RECOMMENDATION.md</code>, <code>GUI_BETA_FINAL_RECOMMENDATION.md</code>, <code>GUI_PHASE1_FINAL_RECOMMENDATION.md</code>, <code>STARTLINE_FINAL_VERDICT.md</code> — each offered as the thing to read "if you only have two minutes." Its own README carries a "Standing conclusion" section whose first words are that the standing conclusion is superseded.</p>
+
+  <p>It also drove scope past the canonical boundary. <code>AWIS_PRD.md</code> — single commit, 2026-07-02, never amended — scopes the web dashboard as V3 work (line 116), authentication as V3 (NG-4), and a web-accessible status page as V2 (§17). The GUI and HTTP API were built into a V1 baseline anyway. The PRD was never touched.</p>
+
+  <h3>The correction this investigation must make</h3>
+  <p>The intuitive reading — that GUI planning was sloppy where engine documentation was rigorous — does not survive measurement. <code>docs/09-gui-planning/README.md</code> is <strong>the best-indexed document in the repository</strong>. It dates every one of its six passes, states explicitly what each supersedes and what it does not, distinguishes "new investigation" from "decomposition only," and flags its own limits — including that the entire plan is evaluated against a branch <code>main</code> is 60 commits behind. It even records a factual error it made and retracted.</p>
+
+  <p>Compare that with the engine foundation's <code>docs/06-reference/README.md</code>, which states: <em>"A missing TDS here means its milestone has not executed."</em> The directory is empty. Six of seven TDS exist elsewhere. That sentence has been false since the day after it was written.</p>
+
+  <div class="note verified">
+    <span class="label">Conclusion</span>
+    <p>GUI planning is the first large body of work produced <em>after</em> governance stopped. It therefore shows what AWIS documentation looks like without governance — which is sedimentary, verbose, redundant, and individually more honest about its own authority than the governed foundation ever was. It is the symptom rendered at scale, plus a genuine contributor of duplicate-authority mass and out-of-scope implementation.</p>
+  </div>
+
+  <!-- ================= 07 ================= -->
+  <h2 id="s7"><span class="num">07</span>Latent defects in the original foundation</h2>
+
+  <p class="lede">Yes — three, and one of them is a false state oracle that has been lying since day one.</p>
+
+  <h4>Defect A — the <code>06-reference</code> path mapping</h4>
+  <p><code>docs/06-reference/README.md</code> declares a "recorded, not silent" path mapping: IMP §12 names paths like <code>docs/EVENTLOG_FORMAT.md</code>; "in this repository they resolve to <code>docs/06-reference/&lt;NAME&gt;.md</code>." It then tabulates TDS-01 through TDS-07 as living there.</p>
+
+  <p>Not one of them does. All six repo-side TDS files were created at <code>docs/</code> root — three of them by M01 on 2026-07-03, <em>the same day the mapping was written</em>. No milestone module anywhere references the <code>06-reference</code> path; every one of them cites <code>docs/&lt;NAME&gt;.md</code> directly. The contradiction was never recorded as a CONTRA, despite the foundation's own contradiction protocol requiring exactly that.</p>
+
+  <p>This produces two compounding failures. The first: <code>docs/README.md</code>'s deterministic loading protocol, step 3, instructs every session to <em>"load only the TDS files in <code>06-reference/</code> that the execution context names."</em> Following the documented protocol yields an empty directory. The second is worse — the same README states a falsifiable claim about project state:</p>
+
+  <div class="note finding">
+    <span class="label">A false oracle, load-bearing since 2026-07-03</span>
+    <p>"Empty until the creating milestone runs. <strong>A missing TDS here means its milestone has not executed.</strong>"</p>
+    <p>The directory contains only its own README. By its own rule, M01, M11, M12 and M14 have not executed. All four executed, were independently verified, and are merged into <code>main</code>. <span class="chip chip-t2">T2</span></p>
+  </div>
+
+  <h4>Defect B — the archive was declared but never wired to an obligation</h4>
+  <p>Two documents establish <code>archive/</code> as the destination for superseded material. Nothing states <em>who</em> archives, <em>when</em>, or what checks it. Across 387 documents and eighteen milestones it was used zero times. Its sole occupant is its own README, which describes a superseded blueprint that it explicitly notes is retained at the repository root rather than archived — the retirement mechanism documenting its own non-use in its only entry.</p>
+
+  <h4>Defect C — write-once indices carrying a protocol dependency</h4>
+  <p>EEOS's "Lookup discipline" section makes <code>docs/07-indices/cross-reference-index.md</code> mandatory: <em>"A question about the frozen design → cross-reference-index → one coordinate → load only that section. Browsing canonical documents 'for context' is a protocol violation."</em> That index has one commit, dated M00. It still describes TDS-07 as "M14 day 1" future work and stops at migration 0005; migration 0006 shipped in M17. A protocol made lookup mandatory through an artifact nothing obliged anyone to update.</p>
+
+  <p>None of these three caused the crisis. All three establish the same property: <strong>the foundation specified behaviour it could not detect the absence of.</strong> That property is the crisis's precondition.</p>
+
+  <!-- ================= 08 ================= -->
+  <h2 id="s8"><span class="num">08</span>Primary sources of inconsistency</h2>
+
+  <div class="breakout scroller">
+    <table>
+      <caption>Measured, independently reproduced</caption>
+      <thead>
+        <tr><th>Source</th><th>Measurement</th><th>Consequence</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>Untracked work product</b></td>
+          <td>78 Markdown files untracked. <code>docs/09</code> (38), <code>docs/10</code> (6), <code>docs/11</code> (8), <code>docs/12</code> (7) are <em>entirely</em> untracked — tracked count 0. Plus ~20 root reports.</td>
+          <td>The most accurate documents in the repository do not exist in the repository</td>
+        </tr>
+        <tr>
+          <td><b>Untracked implementation</b></td>
+          <td><code>internal/api</code>, <code>cmd/awis-server</code>, <code>web/src</code>, <code>internal/buildinfo</code>: <code>git log --all</code> returns <strong>0 commits</strong> for each. 20 <code>.go</code> + 12 <code>.ts</code> files.</td>
+          <td>A clone reconstructs a different, smaller project</td>
+        </tr>
+        <tr>
+          <td><b>Forked ledger</b></td>
+          <td>Four distinct <code>STATE.md</code> contents live across six branches</td>
+          <td>No branch-independent answer to "what phase is this project in"</td>
+        </tr>
+        <tr>
+          <td><b>Branch divergence</b></td>
+          <td><code>engine-hardening</code> is 62 ahead / 6 behind <code>main</code>. Merge base is <code>827a084</code> (M14 D-CLOSE, 2026-07-10).</td>
+          <td>Two branches, neither a superset, both claimed as current by different documents</td>
+        </tr>
+        <tr>
+          <td><b>Duplicate filenames</b></td>
+          <td>5 × <code>FINAL_VERDICT.md</code>. Root vs <code>docs/10</code> differ by 137 lines and hold <em>opposite verdicts</em>. Four other pairs are byte-identical copies, not moves.</td>
+          <td>Citation by filename is ambiguous or actively misleading</td>
+        </tr>
+        <tr>
+          <td><b>Ungoverned identifiers</b></td>
+          <td>≥7 post-hoc defect schemes measured — <code>SEC-n</code>, <code>AD-n</code>, <code>RA-n</code>, <code>D-n</code>, <code>B-n</code>, <code>RC-n</code>, <code>C-n</code> — atop canonical <code>EDR</code>/<code>CONTRA</code>/<code>IR</code>/<code>TDS</code>/<code>FR</code>/<code>G</code>. No registry exists.</td>
+          <td>"Is this defect closed?" requires manual correlation across schemes</td>
+        </tr>
+        <tr>
+          <td><b>Competing entry points</b></td>
+          <td><code>CLAUDE.md</code> and <code>GEMINI.md</code> at root, both routing to <code>.agent/AGENTS.md</code>; <code>.agent/</code> is a staged replacement of a tracked <code>.agents/</code> tree (197 files deleted, 86 staged). <code>CLAUDE.md</code> carries an override telling EEOS sessions to skip that kit entirely.</td>
+          <td>Three governance layers, resolved by a hand-written precedence note</td>
+        </tr>
+        <tr>
+          <td><b>Orphaned canon</b></td>
+          <td><code>TRUTH_CLOSURE.md</code> — the newest and most rigorous document, self-declared "CANONICAL" — is untracked and is the <em>only</em> root Markdown file referenced by no other document.</td>
+          <td>Reachable by <code>ls</code>, by nothing else</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ================= 09 ================= -->
+  <h2 id="s9"><span class="num">09</span>Root causes, ranked</h2>
+
+  <p>Ranked by damage done, with evidence strength stated separately. Evidence tiers follow the brief's hierarchy: <span class="chip chip-t1">T1</span> runtime, <span class="chip chip-t2">T2</span> source, <span class="chip chip-t4">T4</span> git history and foundation docs, <span class="chip chip-t5">T5</span> secondary documents.</p>
+
+  <div class="breakout scroller">
+    <table>
+      <caption>Root cause register</caption>
+      <thead>
+        <tr><th>#</th><th>Severity</th><th>Root cause</th><th>Evidence</th><th>Strength</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="rc-id">RC-1</td><td class="sev sev-crit">Critical</td>
+          <td><b>The single source of truth was stored in a forking medium, behind an unbounded human gate.</b> <code>STATE.md</code> lives on a branch; <code>E-MERGE</code> is human-only with no timeout; milestones stack branch-on-branch.</td>
+          <td>4 live <code>STATE.md</code> variants; <code>main</code>'s ledger contradicts <code>main</code>'s log; 6 milestones simultaneously queued</td>
+          <td><span class="chip chip-t2">T2</span> <span class="chip chip-t4">T4</span> conclusive</td>
+        </tr>
+        <tr>
+          <td class="rc-id">RC-2</td><td class="sev sev-crit">Critical</td>
+          <td><b>No resumption protocol cheaper than re-derivation.</b> After 40 days dormant, re-deriving from code was cheaper and more trustworthy than reading the record — and re-derivation appends rather than replaces.</td>
+          <td>40-day commit gap; resumption day produces a 4-deep audit stack; one fact rediscovered 5× and fixed 0×</td>
+          <td><span class="chip chip-t4">T4</span> conclusive</td>
+        </tr>
+        <tr>
+          <td class="rc-id">RC-3</td><td class="sev sev-crit">Critical</td>
+          <td><b>Nothing was ever retired.</b> Superseding documents accumulated <em>beside</em> what they superseded; both stayed readable; neither was marked.</td>
+          <td><code>archive/</code> used 0 times in 387 docs; 5 × <code>FINAL_VERDICT.md</code>, two with opposite verdicts</td>
+          <td><span class="chip chip-t2">T2</span> conclusive</td>
+        </tr>
+        <tr>
+          <td class="rc-id">RC-4</td><td class="sev sev-crit">Critical</td>
+          <td><b>The verification tier was itself unreliable, and its green was machine-local.</b> Every confidence claim in the corpus rests on "the gates are green."</td>
+          <td>See §11 — the version-golden demonstration; the hardening program's own "a green suite proved nothing, four different ways"</td>
+          <td><span class="chip chip-t1">T1</span> conclusive</td>
+        </tr>
+        <tr>
+          <td class="rc-id">RC-5</td><td class="sev sev-high">High</td>
+          <td><b>The foundation was write-once with no maintenance obligation.</b> Six <code>docs/</code> subtrees have exactly one commit each across eighteen milestones.</td>
+          <td>Indices frozen at M00 while a protocol made them mandatory</td>
+          <td><span class="chip chip-t4">T4</span> conclusive</td>
+        </tr>
+        <tr>
+          <td class="rc-id">RC-6</td><td class="sev sev-high">High</td>
+          <td><b>A day-one path defect created a false state oracle.</b> <code>06-reference</code> claims emptiness proves non-execution; it has been empty and wrong since 2026-07-03.</td>
+          <td>6/6 TDS at <code>docs/</code> root; 0 module references to <code>06-reference</code>; never raised as CONTRA</td>
+          <td><span class="chip chip-t2">T2</span> conclusive</td>
+        </tr>
+        <tr>
+          <td class="rc-id">RC-7</td><td class="sev sev-high">High</td>
+          <td><b>Work product was produced outside version control.</b> Not an oversight repeated once — a sustained mode of working spanning ten days, four <code>docs/</code> folders and an entire product surface.</td>
+          <td>0 commits for 4 implementation paths; 59 untracked docs-tree files; canonical document orphaned</td>
+          <td><span class="chip chip-t2">T2</span> conclusive</td>
+        </tr>
+        <tr>
+          <td class="rc-id">RC-8</td><td class="sev sev-high">High</td>
+          <td><b>"Frozen" without an amendment path degrades to "ignored."</b> The canon forbade V2/V3 scope in V1 and had no mechanism to be amended, so scope change simply routed around it.</td>
+          <td>PRD scopes dashboard/auth V3, HTTP status V2; both built; PRD untouched since 2026-07-02</td>
+          <td><span class="chip chip-t2">T2</span> <span class="chip chip-t4">T4</span> conclusive</td>
+        </tr>
+        <tr>
+          <td class="rc-id">RC-9</td><td class="sev sev-med">Medium</td>
+          <td><b>Identifier namespace was never governed.</b> Each re-derivation invented its own defect scheme.</td>
+          <td>≥7 post-hoc schemes measured; no cross-reference table anywhere</td>
+          <td><span class="chip chip-t2">T2</span> strong</td>
+        </tr>
+        <tr>
+          <td class="rc-id">RC-10</td><td class="sev sev-med">Medium</td>
+          <td><b>Template decay went unenforced at the tail.</b> The seven-file module contract degraded exactly where pressure was highest.</td>
+          <td>M00–M14 7/7; M15 6/7; M16 4/7; M17 5/7; M18 1/7</td>
+          <td><span class="chip chip-t2">T2</span> strong</td>
+        </tr>
+        <tr>
+          <td class="rc-id">RC-11</td><td class="sev sev-med">Medium</td>
+          <td><b>Concurrent governance systems.</b> EEOS/AEO, a generic agent kit, and two harness-specific entry files, reconciled by a hand-written precedence note rather than by structure.</td>
+          <td><code>CLAUDE.md</code> override clause; <code>.agents/</code> → <code>.agent/</code> mid-migration</td>
+          <td><span class="chip chip-t2">T2</span> moderate</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>RC-1 through RC-4 are jointly sufficient to produce the observed state. RC-5 through RC-8 determined that the damage would be permanent rather than recoverable. RC-9 through RC-11 raise the cost of every future attempt to read the record.</p>
+
+  <!-- ================= 10 ================= -->
+  <h2 id="s10"><span class="num">10</span>Earliest point of divergence</h2>
+
+  <p>The question has three honest answers at three different depths, and collapsing them loses information.</p>
+
+  <h4>Latent divergence — 2026-07-03, commits <code>441f017</code> / <code>aef89bf</code></h4>
+  <p>The foundation was authored write-once; the archive was declared without an obligation; the indices were made mandatory without a maintainer; and the TDS path mapping was contradicted by the very first milestone that exercised it, on the same day, without a CONTRA being raised. Nothing broke. But from this moment the system had no capacity for self-repair.</p>
+
+  <h4>Active divergence — 2026-07-10</h4>
+  <p>The first recorded instance of the ledger being false about the repository: <code>STATE.md</code> said M09 was blocked at <code>E-MERGE</code> while <code>main</code> already contained its squash-merge. <strong>The significant event is not the contradiction — it is the repair.</strong> It was found and fixed by a manual reconciliation pass, which established that ledger–repository consistency was maintained by attention rather than by mechanism. The same failure recurred six weeks later and was never repaired, because the thing that caught it the first time was a person noticing.</p>
+
+  <h4>Point of no return — 2026-08-20</h4>
+  <p>Three irreversible things happened on one day: five milestones were merged without a ledger write, making the ledger permanently false; the recursive-audit genre was born and immediately reached four levels; and the audit output was pushed to branches that were never merged, so the re-derivation was itself lost. After this date, <strong>no document in the repository accurately describes the repository</strong>, and re-derivation became the only reliable method — which guaranteed the document count would grow without bound.</p>
+
+  <p>If forced to name one: <strong>2026-07-10</strong>, the unrepaired-by-mechanism repair. That is where the project learned, without noticing, that its truth system ran on attention.</p>
+
+  <!-- ================= 11 ================= -->
+  <h2 id="s11"><span class="num">11</span>Can any model work here today?</h2>
+
+  <p>Four capabilities, assessed against the repository as it exists. The demonstration that settles all four is worth showing first, because it is the cleanest Tier-1 fact in this investigation.</p>
+
+  <h3>The version-golden demonstration</h3>
+  <p><code>main</code> fixed toolchain-pinned test goldens in <code>d5ac004</code> (2026-08-20), whose commit message records it was <em>"found by the first CI run in the project's history."</em> That fix never reached the branch holding all the work:</p>
+
+  <pre><code>$ git merge-base --is-ancestor d5ac004 engine-hardening   →  NO
+
+$ git show engine-hardening:cmd/awis/testdata/golden/version.txt
+awis version 0.1.0-dev  go go1.26.5          # committed: pinned to one patch release
+
+$ git show main:cmd/awis/testdata/golden/version.txt
+awis version 0.1.0-dev  go &lt;go-version&gt;      # committed: normalised
+
+$ cat cmd/awis/testdata/golden/version.txt    # the working tree, right now
+awis version 0.1.0-dev  go &lt;go-version&gt;
+
+$ git status --porcelain cmd/awis/
+ M cmd/awis/main_test.go
+ M cmd/awis/testdata/golden/version.txt        # the fix is UNCOMMITTED
+
+$ go test ./cmd/awis/ -run TestVersion         # this machine, go1.26.5
+ok  github.com/awis/awis/cmd/awis  0.003s</code></pre>
+
+  <p>The test passes here. It passes because this machine runs the exact Go patch release the golden was pinned to, <em>and</em> because the working directory carries an uncommitted fix that exists on no branch. CI resolves <code>1.26.x</code> to the newest patch. A clean clone of <code>engine-hardening</code> @ <code>8a87f70</code> — the commit every audit in this repository evaluates — fails.</p>
+
+  <div class="note finding">
+    <span class="label">What this proves</span>
+    <p>The repository's health is a property of one uncommitted working directory, not of anything in version control. Nine tracked files carry uncommitted modifications, two of which (<code>cmd/awis/main.go</code>, <code>cmd/awis/start.go</code>) depend on <code>internal/buildinfo</code>, a package that has never been committed. <span class="chip chip-t1">T1</span> <span class="chip chip-t2">T2</span></p>
+  </div>
+
+  <div class="answers">
+    <div class="answer">
+      <p class="q">Understanding by any model</p>
+      <p class="a qual">Only by ignoring the documented path</p>
+      <p>The documented cold-start route is <code>CLAUDE.md</code> → <code>EEOS.md</code> S1 → <code>STATE.md</code>, which is 33 commits, one abandoned protocol and four docs-folders out of date. An accurate account of the project does exist — <code>TRUTH_CLOSURE.md</code> — but it is untracked, referenced by nothing, and named in no entry point. It is found by listing the directory, not by following any route the repository provides.</p>
+    </div>
+    <div class="answer">
+      <p class="q">Continuation by any model</p>
+      <p class="a no">No</p>
+      <p>EEOS's own phase-resume table specifies the response to the current state: <span class="mono">"ledger contradicts repo → STOP."</span> A protocol-compliant model halts on arrival. A non-compliant one proceeds against a ledger asserting that M10–M14 await merge (they are merged), that M15/M16 await merge (they are not on <code>main</code> at all), and that the live milestone is M17 <code>C-VERIFY</code> — while the actual work is an unledgered defect program, a GUI, and an HTTP API.</p>
+    </div>
+    <div class="answer">
+      <p class="q">Reconstruction by any model</p>
+      <p class="a no">No</p>
+      <p>Reconstruction requires the artifact to be in the artifact store. An entire product surface — <code>internal/api</code>, <code>cmd/awis-server</code>, <code>web/</code>, <code>internal/buildinfo</code> — has zero commits on any branch in the project's entire history, alongside 59 untracked docs-tree files and ~20 root reports. A clone reconstructs a smaller, different project that cannot pass its own CI.</p>
+    </div>
+    <div class="answer">
+      <p class="q">Safe execution by any model</p>
+      <p class="a no">No</p>
+      <p>Two independently sufficient reasons. First, the branch holding all the work cannot pass its own CI from a clean checkout, so "the gates are green" — the premise under every confidence claim in the corpus — is unverifiable by anyone but this machine. Second, there is no live ledger to write to: any work performed is unrecorded by construction, which is the exact condition that produced this state.</p>
+    </div>
+  </div>
+
+  <p>One qualification matters, and it cuts the other way: <strong>the engine itself is in good condition.</strong> Independent spot-checks in this investigation confirmed the architecture matches its documentation, the milestone execution records are accurate against their commits, and the hardening program's defect work is real. The failure being diagnosed is a failure of the record, not of the software.</p>
+
+  <!-- ================= 12 ================= -->
+  <h2 id="s12"><span class="num">12</span>Characteristics the final architecture must possess</h2>
+
+  <p>Stated as properties the evidence shows are required — not as a plan, a sequence, or a disposition of existing files.</p>
+
+  <ol>
+    <li><strong>Branch-independent live state.</strong> The single record of what phase the project is in must not live in a medium that forks. RC-1 is the whole of this.</li>
+    <li><strong>Every governance mechanism must have an enforcement surface that fails loudly.</strong> A rule checked by attention is not a rule. A mechanism used zero times across 387 documents was never a mechanism — it was a sentence.</li>
+    <li><strong>Truth must be reconstructible from the artifact store alone.</strong> If a claim's evidence is untracked, the claim is not evidence. The corpus currently cites untracked files from untracked files.</li>
+    <li><strong>Frozen documents need a defined amendment path.</strong> Immutability without an amendment procedure does not preserve the canon; it makes the canon irrelevant the first time reality moves, and the movement then goes unrecorded.</li>
+    <li><strong>Exactly one terminal answer per question, at a stable address.</strong> Superseding must replace <em>at the address</em>. Appending beside it is what produced five <code>FINAL_VERDICT.md</code> files, two of which disagree.</li>
+    <li><strong>Documents must declare their own expiry conditions.</strong> Every high-value document here was true when written and false within days. The commit, branch and toolchain a claim was true against must travel with the claim.</li>
+    <li><strong>A resumption protocol cheaper than re-derivation.</strong> This is the load-bearing property. When reading costs more than re-deriving, sessions will re-derive; re-derivation is not idempotent; and the document count grows without bound. Everything else in this list is downstream of this one.</li>
+    <li><strong>Reachability as an invariant.</strong> Every authoritative document must be reachable from the single entry point, and unreachable documents must be non-authoritative <em>by definition</em> — so that an orphan like <code>TRUTH_CLOSURE.md</code> is a detectable error rather than a silent one.</li>
+    <li><strong>A governed identifier namespace with one registry.</strong> Seven ad-hoc defect schemes is what "no registry" looks like after six weeks.</li>
+    <li><strong>No unbounded serialization behind a single human.</strong> Either the gate carries a timeout and a fallback authority, or it carries an explicit queue-depth limit that halts production when exceeded. Six queued milestones must be a loud failure, not a quiet backlog.</li>
+  </ol>
+
+  <!-- ================= 13 ================= -->
+  <h2 id="s13"><span class="num">13</span>Which document categories are trustworthy</h2>
+
+  <div class="breakout scroller">
+    <table>
+      <caption>Assessed by whether claims survived independent re-derivation in this investigation</caption>
+      <thead>
+        <tr><th>Category</th><th>Standing</th><th>Basis</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>Git history and commit messages</b></td>
+          <td style="color:var(--verify);font-weight:600">Trustworthy</td>
+          <td>The highest-fidelity non-runtime record in the repository. Dated, attributable, self-consistent. Used throughout this investigation to falsify document claims; falsified by none.</td>
+        </tr>
+        <tr>
+          <td><b>Milestone execution records, M00–M14</b> (<code>TRACEABILITY</code>, <code>HANDOFF</code>, <code>VALIDATION_CHECKLIST</code>, <code>cards/</code>)</td>
+          <td style="color:var(--verify);font-weight:600">Trustworthy</td>
+          <td>Written against executed work, sha-linked, independently verified at the time. Spot-checks in this investigation found them accurate against their commits.</td>
+        </tr>
+        <tr>
+          <td><b><code>STATE.md</code> narrative entries</b> (<code>LAST-n</code>)</td>
+          <td style="color:var(--verify);font-weight:600">Trustworthy as history</td>
+          <td>Unusually honest: they record their own failures, distinguish "verified this session" from "taken on the agent's report," and contain a verifier explicitly refusing to accept a self-trace. Trustworthy about what was <em>known</em> — never about what is <em>current</em>.</td>
+        </tr>
+        <tr>
+          <td><b>Normative protocol specs</b> at <code>docs/</code> root (TDS-01…07, <code>CLI_CONTRACT</code>, <code>PLUGIN_PROTOCOL</code>, <code>SUBPROCESS_PROTOCOL</code>)</td>
+          <td style="color:var(--verify);font-weight:600">Trustworthy</td>
+          <td>Created by the milestone that implemented them, load-bearing for code, and verified against the shipped CLI surface.</td>
+        </tr>
+        <tr>
+          <td><b><code>docs/08-engine-hardening/</code></b></td>
+          <td style="color:var(--verify);font-weight:600">Trustworthy</td>
+          <td>Tracked, dated, defect-to-commit mapped, and one report publicly corrects the other's evidence. The only audit-genre material in the corpus that is both in git and self-correcting.</td>
+        </tr>
+        <tr>
+          <td><b>Terminal verdict documents</b> (any file named <code>FINAL_*</code> or <code>*_VERDICT</code>)</td>
+          <td style="color:var(--accent);font-weight:600">Unreliable</td>
+          <td>The genre's observed failure rate is near total: each was superseded within days, none was retracted at its own address, and two share a filename while holding opposite conclusions.</td>
+        </tr>
+        <tr>
+          <td><b>Everything untracked</b> (78 files)</td>
+          <td style="color:var(--accent);font-weight:600">Unreliable as evidence</td>
+          <td>Not because it is wrong — much of it is the most accurate material here — but because it is unreproducible, uncitable, and invisible to a clone. Untracked analysis cannot serve as evidence for anything.</td>
+        </tr>
+        <tr>
+          <td><b><code>docs/06-reference/README.md</code> and the <code>docs/README.md</code> loading protocol</b></td>
+          <td style="color:var(--accent);font-weight:600">Actively false</td>
+          <td>Not stale — wrong. One asserts a state oracle that has never held; the other routes sessions to an empty directory and to <code>AI_EXECUTION_CONTEXT</code> files that do not exist for M16–M18.</td>
+        </tr>
+        <tr>
+          <td><b><code>docs/07-indices/</code></b></td>
+          <td style="color:var(--accent);font-weight:600">Unreliable</td>
+          <td>Frozen at M00 while a protocol made consulting it mandatory. Still describes M14 work as future.</td>
+        </tr>
+        <tr>
+          <td><b>The unmerged <code>claude/*</code> audit stack</b></td>
+          <td style="color:var(--accent);font-weight:600">Unreliable</td>
+          <td>~1,700 lines of adjudication on branches never merged and never cited by anything produced afterwards. Superseded by work that never read them.</td>
+        </tr>
+        <tr>
+          <td><b><code>STATE.md</code> as current state</b></td>
+          <td style="color:var(--accent);font-weight:600">Unreliable on every branch</td>
+          <td>Four live variants; the <code>main</code> variant contradicts <code>main</code>'s own history.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>The categories that earned authority by evidence share one property: <strong>each is anchored to something that cannot be revised after the fact</strong> — a commit, a sha, a test, a shipped binary. The categories that lost authority share the opposite property: each is a free-standing judgement whose only anchor is the moment it was written.</p>
+
+  <!-- ================= 14 ================= -->
+  <h2 id="s14"><span class="num">14</span>Should the milestone framework be canonical?</h2>
+
+  <p class="lede">Its artifact discipline: yes, decisively. Its state and gating mechanics: no — those are what produced the crisis.</p>
+
+  <p>The evidence for the first half is unambiguous. M00–M14 is the highest-integrity output in this repository by a wide margin: fifteen modules at 7/7 contract compliance, one commit per card, independent verification that was permitted to fail and did, nine git tags, and a ledger detailed enough to record its own defects. Nothing produced after the framework stopped approaches it.</p>
+
+  <p>But three of its mechanics are load-bearing in the failure, and they are not incidental to the design — they <em>are</em> the design:</p>
+
+  <ul>
+    <li><strong>Branch-resident single state.</strong> Rule 1 makes <code>STATE.md</code> the only real record of phase; rule 4 puts engineering state in git branches. Together these guarantee that the single source of truth forks whenever the work does. <span class="chip chip-t2">T2</span></li>
+    <li><strong>An unbounded human merge gate.</strong> Rule 6 makes merges human-only with no timeout and no fallback. Combined with stacked branches, one unavailable person halts everything while the queue grows silently. <span class="chip chip-t4">T4</span></li>
+    <li><strong>No resumption path priced below re-derivation.</strong> The phase-resume table exists and is well-designed, but reading it requires trusting a ledger whose accuracy after dormancy is exactly what is in question. It was not used once on resumption day. <span class="chip chip-t4">T4</span></li>
+  </ul>
+
+  <p>Adopting the framework wholesale would reproduce the failure, and would do so at the same point: the first time one person is unavailable for more than a few weeks. The framework is the right model for <em>how work is recorded</em> — cards, sha-linked execution records, independent verification, honest ledger narrative — and the wrong model for <em>where live state lives and who is allowed to advance it</em>.</p>
+
+  <!-- ================= 15 ================= -->
+  <h2 id="s15"><span class="num">15</span>Evidence register</h2>
+
+  <p>Every claim in this report reduces to one of the following, each independently re-derived during this investigation rather than inherited from any prior document.</p>
+
+  <div class="breakout scroller">
+    <table>
+      <caption>Reproducible facts</caption>
+      <thead>
+        <tr><th>Fact</th><th>Reproduction</th><th>Tier</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Foundation subtrees have one commit each, ever</td><td><code>git log --oneline -- docs/00-foundation</code> → 1 (same for 01, 02, 03, 06, 07)</td><td><span class="chip chip-t4">T4</span></td></tr>
+        <tr><td>All TDS live at <code>docs/</code> root, none in <code>06-reference</code></td><td><code>ls docs/06-reference</code> → README only; <code>git log --reverse -- docs/EVENTLOG_FORMAT.md</code> → <code>aef89bf</code> 2026-07-03</td><td><span class="chip chip-t2">T2</span></td></tr>
+        <tr><td>No module references the <code>06-reference</code> path</td><td><code>grep -rl "06-reference/" --include='*.md' .</code> → IKB, <code>docs/README.md</code>, its own README</td><td><span class="chip chip-t2">T2</span></td></tr>
+        <tr><td><code>archive/</code> never used</td><td><code>ls -1 archive | wc -l</code> → 1 (its own README)</td><td><span class="chip chip-t2">T2</span></td></tr>
+        <tr><td>Forty-day commit gap</td><td><code>git log --all --date=short --format='%ad' | sort -u</code> → 07-11 then 08-20</td><td><span class="chip chip-t4">T4</span></td></tr>
+        <tr><td>EEOS abandoned 2026-08-26</td><td><code>git log 7146214..HEAD -- docs/05-implementation | wc -l</code> → <b>0</b> across 33 commits</td><td><span class="chip chip-t4">T4</span></td></tr>
+        <tr><td>Ledger contradicts <code>main</code></td><td><code>git show main:docs/05-implementation/STATE.md | grep PHASE</code> vs <code>git log main --oneline | grep M10-M14</code></td><td><span class="chip chip-t2">T2</span></td></tr>
+        <tr><td>Four live <code>STATE.md</code> variants</td><td><code>git show &lt;branch&gt;:docs/05-implementation/STATE.md | md5sum</code> across six branches</td><td><span class="chip chip-t2">T2</span></td></tr>
+        <tr><td>Branch divergence 62 / 6</td><td><code>git rev-list --count main..engine-hardening</code>; merge base <code>827a084</code></td><td><span class="chip chip-t4">T4</span></td></tr>
+        <tr><td>GUI/API never committed</td><td><code>git log --all -- internal/api cmd/awis-server web/src internal/buildinfo</code> → 0 each</td><td><span class="chip chip-t2">T2</span></td></tr>
+        <tr><td>Four <code>docs/</code> folders entirely untracked</td><td><code>git ls-files docs/09-gui-planning | wc -l</code> → 0 (same for 10, 11, 12)</td><td><span class="chip chip-t2">T2</span></td></tr>
+        <tr><td>Five <code>FINAL_VERDICT.md</code>; two disagree</td><td><code>find . -name FINAL_VERDICT.md</code>; <code>diff FINAL_VERDICT.md docs/10-.../FINAL_VERDICT.md</code> → 137 lines</td><td><span class="chip chip-t2">T2</span></td></tr>
+        <tr><td>Module contract decay M15–M18</td><td>File-presence matrix over <code>docs/05-implementation/M*/</code></td><td><span class="chip chip-t2">T2</span></td></tr>
+        <tr><td>≥7 ad-hoc defect schemes</td><td><code>grep -rhoE 'SEC-[0-9]|AD-[0-9]|RA-[0-9]|\bB-[0-9]|RC-[0-9]' --include='*.md' .</code></td><td><span class="chip chip-t2">T2</span></td></tr>
+        <tr><td>Four-deep audit stack, 2026-08-20, unmerged</td><td><code>git log origin/claude/audit-repository-truth-3knwdq</code>; <code>git rev-list --count main..&lt;branch&gt;</code> → 1–3</td><td><span class="chip chip-t4">T4</span></td></tr>
+        <tr><td><code>TRUTH_CLOSURE.md</code> orphaned</td><td>Reverse-link scan over all Markdown → 0 referrers; sole orphan among root files</td><td><span class="chip chip-t2">T2</span></td></tr>
+        <tr><td>PRD scopes dashboard/auth V3, HTTP status V2</td><td><code>AWIS_PRD.md</code> lines 116, 168, 174, §17; single commit 2026-07-02</td><td><span class="chip chip-t2">T2</span></td></tr>
+        <tr><td>Green is machine-local and uncommitted</td><td>Golden diff across branches + <code>git status --porcelain cmd/awis/</code> + <code>go test -run TestVersion</code></td><td><span class="chip chip-t1">T1</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <hr>
+
+  <h2 id="close"><span class="num">—</span>Closing</h2>
+
+  <p>Three hypotheses in the brief are refuted by the evidence and should not survive this report. <strong>GUI planning is not the root cause</strong> — it postdates the collapse of the governance system by nine days, and its index is more honest about its own authority than the foundation's. <strong>The original documentation architecture is not simply sound</strong> — it carried a false state oracle from its second day and three mechanisms it could not detect the absence of. And <strong>documentation drift is not the diagnosis</strong> — drift implies two things moving apart, whereas what happened here is that one of them stopped being written and was replaced by an accumulating pile of independent re-derivations, each locally accurate and collectively unusable.</p>
+
+  <p>What remains is a project whose software is in good condition and whose record of itself is not, held together by a single uncommitted working directory. The engine milestone framework was the best thing this project built. Its failure mode — a truth system that ran on attention, with no mechanism that noticed when attention stopped — is the single thing that must not be carried forward.</p>
+
+  <p class="colophon">
+    Conducted 2026-09-11 against <code>engine-hardening</code> @ <code>8a87f70</code> with the working tree as found.
+    Every conclusion re-derived from git history, repository source, and runtime execution.
+    No conclusion was inherited from a prior investigation; where a prior document's finding is cited, it was independently re-tested first.
+    Diagnosis only — no reorganization, migration, or disposition of existing files is proposed or implied.
+  </p>
+
+</div>
+</body>
+</html>

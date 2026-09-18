@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/awis/awis/internal/buildinfo"
 	"github.com/awis/awis/internal/core"
 	"github.com/awis/awis/sdk"
 )
@@ -90,7 +91,7 @@ func openGoldenStorage(t *testing.T) (dir string, restore func()) {
 func TestStartGoldenJSON(t *testing.T) {
 	out := startOutput{
 		Event:        "started",
-		Version:      version,
+		Version:      buildinfo.Version,
 		DBPath:       "<data-dir>/runtime.db",
 		Workflows:    []string{"test-hello 1.0.0"},
 		Plugins:      []string{},
@@ -134,7 +135,7 @@ func TestStatusGoldenJSON(t *testing.T) {
 	}
 
 	_ = epoch // anchor comment: epoch used by seedStatusFixture (2026-07-10 14:23:00 UTC)
-	out := buildStatusJSON(now, activeInsts, completedInsts)
+	out := buildStatusJSON(context.Background(), nil, now, activeInsts, completedInsts)
 	got := encodeNoEscape(t, out)
 	checkGolden(t, "status.json", got)
 }

@@ -5,21 +5,19 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"runtime"
-)
 
-// version is the AWIS release string.
-// Freeze: update alongside go.mod module tag at release time.
-const version = "0.1.0-dev"
+	"github.com/awis/awis/internal/buildinfo"
+)
 
 // Global flags — parsed before the subcommand name.
 var (
-	globalDataDir string
-	globalJSON    bool
+	globalDataDir   string
+	globalJSON      bool
+	globalNamespace string
 )
 
 // command is a registered subcommand.
@@ -39,6 +37,7 @@ func main() {
 	// Global flags parsed before subcommand name.
 	flag.StringVar(&globalDataDir, "data-dir", "./.awis/", "Data directory (runtime.db, awis.pid, logs)")
 	flag.BoolVar(&globalJSON, "json", false, "Output machine-readable JSON")
+	flag.StringVar(&globalNamespace, "namespace", "default", "Namespace to target (default: \"default\")")
 
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, usageText())
@@ -85,16 +84,12 @@ func runVersion(args []string) {
 
 	if globalJSON {
 		out := versionOutput{
-			Version:   version,
+			Version:   buildinfo.Version,
 			GoVersion: goVer,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		if err := enc.Encode(out); err != nil {
-			fail(1, "version: JSON encode failed", "", "")
-		}
+		emitJSON(out)
 		return
 	}
 
-	fmt.Printf("awis version %s  go %s\n", version, goVer)
+	fmt.Printf("awis version %s  go %s\n", buildinfo.Version, goVer)
 }

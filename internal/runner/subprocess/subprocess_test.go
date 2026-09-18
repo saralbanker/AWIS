@@ -336,3 +336,43 @@ func TestBehavior_StderrCapture(t *testing.T) {
 		t.Errorf("details missing stderr key: %v", se.Details)
 	}
 }
+
+// TestSubprocess_SanitizedEnvironment verifies that host secrets are not leaked
+// to subprocesses, while PATH and AWIS context variables are passed (RC-4).
+func TestSubprocess_SanitizedEnvironment(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "secret-key-12345")
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+
+	tmpDir := t.TempDir()
+	scriptPath := filepath.Join(tmpDir, "check_env.sh")
+	content := `#!/bin/sh
+cat > /dev/null
+printf '{"protocol":"awis-subprocess/1","outputs":{"has_api_key":"%s","has_db_url":"%s","has_path":"%s","inst_id":"%s"}}\n' "$ANTHROPIC_API_KEY" "$DATABASE_URL" "$PATH" "$AWIS_INSTANCE_ID"
+`
+	if err := os.WriteFile(scriptPath, []byte(content), 0o755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	r := New()
+	sc := baseSC()
+	sc.InstanceID = "test-inst-123"
+	step := baseStep()
+	step.Handler = core.HandlerRef(scriptPath)
+
+	res, se := r.Run(context.Background(), sc, step)
+	if se != nil {
+		t.Fatalf("Run: %v", se)
+	}
+	if res.Outputs["has_api_key"] != "" {
+		t.Errorf("host secret ANTHROPIC_API_KEY was leaked to subprocess: %v", res.Outputs["has_api_key"])
+	}
+	if res.Outputs["has_db_url"] != "" {
+		t.Errorf("host secret DATABASE_URL was leaked to subprocess: %v", res.Outputs["has_db_url"])
+	}
+	if res.Outputs["has_path"] == "" {
+		t.Errorf("PATH was not preserved in subprocess")
+	}
+	if res.Outputs["inst_id"] != "test-inst-123" {
+		t.Errorf("AWIS_INSTANCE_ID not passed: got %v", res.Outputs["inst_id"])
+	}
+}

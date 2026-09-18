@@ -27,4 +27,10 @@ runtime:
   args: ["-m", "git_context_plugin"]
   env:
     GIT_TERMINAL_PROMPT: "0"
+    # Path to the awis_plugin Python library, RELATIVE TO THIS MANIFEST.
+    # __main__.py bootstraps sys.path from AWIS_PLUGIN_LIBPATH; without it the
+    # plugin cannot import awis_plugin and dies during handshake. AWIS resolves
+    # a relative value against this manifest's own directory, so the plugin
+    # works no matter which directory `awis` was started from (B-21).
+    AWIS_PLUGIN_LIBPATH: "../../python/awis-plugin"
   idle_timeout_s: 300

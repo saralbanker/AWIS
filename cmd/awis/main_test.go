@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/awis/awis/internal/buildinfo"
 )
 
 // update is set via 'go test -run TestVersion -update' to regenerate golden files.
@@ -126,8 +128,8 @@ func TestVersionJSONShape(t *testing.T) {
 	if out.GoVersion == "" {
 		t.Error("version --json: go_version field is empty")
 	}
-	if out.Version != version {
-		t.Errorf("version --json: version=%q, want %q", out.Version, version)
+	if out.Version != buildinfo.Version {
+		t.Errorf("version --json: version=%q, want %q", out.Version, buildinfo.Version)
 	}
 	if out.GoVersion != runtime.Version() {
 		t.Errorf("version --json: go_version=%q, want %q", out.GoVersion, runtime.Version())

@@ -1,0 +1,22 @@
+schema_version: 1
+id: rebuild-index
+version: 1.0.0
+namespace: oip
+name: Rebuild Index
+description: Drops and rebuilds oip.db from .decisions/entries/*.md files (Art. 5 — Record irreplaceable, index disposable)
+
+triggers:
+  - type: manual
+
+steps:
+  - id: rebuild
+    name: Rebuild Index
+    type: native
+    handler: oip.index.rebuild
+    inputs: {}
+    outputs:
+      status: {type: string}
+
+initial_step: rebuild
+
+final_steps: [rebuild]

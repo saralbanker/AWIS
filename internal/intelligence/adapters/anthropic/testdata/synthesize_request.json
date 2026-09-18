@@ -1,0 +1,10 @@
+{
+  "model": "claude-sonnet-5",
+  "max_tokens": 100,
+  "messages": [
+    {
+      "role": "user",
+      "content": "Synthesize an answer to the following query using the provided entries.\n\nQuery: contract test\n\nEntries:\n1. entry1\n\nMaximum response length: 100 tokens.\n"
+    }
+  ]
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 
 	"gopkg.in/yaml.v3"
@@ -22,6 +23,14 @@ type Manifest struct {
 	Author       string       `yaml:"author"`
 	Capabilities []Capability `yaml:"capabilities"`
 	Runtime      Runtime      `yaml:"runtime"`
+
+	// Dir is the directory containing the manifest file. It is NOT part of the
+	// YAML schema (Blueprint §11) — it is populated by ParseManifest /
+	// ParseManifestBytes so spawn-time path resolution (cmd.Dir, and relative
+	// PYTHONPATH / AWIS_PLUGIN_LIBPATH env values) can be anchored to the
+	// manifest's own location instead of whatever directory the awis process
+	// happens to be running from (B-21).
+	Dir string `yaml:"-"`
 }
 
 // Capability declares a single capability exported by a plugin.
@@ -55,7 +64,17 @@ func ParseManifest(path string) (*Manifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: read: %w", path, err)
 	}
-	return ParseManifestBytes(data, path)
+	m, err := ParseManifestBytes(data, path)
+	if err != nil {
+		return nil, err
+	}
+	// Prefer an absolute Dir when path resolves cleanly, so spawn-time
+	// resolution (cmd.Dir, env var paths) is stable regardless of any later
+	// change to the process's working directory (B-21).
+	if abs, aerr := filepath.Abs(path); aerr == nil {
+		m.Dir = filepath.Dir(abs)
+	}
+	return m, nil
 }
 
 // ParseManifestBytes parses a manifest from raw YAML bytes.
@@ -70,6 +89,10 @@ func ParseManifestBytes(data []byte, filename string) (*Manifest, error) {
 	if err := validateManifest(&m, filename); err != nil {
 		return nil, err
 	}
+	// Best-effort Dir from filename (may not be a real path, e.g. in unit
+	// tests that pass a bare name); ParseManifest overwrites this with an
+	// absolute directory when the manifest was actually read from disk.
+	m.Dir = filepath.Dir(filename)
 	return &m, nil
 }
 

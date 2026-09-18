@@ -71,6 +71,41 @@ func (e *Engine) dropAllPending(iid core.InstanceID) {
 	delete(e.pending, iid)
 }
 
+// markFailed records step as terminally failed for iid (engine-hardening
+// Step 2b, closes B-4). A terminally-failed step is removed from
+// current_steps but never enters Variables, so the join gate would otherwise
+// see its upstream complete and re-nominate it on every tick forever — the
+// exact hang the Finalization's text (Blockers 2/3/4) is the oracle against.
+// Every routeTerminalFailure branch (all three emit StepFailed{retrying:
+// false}) and handleCancellation's retry-cancellation loop call this
+// alongside their StepFailed emission. A step is never un-failed within an
+// instance (no corresponding "unmark").
+func (e *Engine) markFailed(iid core.InstanceID, step string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.failed[iid] == nil {
+		e.failed[iid] = make(map[string]bool)
+	}
+	e.failed[iid][step] = true
+}
+
+// failedSet returns a snapshot copy of iid's terminally-failed step set (the
+// pendingSet idiom: a defensive copy so the caller can range over it without
+// holding e.mu).
+func (e *Engine) failedSet(iid core.InstanceID) map[string]bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	src := e.failed[iid]
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
 // activatableFor derives the ordered set of steps eligible to dispatch this tick:
 // the join-gate activatable set (transition.go) UNION the failure-driven pending
 // set (fallback / on_error targets that bypass the join gate). Members are
@@ -86,11 +121,16 @@ func (e *Engine) activatableFor(dv *defView, inst core.WorkflowInstance) []strin
 	}
 	env := buildEnv(inst)
 	pend := e.pendingSet(inst.InstanceID)
+	// B-4: a terminally-failed step must never re-activate, even though it is
+	// absent from both `completed` (never entered Variables) and `running`
+	// (removed from current_steps by its terminal StepFailed) — excluded here,
+	// before both the pend[id] check and the isActivatable check below.
+	failed := e.failedSet(inst.InstanceID)
 
 	var out []string
 	for _, step := range dv.def.Steps { // definition order (deterministic dispatch)
 		id := step.ID
-		if completed[id] || running[id] {
+		if completed[id] || running[id] || failed[id] {
 			continue
 		}
 		if pend[id] || isActivatable(dv, id, completed, running, env) {
@@ -146,6 +186,7 @@ func (e *Engine) routeTerminalFailure(ctx context.Context, dv *defView, inst cor
 		if err := e.emitStepFailed(ctx, inst, step.ID, attempt, stepErr, false); err != nil {
 			return false, err
 		}
+		e.markFailed(inst.InstanceID, step.ID) // B-4: never re-activate step.ID.
 		if err := e.emitStepFallbackActivated(ctx, inst, step.ID, step.Fallback, stepErr.Code); err != nil {
 			return false, err
 		}
@@ -160,6 +201,7 @@ func (e *Engine) routeTerminalFailure(ctx context.Context, dv *defView, inst cor
 		if err := e.emitStepFailed(ctx, inst, step.ID, attempt, stepErr, false); err != nil {
 			return false, err
 		}
+		e.markFailed(inst.InstanceID, step.ID) // B-4: never re-activate step.ID.
 		for _, to := range targets {
 			e.addPending(inst.InstanceID, to)
 		}
@@ -171,6 +213,7 @@ func (e *Engine) routeTerminalFailure(ctx context.Context, dv *defView, inst cor
 	if err := e.emitStepFailed(ctx, inst, step.ID, attempt, stepErr, false); err != nil {
 		return false, err
 	}
+	e.markFailed(inst.InstanceID, step.ID) // B-4: never re-activate step.ID.
 	if err := e.emitWorkflowFailed(ctx, inst, step.ID, stepErr); err != nil {
 		return false, err
 	}
