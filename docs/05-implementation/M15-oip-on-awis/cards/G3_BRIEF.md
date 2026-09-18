@@ -58,7 +58,7 @@ the byte-frozen m14-core-cli fixture and walks the full manual-entry path in the
 
 ### Boundary artifact
 
-`docs/05-implementation/M15-oip-on-awis/BOUNDARY_EVIDENCE.md`
+`docs/05-implementation/M15-oip-on-awis/cards/BOUNDARY_EVIDENCE.md`
 
 Annotated `git log --stat` of all M15 commits. Summary:
 - P0 seam (c3fba29): `sdk/dsl.go` + `sdk/dsl_test.go` — additive YAML loader export

@@ -56,7 +56,7 @@ request. G3's verdict itself is NOT rendered by any model.
 - **CLI validation + boundary artifact (IMP Val):** real binary: start (discovers OIP YAMLs),
   plugin install git-context-plugin, submit capture-decision, signal entry_confirmed, recall
   finds entry; `git log --stat <milestone commits>` boundary proof saved to
-  `docs/05-implementation/M15-oip-on-awis/BOUNDARY_EVIDENCE.md` (QG-4/G3 evidence, IMP §20.M15).
+  `docs/05-implementation/M15-oip-on-awis/cards/BOUNDARY_EVIDENCE.md` (QG-4/G3 evidence, IMP §20.M15).
 
 ## Card split
 C1: TDS-06 (DRAFT banner) + oip.db schema + apps/oip module scaffolding (go.mod deps, doc.go).
