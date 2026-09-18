@@ -61,6 +61,21 @@ type ManagerConfig struct {
 	HandshakeTimeout time.Duration
 	// ShutdownGrace is the wait after the shutdown notification; zero ⇒ 2s (TDS-05 §4).
 	ShutdownGrace time.Duration
+
+	// PluginUID/PluginGID/PluginUIDSet configure dedicated-UID plugin
+	// isolation (D-11, PRD §32 rows 38/53, founder ruling DEC-9). When
+	// PluginUIDSet is true, every plugin this Manager spawns runs under
+	// PluginUID/PluginGID via SysProcAttr.Credential instead of the engine's
+	// own UID, so it cannot open .awis/runtime.db. PluginUIDSet defaults to
+	// false (the zero value), which preserves pre-D-11 behaviour exactly:
+	// plugins spawn under the engine's own UID and a one-time warning is
+	// logged the first time a plugin is spawned. A bool (rather than a
+	// pointer) keeps this a plain value type; uid 0 is a legitimate — if
+	// unusual — configured value, hence the explicit "Set" flag instead of
+	// treating PluginUID == 0 as "unconfigured".
+	PluginUID    uint32
+	PluginGID    uint32
+	PluginUIDSet bool
 }
 
 // pluginEntry holds the full runtime state for one registered plugin.
@@ -93,6 +108,12 @@ type Manager struct {
 	mu      sync.Mutex
 	plugins map[string]*pluginEntry // keyed by manifest.Name
 	closed  bool
+
+	// unisolatedWarnOnce logs, at most once per Manager (approximates "once
+	// per process" — a Manager is constructed once per running engine, sdk
+	// runtime.go), that plugin subprocesses are NOT isolated from runtime
+	// state because no plugins_user is configured (D-11).
+	unisolatedWarnOnce sync.Once
 
 	// statusMu/statusQueue/statusWake/statusDone/statusWG implement the B-18
 	// ordered status writer: a single background goroutine applies
@@ -530,11 +551,20 @@ func (m *Manager) spawnAndHandshakeLocked(ctx context.Context, entry *pluginEntr
 	// run from (B-21).
 	env := buildEnv(manifest.Runtime.Env, manifest.Dir)
 
+	// D-11: warn exactly once per Manager when no plugins_user is configured
+	// — the plugin about to be spawned will run under the engine's own UID
+	// and can read runtime state (.awis/runtime.db) directly.
+	if !m.cfg.PluginUIDSet {
+		m.unisolatedWarnOnce.Do(func() {
+			log.Printf("plugin: WARNING: plugins_user is not configured — plugin subprocesses run under the engine's own UID and are NOT isolated from runtime state (D-11); set plugins_user (awis config set plugins_user <user>) to enable isolation")
+		})
+	}
+
 	entry.state = stateSpawning
 	// manifest.Dir becomes cmd.Dir so a relative runtime.command/args (e.g.
 	// "python3 -m git_context_plugin") resolves against the plugin's own
 	// directory rather than the awis process's working directory (B-21).
-	handle, err := spawnPlugin(manifest.Runtime.Command, manifest.Runtime.Args, env, manifest.Dir)
+	handle, err := spawnPlugin(manifest.Runtime.Command, manifest.Runtime.Args, env, manifest.Dir, m.cfg.PluginUID, m.cfg.PluginGID, m.cfg.PluginUIDSet)
 	if err != nil {
 		entry.state = stateRegistered
 		return &core.StepError{Code: "spawn_error", Message: fmt.Sprintf("plugin %q: %v", manifest.Name, err)}

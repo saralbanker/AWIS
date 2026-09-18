@@ -52,6 +52,7 @@ var configVisibleKeys = map[string]bool{
 	"log_level":    true,
 	"intelligence": true,
 	"plugins_dir":  true,
+	"plugins_user": true,
 	"model":        true,
 	"timeout":      true,
 }
@@ -426,6 +427,7 @@ func validateConfigYAML(content string) []string {
 		"log_level":         true,
 		"intelligence":      true,
 		"plugins_dir":       true,
+		"plugins_user":      true,
 	}
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
