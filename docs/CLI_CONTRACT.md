@@ -281,7 +281,9 @@ and remaining timeout. Running instances show the current step and elapsed time.
 **Flags:**
 - `--namespace=<ns>` — filter by namespace (default: all)
 - `--all` — include all terminal instances (not just last N)
-- `--watch` — re-print every 5s (not a TUI; clear + reprint)
+- `--watch` — re-print every 1s (not a TUI; clear + reprint). As of 2026-09-18 the 1s
+  interval is the intended behaviour (see `cmd/awis/status.go`), superseding an earlier 5s
+  figure.
 - `--n=<int>` — number of recent completed instances (default 10)
 
 **Human output:**
