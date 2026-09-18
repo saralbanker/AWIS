@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/awis/awis/internal/buildinfo"
 )
 
 // update is set via 'go test -run TestVersion -update' to regenerate golden files.
@@ -67,6 +69,21 @@ func checkGolden(t *testing.T, name string, got []byte) {
 	}
 }
 
+// stableGoVersion replaces the compiling toolchain's version string with a
+// fixed placeholder, so a golden asserts the output SHAPE rather than the Go
+// build that happened to produce it.
+//
+// runVersion reports runtime.Version(), which changes with every Go patch
+// release and therefore differs between machines. Without this, version.txt
+// and version.json only pass on whichever toolchain last regenerated them —
+// they broke on the first CI run (local go1.26.5 vs runner go1.26.6) and would
+// equally break on the next local `go` upgrade.
+//
+// Same normalisation idiom as plugin_test.go's <plugin-path>.
+func stableGoVersion(got []byte) []byte {
+	return []byte(strings.ReplaceAll(string(got), runtime.Version(), "<go-version>"))
+}
+
 // TestVersionHuman verifies that 'awis version' (human mode) matches the golden.
 func TestVersionHuman(t *testing.T) {
 	// Reset global flags to defaults before each test.
@@ -76,7 +93,7 @@ func TestVersionHuman(t *testing.T) {
 	got := captureOutput(func() {
 		runVersion(nil)
 	})
-	checkGolden(t, "version.txt", got)
+	checkGolden(t, "version.txt", stableGoVersion(got))
 }
 
 // TestVersionJSON verifies that 'awis --json version' matches the golden.
@@ -89,7 +106,7 @@ func TestVersionJSON(t *testing.T) {
 	})
 	globalJSON = false // reset
 
-	checkGolden(t, "version.json", got)
+	checkGolden(t, "version.json", stableGoVersion(got))
 }
 
 // TestVersionJSONShape verifies the JSON output is valid and has the required fields.
@@ -111,8 +128,8 @@ func TestVersionJSONShape(t *testing.T) {
 	if out.GoVersion == "" {
 		t.Error("version --json: go_version field is empty")
 	}
-	if out.Version != version {
-		t.Errorf("version --json: version=%q, want %q", out.Version, version)
+	if out.Version != buildinfo.Version {
+		t.Errorf("version --json: version=%q, want %q", out.Version, buildinfo.Version)
 	}
 	if out.GoVersion != runtime.Version() {
 		t.Errorf("version --json: go_version=%q, want %q", out.GoVersion, runtime.Version())
