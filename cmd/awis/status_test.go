@@ -112,7 +112,7 @@ func TestStatusJSON(t *testing.T) {
 		t.Fatalf("ListInstances completed: %v", err)
 	}
 
-	out := buildStatusJSON(now, activeInsts, completedInsts)
+	out := buildStatusJSON(context.Background(), nil, now, activeInsts, completedInsts)
 	data, err := json.Marshal(out)
 	if err != nil {
 		t.Fatalf("json.Marshal: %v", err)

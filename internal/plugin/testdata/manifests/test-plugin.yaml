@@ -13,5 +13,5 @@ capabilities:
 
 runtime:
   command: sh
-  args: ["testdata/bin/happy-plugin.sh"]
+  args: ["../bin/happy-plugin.sh"]
   idle_timeout_s: 300

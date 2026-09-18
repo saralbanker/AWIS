@@ -1,5 +1,5 @@
 .PHONY: build test lint race contract e1 bench release-dry pytest \
-        verify gofmt-check vet oip-isolation
+        verify gofmt-check vet oip-isolation integration
 
 # verify is the single source of truth for "are the gates green?".
 # CI runs exactly this target and nothing else, so a local PASS and a CI PASS
@@ -24,8 +24,6 @@ vet:
 # apps/oip must be a real standalone module (IMP §15), not a go.work artifact.
 # GOWORK=off is the only way to prove it: every other gate resolves the SDK
 # through the workspace and cannot see a missing require directive.
-# On main today apps/oip is still a stub with no SDK imports, so this passes
-# trivially — it is wired now so the guard is already in place when M15 lands.
 oip-isolation:
 	cd apps/oip && GOWORK=off go build ./...
 	cd apps/oip && GOWORK=off go vet ./...
@@ -51,6 +49,9 @@ contract:
 
 e1:
 	go test ./internal/engine/... -run TestE1 -count=1
+
+integration:
+	go test -tags integration -count=1 -timeout 15m ./test/integration/...
 
 bench:
 	@echo "NOT-YET (wired at M02/M06/M18): bench"

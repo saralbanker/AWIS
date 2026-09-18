@@ -7,9 +7,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/awis/awis/internal/core"
 	"github.com/awis/awis/sdk"
@@ -79,12 +77,35 @@ func runSignal(args []string) {
 			"awis status "+string(instanceID))
 	}
 
-	// Determine next step (best-effort; instance may have advanced by now).
+	// Determine the next step, if the instance has actually advanced yet.
+	//
+	// Delivering a signal only RECORDS the delivery; the engine's next tick is
+	// what resumes the instance. Reading current_steps straight afterwards
+	// therefore usually still shows the step that was WAITING, and reporting
+	// that as the "next step" named the step the signal had just satisfied —
+	// while also claiming the instance had resumed when it had not.
+	//
+	// So next_step is reported only when it genuinely differs from the step
+	// that was parked. Otherwise it stays nil and the human output says the
+	// runtime will resume the instance on its next tick, which is the truth.
+	// Compare the whole SET of parked steps, not just index 0. An instance can
+	// hold several concurrent waits (a parallel join of signal steps — see
+	// status.go's lookupWait), and the signal just delivered may resolve a
+	// branch that is not at index 0. Comparing only CurrentSteps[0] would then
+	// see an unchanged value and report "not resumed yet" even though a
+	// different branch genuinely advanced.
+	wasParked := make(map[string]bool, len(inst.CurrentSteps))
+	for _, s := range inst.CurrentSteps {
+		wasParked[s] = true
+	}
 	var nextStep *string
 	if updated, serr := store.GetInstance(ctx, instanceID); serr == nil {
-		if len(updated.CurrentSteps) > 0 {
-			s := updated.CurrentSteps[0]
-			nextStep = &s
+		for _, s := range updated.CurrentSteps {
+			if !wasParked[s] {
+				step := s
+				nextStep = &step
+				break
+			}
 		}
 	}
 
@@ -95,9 +116,7 @@ func runSignal(args []string) {
 			Delivered:  true,
 			NextStep:   nextStep,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 
@@ -108,6 +127,7 @@ func runSignal(args []string) {
 	if nextStep != nil {
 		fmt.Printf("Instance resumed; next step: %s\n", *nextStep)
 	} else {
-		fmt.Printf("Instance resumed.\n")
+		fmt.Printf("The runtime will resume the instance on its next tick.\n")
+		fmt.Printf("  What now: awis status %s\n", instanceID)
 	}
 }

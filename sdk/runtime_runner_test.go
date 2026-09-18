@@ -4,6 +4,7 @@ package sdk
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/awis/awis/internal/core"
@@ -249,5 +250,98 @@ func TestWorkflowRunner_List(t *testing.T) {
 	}
 	if len(statuses) == 0 {
 		t.Fatal("List returned 0 statuses, want ≥1")
+	}
+}
+
+// TestSubmit_ResolvesWorkflowInAnotherNamespace covers B-23. A workflow's
+// namespace comes from its own YAML while the Runtime's namespace comes from a
+// flag, and the two are unrelated — `awis start` registers definitions from
+// every namespace it discovers. Scoping the lookup to the Runtime's namespace
+// made the documented quickstart fail outright: the scaffolded workflows
+// declare `namespace: examples`, the CLI defaults to "default", and
+// `awis submit hello-world` reported "no registered workflow".
+func TestSubmit_ResolvesWorkflowInAnotherNamespace(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStorage(t)
+
+	// Runtime namespace deliberately differs from the definition's namespace.
+	rt, err := NewRuntime(Config{Namespace: "default", Storage: s, WorkerID: "w1"})
+	if err != nil {
+		t.Fatalf("NewRuntime: %v", err)
+	}
+	if err := rt.RegisterHandler(&greetHandler{}); err != nil {
+		t.Fatalf("RegisterHandler: %v", err)
+	}
+	if err := s.RegisterWorkflow(ctx, *buildHelloWorkflow("examples")); err != nil {
+		t.Fatalf("RegisterWorkflow: %v", err)
+	}
+
+	iid, err := rt.Submit(ctx, "hello", map[string]any{"name": "World"})
+	if err != nil {
+		t.Fatalf("Submit across namespaces: %v", err)
+	}
+	if iid == "" {
+		t.Fatal("Submit returned an empty instance id")
+	}
+}
+
+// TestSubmit_AmbiguousAcrossNamespacesIsAnError verifies that an id registered
+// in more than one namespace is refused with a message naming the candidates,
+// rather than silently picking one. Guessing which of two same-named workflows
+// the operator meant is worse than making them say.
+func TestSubmit_AmbiguousAcrossNamespacesIsAnError(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStorage(t)
+
+	rt, err := NewRuntime(Config{Namespace: "unrelated", Storage: s, WorkerID: "w1"})
+	if err != nil {
+		t.Fatalf("NewRuntime: %v", err)
+	}
+	// workflow_definitions is keyed by (id, version) GLOBALLY — namespace is not
+	// part of the primary key — so the same id can only appear in two namespaces
+	// at two different versions. That is exactly the ambiguous case.
+	for _, tc := range []struct{ ns, ver string }{{"alpha", "1.0.0"}, {"beta", "2.0.0"}} {
+		def := buildHelloWorkflow(tc.ns)
+		def.Version = core.SemVer(tc.ver)
+		if err := s.RegisterWorkflow(ctx, *def); err != nil {
+			t.Fatalf("RegisterWorkflow(%s@%s): %v", tc.ns, tc.ver, err)
+		}
+	}
+
+	_, err = rt.Submit(ctx, "hello", nil)
+	if err == nil {
+		t.Fatal("Submit with an ambiguous id must return an error, not pick one")
+	}
+	for _, want := range []string{"alpha", "beta", "namespaces"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+// TestSubmit_RuntimeNamespaceWinsOverOtherNamespaces verifies stage ordering:
+// when the id exists in the Runtime's own namespace, that resolves directly and
+// the presence of the same id elsewhere is not an ambiguity error.
+func TestSubmit_RuntimeNamespaceWinsOverOtherNamespaces(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStorage(t)
+
+	rt, err := NewRuntime(Config{Namespace: "mine", Storage: s, WorkerID: "w1"})
+	if err != nil {
+		t.Fatalf("NewRuntime: %v", err)
+	}
+	if err := rt.RegisterHandler(&greetHandler{}); err != nil {
+		t.Fatalf("RegisterHandler: %v", err)
+	}
+	for _, tc := range []struct{ ns, ver string }{{"mine", "1.0.0"}, {"theirs", "2.0.0"}} {
+		def := buildHelloWorkflow(tc.ns)
+		def.Version = core.SemVer(tc.ver)
+		if err := s.RegisterWorkflow(ctx, *def); err != nil {
+			t.Fatalf("RegisterWorkflow(%s@%s): %v", tc.ns, tc.ver, err)
+		}
+	}
+
+	if _, err := rt.Submit(ctx, "hello", nil); err != nil {
+		t.Fatalf("Submit should resolve in the runtime's own namespace: %v", err)
 	}
 }

@@ -9,11 +9,34 @@ Zero Python runtime dependencies; all git operations delegate to the
 """
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
-from awis_plugin import plugin
+# ---------------------------------------------------------------------------
+# sys.path bootstrap: honour AWIS_PLUGIN_LIBPATH.
+#
+# This MUST live here, in __init__.py, and it must run before the awis_plugin
+# import below. `python3 -m git_context_plugin` imports this package — running
+# this file top to bottom — BEFORE it executes __main__.py. A bootstrap placed
+# in __main__.py therefore runs too late: the `from awis_plugin import plugin`
+# below has already raised ModuleNotFoundError and the process is dead before
+# __main__.py's first line (B-21).
+#
+# AWIS resolves a relative AWIS_PLUGIN_LIBPATH in the manifest against the
+# manifest's own directory, so the shipped plugin works from any working
+# directory.
+# ---------------------------------------------------------------------------
+_libpath = os.environ.get("AWIS_PLUGIN_LIBPATH")
+if _libpath:
+    for _p in reversed(_libpath.split(os.pathsep)):
+        _p = _p.strip()
+        if _p and _p not in sys.path:
+            sys.path.insert(0, _p)
+
+from awis_plugin import plugin  # noqa: E402  (must follow the bootstrap above)
 
 
 def _run_git(args: list[str], cwd: str) -> str:

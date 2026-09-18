@@ -443,6 +443,137 @@ func TestIntelligenceModelHint(t *testing.T) {
 	}
 }
 
+func TestStepTypeUnknown(t *testing.T) {
+	def := validDef()
+	def.Steps[0].Type = core.StepType("bogus")
+	is, ok := findIssue(Validate(def), CodeStepTypeUnknown)
+	if !ok || is.StepID != "start" || is.Field != "type" {
+		t.Fatalf("expected step-type-unknown on start, got %+v", Validate(def))
+	}
+	// Each legal type is accepted. The step is actually retyped per iteration —
+	// validating an unmodified fixture here would assert nothing about ty.
+	// (Retyping may raise OTHER codes, e.g. signal-config-missing; we assert
+	// only that step-type-unknown is absent.)
+	for _, ty := range []core.StepType{core.StepTypeNative, core.StepTypeSubprocess, core.StepTypePlugin, core.StepTypeIntelligence, core.StepTypeSignal} {
+		d := validDef()
+		d.Steps[0].Type = ty
+		if hasCode(Validate(d), CodeStepTypeUnknown) {
+			t.Fatalf("legal type %q must be accepted", ty)
+		}
+	}
+}
+
+func TestTriggerTypeUnknown(t *testing.T) {
+	def := validDef()
+	def.Triggers[1].Type = core.TriggerType("bogus")
+	is, ok := findIssue(Validate(def), CodeTriggerTypeUnknown)
+	if !ok || is.Field != "triggers[1].type" {
+		t.Fatalf("expected trigger-type-unknown on triggers[1], got %+v", Validate(def))
+	}
+	for _, ty := range []core.TriggerType{core.TriggerTypeManual, core.TriggerTypeSchedule, core.TriggerTypeEvent, core.TriggerTypeWebhook} {
+		d := validDef()
+		d.Triggers[1].Type = ty
+		if hasCode(Validate(d), CodeTriggerTypeUnknown) {
+			t.Fatalf("trigger type %q must be accepted", ty)
+		}
+	}
+}
+
+// TestSignalTimeoutAction is the B-31 regression: wait_signal.timeout_action is
+// documented as a frozen set (fail|compensate|continue) but had no validator
+// rule, so a scaffolded `cancel` value passed validation and the engine's
+// unknown-action backstop silently routed it as a failure.
+func TestSignalTimeoutAction(t *testing.T) {
+	def := validDef()
+	def.Steps[2].WaitSignal.TimeoutAction = "cancel" // "review" is the signal step
+	is, ok := findIssue(Validate(def), CodeSignalTimeoutAction)
+	if !ok || is.StepID != "review" || is.Field != "wait_signal.timeout_action" {
+		t.Fatalf("expected signal-timeout-action on review, got %+v", Validate(def))
+	}
+	// Empty is REJECTED (NOT NULL DDL column, no documented default) — unlike
+	// model_hint/backoff.
+	def = validDef()
+	def.Steps[2].WaitSignal.TimeoutAction = ""
+	if !hasCode(Validate(def), CodeSignalTimeoutAction) {
+		t.Fatal("empty timeout_action must be rejected")
+	}
+	// Each legal value is accepted.
+	for _, a := range []string{"fail", "compensate", "continue"} {
+		d := validDef()
+		d.Steps[2].WaitSignal.TimeoutAction = a
+		if hasCode(Validate(d), CodeSignalTimeoutAction) {
+			t.Fatalf("timeout_action %q must be accepted", a)
+		}
+	}
+}
+
+// TestRetryBackoff is the B-31 regression's sibling: retry.backoff is
+// documented as a frozen set (immediate|linear|exponential) with no validator
+// rule; internal/engine/retry.go's default branch used to silently claim the
+// validator already rejected unknown values.
+func TestRetryBackoff(t *testing.T) {
+	def := validDef()
+	def.Steps[0].Retry = &core.RetryPolicy{Attempts: 2, Backoff: "eventually"}
+	is, ok := findIssue(Validate(def), CodeRetryBackoff)
+	if !ok || is.StepID != "start" || is.Field != "retry.backoff" {
+		t.Fatalf("expected retry-backoff on start, got %+v", Validate(def))
+	}
+	// Empty is ALLOWED (RetryPolicy with no backoff is legal).
+	def = validDef()
+	def.Steps[0].Retry = &core.RetryPolicy{Attempts: 2, Backoff: ""}
+	if hasCode(Validate(def), CodeRetryBackoff) {
+		t.Fatal("empty backoff must be accepted")
+	}
+	// Each legal value is accepted.
+	for _, b := range []string{"immediate", "linear", "exponential"} {
+		d := validDef()
+		d.Steps[0].Retry = &core.RetryPolicy{Attempts: 2, Backoff: b}
+		if hasCode(Validate(d), CodeRetryBackoff) {
+			t.Fatalf("backoff %q must be accepted", b)
+		}
+	}
+}
+
+// TestCompensationRetryBackoff proves the same rule applies to
+// CompensationStep.Retry.Backoff (same field, different location).
+func TestCompensationRetryBackoff(t *testing.T) {
+	def := validDef()
+	def.Compensation = &core.CompensationPlan{Steps: []core.CompensationStep{
+		{StepID: "draft", UndoHandler: "undo-draft", Retry: &core.RetryPolicy{Attempts: 2, Backoff: "bogus"}},
+	}}
+	is, ok := findIssue(Validate(def), CodeRetryBackoff)
+	if !ok || is.StepID != "draft" || is.Field != "compensation.steps[0].retry.backoff" {
+		t.Fatalf("expected retry-backoff on compensation step draft, got %+v", Validate(def))
+	}
+	// A legal value is accepted.
+	def = validDef()
+	def.Compensation = &core.CompensationPlan{Steps: []core.CompensationStep{
+		{StepID: "draft", UndoHandler: "undo-draft", Retry: &core.RetryPolicy{Attempts: 2, Backoff: "immediate"}},
+	}}
+	if hasCode(Validate(def), CodeRetryBackoff) {
+		t.Fatal("legal compensation backoff must be accepted")
+	}
+}
+
+// TestIntelligenceCapability: unknown capabilities are rejected, but
+// classify/embed — legal-but-not-dispatchable (FR-IL-10, CONTRA-3) — are
+// schema-legal; rejecting dispatch is the runner's job, not the validator's.
+func TestIntelligenceCapability(t *testing.T) {
+	def := validDef()
+	def.Steps[1].Intelligence.Capability = "summarize" // invalid
+	is, ok := findIssue(Validate(def), CodeIntelligenceCapability)
+	if !ok || is.StepID != "draft" || is.Field != "intelligence.capability" {
+		t.Fatalf("expected intelligence-capability on draft, got %+v", Validate(def))
+	}
+	for _, c := range []string{"draft", "synthesize", "classify", "embed"} {
+		d := validDef()
+		d.Steps[1].Intelligence.Capability = c
+		if hasCode(Validate(d), CodeIntelligenceCapability) {
+			t.Fatalf("capability %q must be accepted (legal, even if not dispatchable)", c)
+		}
+	}
+}
+
 // TestMultiDefect: a definition packed with defects surfaces ALL expected Issue
 // codes simultaneously (no first-fail short-circuit).
 func TestMultiDefect(t *testing.T) {

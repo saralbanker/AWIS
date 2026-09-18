@@ -73,7 +73,7 @@ func runSubmit(args []string) {
 	// sdk.NewRuntime + Submit inserts the instance row exactly as an embedded app would.
 	// The running engine picks it up on the next 100ms tick (F-3).
 	rt, err := sdk.NewRuntime(sdk.Config{
-		Namespace: "default",
+		Namespace: globalNamespace,
 		Storage:   store,
 	})
 	if err != nil {
@@ -109,9 +109,7 @@ func runSubmit(args []string) {
 				Status:          statusStr,
 				DurationMs:      nil,
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetEscapeHTML(false)
-			_ = enc.Encode(out)
+			emitJSON(out)
 			return
 		}
 		// TDS-07 §4 human output (submit only):
@@ -151,9 +149,7 @@ func runSubmit(args []string) {
 					Status:          string(inst.Status),
 					DurationMs:      &dur,
 				}
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetEscapeHTML(false)
-				_ = enc.Encode(out)
+				emitJSON(out)
 				return
 			}
 			// TDS-07 §4 human output (--wait, success):
@@ -173,9 +169,7 @@ func runSubmit(args []string) {
 					Status:          string(inst.Status),
 					DurationMs:      &dur,
 				}
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetEscapeHTML(false)
-				_ = enc.Encode(out)
+				emitJSON(out)
 				os.Exit(1)
 			}
 			// TDS-07 §4 human output (--wait, failure):

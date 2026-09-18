@@ -13,5 +13,5 @@ capabilities:
 
 runtime:
   command: sh
-  args: ["testdata/bin/slow-plugin.sh"]
+  args: ["../bin/slow-plugin.sh"]
   idle_timeout_s: 300

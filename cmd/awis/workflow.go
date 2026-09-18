@@ -8,7 +8,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -83,9 +82,7 @@ func runWorkflowValidate(args []string) {
 			Valid:  report.Valid(),
 			Errors: errs,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		if !report.Valid() {
 			os.Exit(3)
 		}
@@ -156,9 +153,7 @@ func runWorkflowList(args []string) {
 			})
 		}
 		out := workflowListOutputJSON{Workflows: entries}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 
@@ -272,9 +267,7 @@ func runWorkflowShow(args []string) {
 			Namespace: def.Namespace,
 			Steps:     steps,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 

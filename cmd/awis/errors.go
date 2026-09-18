@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // cliErr prints a structured error in the what/where/what-now format
@@ -42,9 +44,122 @@ func newFlagSet(name string) *flag.FlagSet {
 	return flag.NewFlagSet(name, flag.ExitOnError)
 }
 
-// mustParse parses args with fs; on error ExitOnError handles os.Exit(2).
+// mustParse permutes args so that every flag (and, for a non-boolean flag,
+// its separately-supplied value) precedes every positional argument, then
+// parses the permuted list with fs. On error ExitOnError handles os.Exit(2).
+//
+// Without the permutation, stdlib's flag.Parse stops scanning for flags at
+// the first non-flag (positional) argument, so any flag written after a
+// positional argument is silently discarded — e.g. `awis submit hello-world
+// --input name=World` would record `{"inputs":{}}` (defect B-6).
 func mustParse(fs *flag.FlagSet, args []string) {
-	_ = fs.Parse(args) // ExitOnError handles parse failures.
+	_ = fs.Parse(permuteArgs(fs, args)) // ExitOnError handles parse failures.
+}
+
+// permuteArgs reorders args so every flag token — and, for a registered
+// non-boolean flag written without "=", the argument that supplies its
+// value — comes before every positional argument, while preserving the
+// original relative order within each group. When at least one positional
+// argument is present, a literal "--" terminator is inserted immediately
+// ahead of the (reordered) positionals, so fs.Parse does not try to
+// interpret a positional that happens to start with "-" as a flag.
+//
+// A literal "--" in the input terminates flag scanning immediately;
+// everything after it is appended to the positional group verbatim, exactly
+// as stdlib's flag package treats it.
+//
+// Unknown flags are left in the flag group without consuming a following
+// argument as a value: fs.Parse rejects them with the existing usage error
+// (exit 2) before value-consumption would ever matter.
+func permuteArgs(fs *flag.FlagSet, args []string) []string {
+	flagArgs := make([]string, 0, len(args))
+	positional := make([]string, 0, len(args))
+
+	// danglingFlag records that the LAST token was a non-boolean flag with no
+	// value after it — a user error that flag.Parse must be allowed to report.
+	danglingFlag := false
+
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+
+		if a == "--" {
+			// "--" terminates flag scanning; everything after is positional.
+			positional = append(positional, args[i+1:]...)
+			break
+		}
+
+		if len(a) < 2 || a[0] != '-' {
+			// Not flag syntax (includes a bare "-").
+			positional = append(positional, a)
+			continue
+		}
+
+		flagArgs = append(flagArgs, a)
+
+		// Determine the flag name to look up (strip leading "-" or "--").
+		name := a[1:]
+		if len(name) > 0 && name[0] == '-' {
+			name = name[1:]
+		}
+		if idx := strings.IndexByte(name, '='); idx >= 0 {
+			// "-flag=value" / "--flag=value": value is embedded, nothing to consume.
+			continue
+		}
+
+		fl := fs.Lookup(name)
+		if fl == nil {
+			// Unknown flag: don't guess whether it takes a value; fs.Parse
+			// will reject it with the usual usage error.
+			continue
+		}
+		if bv, ok := fl.Value.(interface{ IsBoolFlag() bool }); ok && bv.IsBoolFlag() {
+			// Boolean flags don't consume the next argument (unless written
+			// as "--flag=value", handled above).
+			continue
+		}
+
+		// Non-boolean flag: the next argument, if any, is its value.
+		if i+1 < len(args) {
+			i++
+			flagArgs = append(flagArgs, args[i])
+		} else {
+			danglingFlag = true
+		}
+	}
+
+	// A dangling flag must reach flag.Parse as the final token so it reports
+	// "flag needs an argument". Appending anything after it — the "--"
+	// terminator below, or a positional — would be consumed as that flag's
+	// VALUE instead, turning a clean exit-2 usage error into a silent success
+	// with a nonsense value. `awis workflow show wf --namespace` used to parse
+	// as namespace="--" and then fail with a confusing "workflow not found".
+	//
+	// Dropping the positionals here loses nothing: parsing is about to fail,
+	// so they would never be read.
+	if danglingFlag {
+		return flagArgs
+	}
+
+	if len(positional) == 0 {
+		return flagArgs
+	}
+	result := make([]string, 0, len(flagArgs)+len(positional)+1)
+	result = append(result, flagArgs...)
+	result = append(result, "--")
+	result = append(result, positional...)
+	return result
+}
+
+// emitJSON writes v as a single JSON line to stdout. An encode failure is a
+// hard error: a --json consumer must never receive empty output and exit 0
+// (defect B-8; this also fixes B-7, where an invalid json.RawMessage caused
+// enc.Encode to fail silently and 'trace --json' printed nothing).
+func emitJSON(v any) {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		fail(1, fmt.Sprintf("JSON encode failed: %s", err), "", "this is a bug in awis; please report it")
+	}
 }
 
 // usageText returns the global usage string printed on usage errors (exit 2).
@@ -52,11 +167,12 @@ func usageText() string {
 	return `awis — AWIS workflow runtime CLI
 
 Usage:
-  awis [--data-dir <path>] [--json] <command> [flags]
+  awis [--data-dir <path>] [--json] [--namespace <ns>] <command> [flags]
 
 Global flags:
   --data-dir <path>   Data directory (default: ./.awis/)
   --json              Output machine-readable JSON
+  --namespace <ns>    Namespace to target for submit/signal/cancel/status/trace (default: "default")
 
 Commands (M14 — live):
   version             Show version and build info
@@ -70,18 +186,22 @@ Commands (M14 — live):
   workflow            Workflow sub-commands (validate, list, show)
   plugin              Plugin sub-commands (install, list)
 
-Commands (M17 — planned):
-  init                Initialize project structure and config
+Commands (M17-C1 — live):
   history             Recent completed instances
   logs                Structured log stream
   metrics             Aggregate execution statistics
-  recall              Query execution history
+  recall              Query execution history (FTS)
   replay              Re-run completed instance (dry-run)
   audit               View audit log entries
-  rebuild-state       Rebuild StateStore from EventLog
-  export              Export execution history
-  prune-events        Prune EventLog
+  export              Export execution history to JSON
+  prune-events        Prune EventLog (dry-run only in V1)
+
+Commands (M17-C2 — live):
   config              Configuration sub-commands (show, set, validate, edit)
+  rebuild-state       Rebuild workflow_instances projection from EventLog
+
+Commands (M17-C3 — live):
+  init                Initialize project structure and config (FR-RM-01)
 
 Run 'awis <command> --help' for per-command usage.
 `

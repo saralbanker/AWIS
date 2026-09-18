@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -124,6 +126,7 @@ func (r *SubprocessRunner) Run(ctx context.Context, sc core.StepContext, step co
 	// done channel.
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Env = buildSubprocessEnv(sc)
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -324,4 +327,35 @@ func (w *tailWriter) Write(p []byte) (int, error) {
 		w.buf.Write(trimmed)
 	}
 	return n, nil
+}
+
+// buildSubprocessEnv constructs a sterile, sanitized environment for the child process.
+// It whitelists essential execution variables (PATH, HOME, TMPDIR, LANG) while preventing
+// host secrets (such as ANTHROPIC_API_KEY, DB credentials) from leaking (SEC-04).
+func buildSubprocessEnv(sc core.StepContext) []string {
+	env := make([]string, 0, 8)
+	path := os.Getenv("PATH")
+	if path == "" {
+		path = "/usr/local/bin:/usr/bin:/bin"
+	}
+	env = append(env, "PATH="+path)
+
+	for _, key := range []string{"HOME", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL"} {
+		if v := os.Getenv(key); v != "" {
+			env = append(env, key+"="+v)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		for _, key := range []string{"SYSTEMROOT", "COMSPEC", "PATHEXT"} {
+			if v := os.Getenv(key); v != "" {
+				env = append(env, key+"="+v)
+			}
+		}
+	}
+	env = append(env,
+		fmt.Sprintf("AWIS_INSTANCE_ID=%s", sc.InstanceID),
+		fmt.Sprintf("AWIS_STEP_ID=%s", sc.StepID),
+		fmt.Sprintf("AWIS_ATTEMPT=%d", sc.Attempt),
+	)
+	return env
 }

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/awis/awis/internal/plugin"
 	"github.com/awis/awis/internal/storage"
@@ -26,7 +27,7 @@ func init() {
 
 func runPlugin(args []string) {
 	if len(args) == 0 {
-		fail(2, "plugin requires a sub-command", "", "awis plugin [install|list]")
+		fail(2, "plugin requires a sub-command", "", "awis plugin [install|list|status|remove]")
 	}
 	sub := args[0]
 	rest := args[1:]
@@ -35,8 +36,12 @@ func runPlugin(args []string) {
 		runPluginInstall(rest)
 	case "list":
 		runPluginList(rest)
+	case "status":
+		runPluginStatus(rest)
+	case "remove":
+		runPluginRemove(rest)
 	default:
-		fail(2, fmt.Sprintf("plugin: unknown sub-command %q", sub), "", "awis plugin [install|list]")
+		fail(2, fmt.Sprintf("plugin: unknown sub-command %q", sub), "", "awis plugin [install|list|status|remove]")
 	}
 }
 
@@ -146,9 +151,7 @@ func runPluginInstall(args []string) {
 			Path:     absPath,
 			Provides: capIDs,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 
@@ -222,9 +225,7 @@ func runPluginList(args []string) {
 
 	if globalJSON {
 		out := pluginListOutputJSON{Plugins: entries}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(out)
+		emitJSON(out)
 		return
 	}
 
@@ -239,6 +240,178 @@ func runPluginList(args []string) {
 	for _, e := range entries {
 		fmt.Printf("  %-24s %-10s %-10s %s\n", e.Name, e.Version, e.Status, e.Path)
 	}
+}
+
+// ── plugin status ─────────────────────────────────────────────────────────────
+
+// pluginStatusOutputJSON is the JSON schema for 'awis plugin status --json'.
+type pluginStatusOutputJSON struct {
+	Name         string `json:"name"`
+	Version      string `json:"version"`
+	Status       string `json:"status"`
+	Path         string `json:"path"`
+	RegisteredAt string `json:"registered_at"`
+}
+
+func runPluginStatus(args []string) {
+	fs := newFlagSet("plugin status")
+	mustParse(fs, args)
+
+	rest := fs.Args()
+	if len(rest) < 1 {
+		fail(2, "plugin status requires a <name> argument", "", "awis plugin status <name>")
+	}
+	name := rest[0]
+
+	store, err := OpenStorage(globalDataDir)
+	if err != nil {
+		fail(1,
+			fmt.Sprintf("plugin status: cannot open storage: %s", err),
+			globalDataDir+"/runtime.db",
+			"check file permissions",
+		)
+	}
+
+	ps, ok := store.(storage.PluginStore)
+	if !ok {
+		fail(1,
+			"plugin status: storage does not support PluginStore",
+			globalDataDir+"/runtime.db",
+			"ensure the storage migration is up to date",
+		)
+	}
+
+	ctx := context.Background()
+	row, err := ps.GetPlugin(ctx, name)
+	if err != nil {
+		fail(1,
+			fmt.Sprintf("plugin %q not found", name),
+			"--data-dir "+globalDataDir,
+			"awis plugin list  # to see installed plugins",
+		)
+	}
+
+	path := extractPathFromManifestJSON(row.Manifest)
+
+	if globalJSON {
+		out := pluginStatusOutputJSON{
+			Name:         row.Name,
+			Version:      row.Version,
+			Status:       row.Status,
+			Path:         path,
+			RegisteredAt: row.RegisteredAt.UTC().Format(time.RFC3339),
+		}
+		emitJSON(out)
+		return
+	}
+
+	fmt.Printf("Plugin:   %s\n", row.Name)
+	fmt.Printf("Version:  %s\n", row.Version)
+	fmt.Printf("Status:   %s\n", row.Status)
+	if path != "" {
+		fmt.Printf("Path:     %s\n", path)
+	}
+	fmt.Printf("Registered: %s\n", row.RegisteredAt.UTC().Format(time.RFC3339))
+}
+
+// ── plugin remove ─────────────────────────────────────────────────────────────
+
+// pluginRemoveOutputJSON is the JSON schema for 'awis plugin remove --json'.
+type pluginRemoveOutputJSON struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Removed bool   `json:"removed"`
+}
+
+func runPluginRemove(args []string) {
+	fs := newFlagSet("plugin remove")
+	mustParse(fs, args)
+
+	rest := fs.Args()
+	if len(rest) < 1 {
+		fail(2, "plugin remove requires a <name> argument", "", "awis plugin remove <name>")
+	}
+	name := rest[0]
+
+	store, err := OpenStorage(globalDataDir)
+	if err != nil {
+		fail(1,
+			fmt.Sprintf("plugin remove: cannot open storage: %s", err),
+			globalDataDir+"/runtime.db",
+			"check file permissions",
+		)
+	}
+
+	ps, ok := store.(storage.PluginStore)
+	if !ok {
+		fail(1,
+			"plugin remove: storage does not support PluginStore",
+			globalDataDir+"/runtime.db",
+			"ensure the storage migration is up to date",
+		)
+	}
+
+	ctx := context.Background()
+
+	// Verify the plugin exists before removing.
+	_, err = ps.GetPlugin(ctx, name)
+	if err != nil {
+		fail(1,
+			fmt.Sprintf("plugin %q not found", name),
+			"--data-dir "+globalDataDir,
+			"awis plugin list  # to see installed plugins",
+		)
+	}
+
+	// Mark removed AND drop the capability rows in one transaction (B-20).
+	// Setting the status alone left plugin_capabilities intact, so capability
+	// lookup still routed steps to the "removed" plugin.
+	remover, ok := store.(pluginRemover)
+	if !ok {
+		fail(1,
+			"plugin remove: storage does not support plugin removal",
+			globalDataDir+"/runtime.db",
+			"ensure the storage migration is up to date",
+		)
+	}
+	if err := remover.RemovePlugin(ctx, name); err != nil {
+		fail(1,
+			fmt.Sprintf("plugin remove: %s", err),
+			globalDataDir+"/runtime.db",
+			"check storage integrity",
+		)
+	}
+
+	// Write PluginRemoved audit row (F-4 write site).
+	if aa, ok := store.(auditAppender); ok {
+		payload, _ := json.Marshal(map[string]string{"name": name})
+		_ = aa.AppendAudit(ctx, storage.AuditEntry{
+			Timestamp:      time.Now(),
+			EventType:      "PluginRemoved",
+			Actor:          "cli",
+			PayloadSummary: string(payload),
+		})
+	}
+
+	if globalJSON {
+		out := pluginRemoveOutputJSON{
+			Name:    name,
+			Status:  "removed",
+			Removed: true,
+		}
+		emitJSON(out)
+		return
+	}
+
+	fmt.Printf("Plugin removed: %s\n", name)
+	fmt.Printf("  Status set to: removed\n")
+	fmt.Printf("  Audit row written: PluginRemoved\n")
+}
+
+// auditAppender is a local interface alias for storage.AuditAppender to
+// type-assert the store without importing the type from config.go.
+type auditAppender interface {
+	AppendAudit(ctx context.Context, entry storage.AuditEntry) error
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -290,4 +463,11 @@ func joinStrings(ss []string) string {
 		result += ", " + s
 	}
 	return result
+}
+
+// pluginRemover is the additive storage capability `plugin remove` needs,
+// reached by type assertion because core.StoragePort's 12 methods are frozen
+// (the pattern used by cancellationStore, signalWaitStore and signal.Store).
+type pluginRemover interface {
+	RemovePlugin(ctx context.Context, name string) error
 }

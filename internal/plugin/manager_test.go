@@ -13,6 +13,8 @@ package plugin
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -704,7 +706,7 @@ func TestBuildEnv(t *testing.T) {
 	t.Setenv(leakKey, "1")
 
 	manifestEnv := map[string]string{"FOO": "bar"}
-	env := buildEnv(manifestEnv)
+	env := buildEnv(manifestEnv, "")
 
 	for _, kv := range env {
 		if strings.HasPrefix(kv, leakKey+"=") {
@@ -790,4 +792,127 @@ func TestInputKeySetMatches(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBuildEnvResolvesRelativeModulePaths covers B-21: the shipped manifest
+// must be self-sufficient. A relative AWIS_PLUGIN_LIBPATH / PYTHONPATH used
+// to be interpreted against the AWIS process's working directory, so the
+// shipped git-context-plugin resolved its own package only when awis happened
+// to be run from the plugin's directory.
+func TestBuildEnvResolvesRelativeModulePaths(t *testing.T) {
+	const dir = "/opt/awis/plugins/git-context"
+
+	env := buildEnv(map[string]string{
+		"AWIS_PLUGIN_LIBPATH": "../../python/awis-plugin",
+		"PYTHONPATH":          "lib",
+		"NOT_A_PATH":          "../../python/awis-plugin",
+	}, dir)
+
+	got := envMap(env)
+
+	if want := "/opt/awis/python/awis-plugin"; got["AWIS_PLUGIN_LIBPATH"] != want {
+		t.Errorf("AWIS_PLUGIN_LIBPATH = %q, want %q", got["AWIS_PLUGIN_LIBPATH"], want)
+	}
+	if want := dir + "/lib"; got["PYTHONPATH"] != want {
+		t.Errorf("PYTHONPATH = %q, want %q", got["PYTHONPATH"], want)
+	}
+	// A key not on the allowlist must be passed through untouched: silently
+	// rewriting a value the plugin author did not mean as a path would be a
+	// hard-to-debug corruption of the plugin's environment.
+	if want := "../../python/awis-plugin"; got["NOT_A_PATH"] != want {
+		t.Errorf("NOT_A_PATH = %q, want %q (unchanged)", got["NOT_A_PATH"], want)
+	}
+}
+
+// TestBuildEnvLeavesAbsolutePathsAndEmptyDirAlone pins the two no-op cases:
+// an already-absolute entry must not be re-anchored, and an empty dir (a
+// manifest parsed from bytes with no real path) must change nothing at all.
+func TestBuildEnvLeavesAbsolutePathsAndEmptyDirAlone(t *testing.T) {
+	abs := buildEnv(map[string]string{"PYTHONPATH": "/already/absolute"}, "/opt/plugin")
+	if got := envMap(abs)["PYTHONPATH"]; got != "/already/absolute" {
+		t.Errorf("absolute PYTHONPATH = %q, want it unchanged", got)
+	}
+
+	none := buildEnv(map[string]string{"PYTHONPATH": "relative/path"}, "")
+	if got := envMap(none)["PYTHONPATH"]; got != "relative/path" {
+		t.Errorf("PYTHONPATH with empty dir = %q, want it unchanged", got)
+	}
+}
+
+// TestBuildEnvResolvesEveryEntryOfAPathList checks the separator handling: a
+// path LIST must have each relative element anchored independently, with
+// absolute elements left alone.
+func TestBuildEnvResolvesEveryEntryOfAPathList(t *testing.T) {
+	const dir = "/opt/plugin"
+	sep := string(os.PathListSeparator)
+
+	env := buildEnv(map[string]string{
+		"PYTHONPATH": "lib" + sep + "/abs/lib" + sep + "vendor",
+	}, dir)
+
+	want := "/opt/plugin/lib" + sep + "/abs/lib" + sep + "/opt/plugin/vendor"
+	if got := envMap(env)["PYTHONPATH"]; got != want {
+		t.Errorf("PYTHONPATH = %q, want %q", got, want)
+	}
+}
+
+// envMap turns a KEY=VALUE slice into a map for readable assertions.
+func envMap(env []string) map[string]string {
+	out := make(map[string]string, len(env))
+	for _, kv := range env {
+		if i := strings.Index(kv, "="); i >= 0 {
+			out[kv[:i]] = kv[i+1:]
+		}
+	}
+	return out
+}
+
+// TestEveryStatusWriteGoesThroughTheOrderedWriter is the B-18 completeness
+// guard.
+//
+// The original B-18 fix converted three of the FOUR fire-and-forget
+// `go func(){ _ = m.store.SetPluginStatus(...) }()` sites and left
+// handleCrashLocked untouched — while the accompanying doc comment claimed all
+// of them had been converted. A write from that site was not tracked by
+// Shutdown's WaitGroup, so it could be lost at process exit, and it could
+// still land out of order relative to a later-queued write: exactly the defect
+// B-18 exists to prevent.
+//
+// A source-level assertion is the right shape here. The defect is "someone
+// added or kept a write that bypasses the queue", which no behavioural test
+// reliably catches, since the race it creates is timing-dependent.
+func TestEveryStatusWriteGoesThroughTheOrderedWriter(t *testing.T) {
+	src, err := os.ReadFile("manager.go")
+	if err != nil {
+		t.Fatalf("read manager.go: %v", err)
+	}
+
+	// drainStatusQueue is the ONE legitimate direct caller: it is the ordered
+	// writer itself. Every other reference must be the queueing helper.
+	lines := strings.Split(string(src), "\n")
+	var offenders []string
+	for i, line := range lines {
+		if !strings.Contains(line, "m.store.SetPluginStatus(") {
+			continue
+		}
+		if inDrainStatusQueue(lines, i) {
+			continue
+		}
+		offenders = append(offenders, fmt.Sprintf("manager.go:%d: %s", i+1, strings.TrimSpace(line)))
+	}
+	if len(offenders) > 0 {
+		t.Errorf("status writes bypassing setPluginStatusAsync (B-18):\n  %s",
+			strings.Join(offenders, "\n  "))
+	}
+}
+
+// inDrainStatusQueue reports whether line index i falls inside
+// drainStatusQueue, the single legitimate direct caller of SetPluginStatus.
+func inDrainStatusQueue(lines []string, i int) bool {
+	for j := i; j >= 0; j-- {
+		if strings.HasPrefix(lines[j], "func ") {
+			return strings.Contains(lines[j], "drainStatusQueue")
+		}
+	}
+	return false
 }

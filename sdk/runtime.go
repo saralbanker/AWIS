@@ -176,6 +176,23 @@ func (r *Runtime) Tick(ctx context.Context) error {
 	return r.eng.Tick(ctx)
 }
 
+// RegisterPlugin registers a plugin from its manifest file with the runtime's
+// plugin manager (M15-P1 seam; IMP §17 plugin tier in SDK rollout). It parses
+// the manifest at manifestPath, persists it to the PluginStore, and adds it to
+// the in-memory manager so the engine can dispatch type=plugin steps.
+//
+// Returns ErrNoPluginManager when the storage backend does not implement
+// PluginStore (i.e. the runtime was created without SQLiteStorage or equivalent).
+func (r *Runtime) RegisterPlugin(ctx context.Context, manifestPath string) error {
+	if r.pluginMgr == nil {
+		return fmt.Errorf("sdk: RegisterPlugin: no plugin manager (storage does not implement PluginStore)")
+	}
+	if err := r.pluginMgr.Register(ctx, manifestPath); err != nil {
+		return fmt.Errorf("sdk: RegisterPlugin %q: %w", manifestPath, err)
+	}
+	return nil
+}
+
 // Runner returns this Runtime as a core.WorkflowRunner. The Runtime
 // self-implements the WorkflowRunner interface.
 func (r *Runtime) Runner() core.WorkflowRunner {

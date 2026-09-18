@@ -25,5 +25,20 @@
 venv/
 __pycache__/
 
+# Frontend build tooling (web/) — source is tracked, node_modules and build
+# output are not. cmd/awis-server/static/ IS tracked (it's what go:embed
+# ships), so it is deliberately not listed here.
+web/node_modules/
+
 # built binaries
 /awis
+/awis-server
+
+# Credentials — never commit.
+# api_keys/ was present in the working tree, untracked AND unignored, which is
+# one `git add -A` away from publishing a live key in an immutable commit.
+api_keys/
+*.pem
+secrets.yaml
+.env
+.env.*

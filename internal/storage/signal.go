@@ -260,6 +260,39 @@ func (s *SQLiteStorage) GetWaitRecord(ctx context.Context, instanceID core.Insta
 	return wr, true, nil
 }
 
+// ListWaitRecordsByInstance returns every live wait record for instanceID
+// (engine-hardening B-15: the scanner resolves a wait by signal_name, not
+// step_id, so GetWaitRecord's step_id key cannot serve a durable-recovery
+// lookup after a restart — this method lets the engine scan its instance's
+// live waits and match on signal_name itself). Ordered by step_id for a
+// deterministic result; an instance with no live wait returns (nil, nil).
+func (s *SQLiteStorage) ListWaitRecordsByInstance(ctx context.Context, instanceID core.InstanceID) ([]WaitRecord, error) {
+	rows, err := s.db.db.QueryContext(ctx, `
+		SELECT instance_id, step_id, signal_name, created_at, timeout_at, timeout_action
+		FROM wait_records
+		WHERE instance_id = ?
+		ORDER BY step_id`,
+		string(instanceID),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("storage: ListWaitRecordsByInstance query: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []WaitRecord
+	for rows.Next() {
+		wr, err := scanWaitRecord(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, wr)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("storage: ListWaitRecordsByInstance rows: %w", err)
+	}
+	return out, nil
+}
+
 // DeleteWaitRecordsByInstance removes every wait record for instanceID. It is a
 // benign no-op when the instance has none (returns nil): wait records are
 // cleared on signal delivery / timeout / terminal transition, and a

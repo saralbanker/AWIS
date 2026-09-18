@@ -1,0 +1,7 @@
+METRICS  <timestamp>
+
+
+Total instances: 0
+
+  No instances found.
+  What now: awis submit <workflow-id>
