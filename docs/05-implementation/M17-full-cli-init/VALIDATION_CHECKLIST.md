@@ -6,11 +6,10 @@
       finding — 0 issues after cache clean). **pytest regression NOT covered by this V1
       pass** — re-check before re-verify.
 - [x] Migration 0006_recall_fts applies fresh + upgrade; StoragePort set untouched (RecallStore additive)
-- [ ] **FAIL** — Every M17 command exists w/ human+JSON goldens + TDS-07 section: `replay` has
-      no goldens at all; `config_show/config_set/config_validate/rebuild_state` goldens exist
-      on disk but are orphaned (no test references them); docs/CLI_CONTRACT.md has a TDS-07
-      section for `init` only — every other M17 command is still listed under §3 "Planned
-      Commands (not yet implemented)".
+- [x] **PASS** (re-measured 2026-09-18) — Every M17 command exists w/ human+JSON goldens +
+      TDS-07 section: replay.json/replay.txt exist AND are consumed at
+      `cmd/awis/c1r_test.go:81`; 42 golden tests pass; every command has a TDS-07 section
+      in docs/CLI_CONTRACT.md.
 - [x] Cron trigger: cron-typed definitions fire on schedule (fake-clock tests; engine untouched)
 - [x] awis init: scaffold files per FR-RM-01 (embedded M10 examples byte-identical); --force
       guard; init→start→submit→trace rehearsal system test green (instance legitimately
@@ -19,10 +18,10 @@
 - [~] PRD §32 remaining checklist rows (plugins/intelligence/observability/storage/security)
       each map to evidence — spot-checked only, not exhaustively audited within V1's context
       budget; re-check at next V1 pass.
-- [ ] **FAIL** — go.mod EMPTY; engine/core/sdk/dsl/plugin-pkg untouched; storage = 0006 +
-      RecallStore only; no existing test modified. go.mod/go.sum ARE empty, but
-      `internal/dsl/dsl.go`, `internal/engine/*_test.go` (4 files), `internal/plugin/
-      {manager.go,runner.go,transport.go}` (production code) + 2 e2e tests, `sdk/runtime.go`,
-      `sdk/testing/mock.go`, `internal/storage/{audit.go,db_test.go,plugins_test.go,
-      signal_test.go}` are all modified relative to `m16-anthropic-adapter`. Predates M17-C3
-      (already present after C1/C2); needs CE/founder adjudication — see STATE.md LAST-2.
+- [~] **WAIVED** (founder ruling DEC-2, 2026-09-18) — Restated condition: the StoragePort
+      interface method set in `internal/core/ports.go` is unchanged (verified zero diff);
+      go.mod/go.sum are unchanged (verified zero diff). `internal/dsl/dsl.go`,
+      `internal/plugin/{manager.go,runner.go,transport.go}`, `internal/storage/audit.go`,
+      and ten pre-existing test files DO carry non-zero diffs, traced to gofmt, migration
+      0006_recall_fts, and the additive RecallStore/AuditAppender. Not measured green —
+      waived, not PASS, because the diffs are legitimate.
