@@ -107,7 +107,16 @@ func printStatusTable(namespace string, all bool, n int) {
 		filter := core.InstanceFilter{Namespace: namespace, Status: st}
 		insts, err := store.ListInstances(ctx, filter)
 		if err != nil {
-			continue
+			// A storage failure here must not be swallowed: silently skipping
+			// this bucket would render a report that is indistinguishable
+			// from a correct one but is actually missing instances (D-8).
+			// Fails outright — same convention as the OpenStorage failure
+			// above and 'export: cannot list workflows' in export.go — rather
+			// than emitting a partial table/JSON document, so both the human
+			// and --json paths produce no output at all instead of a
+			// well-formed-looking but incomplete one.
+			fail(1, fmt.Sprintf("status: cannot list %s instances: %s", st, err),
+				globalDataDir+"/runtime.db", "check storage integrity")
 		}
 		activeInsts = append(activeInsts, insts...)
 	}
@@ -125,7 +134,9 @@ func printStatusTable(namespace string, all bool, n int) {
 		filter := core.InstanceFilter{Namespace: namespace, Status: st}
 		insts, err := store.ListInstances(ctx, filter)
 		if err != nil {
-			continue
+			// See the matching comment in the active-instances loop above (D-8).
+			fail(1, fmt.Sprintf("status: cannot list %s instances: %s", st, err),
+				globalDataDir+"/runtime.db", "check storage integrity")
 		}
 		recentInsts = append(recentInsts, insts...)
 	}
