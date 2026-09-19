@@ -253,9 +253,10 @@ func (e *Engine) gatherDispatch(ctx context.Context, dv *defView, inst core.Work
 			return nil, err
 		}
 		if !won {
-			e.logger.Info("claim lost", "instance_id", string(inst.InstanceID), "step_id", stepID)
+			e.noteClaimLost(inst.InstanceID, stepID)
 			continue
 		}
+		e.clearClaimLostStreak(inst.InstanceID, stepID)
 		step := dv.steps[stepID]
 		sc, aerr := e.assembleContext(inst, step, 1)
 		if aerr != nil {
@@ -264,6 +265,21 @@ func (e *Engine) gatherDispatch(ctx context.Context, dv *defView, inst core.Work
 		}
 		startedAt, err := e.emitStepStarted(ctx, inst, stepID, sc.Attempt, sc.Inputs)
 		if err != nil {
+			// The claim above committed in ClaimStep's own transaction
+			// (sqlite.go); if this emission fails, the claim must not be left
+			// orphaned — activatableFor never consults step_claims, so the
+			// step would stay activatable forever while the claim could never
+			// be won again (PK conflict), wedging the instance permanently
+			// (D-6). Best-effort compensating release: if it also fails, log
+			// clearly and still return the ORIGINAL emission error (never mask
+			// it with a release failure).
+			if rs, ok := e.storage.(claimReleaseStore); ok {
+				if rerr := rs.ReleaseStepClaim(ctx, inst.InstanceID, stepID); rerr != nil {
+					e.logger.Error("failed to release orphaned step claim after StepStarted emission failure",
+						"instance_id", string(inst.InstanceID), "step_id", stepID,
+						"emit_error", err.Error(), "release_error", rerr.Error())
+				}
+			}
 			return nil, err
 		}
 		e.clearPending(inst.InstanceID, stepID)
@@ -336,6 +352,49 @@ func (e *Engine) claim(ctx context.Context, iid core.InstanceID, stepID string) 
 		e.bumpVersion(iid)
 	}
 	return won, nil
+}
+
+// claimLostWedgeThreshold is the number of CONSECUTIVE lost-claim ticks for
+// the same (instance, step) after which a lost claim stops being routine
+// contention and starts being surfaced as the D-6 wedge signature (a claim
+// that can never be won again because it was orphaned by a failed StepStarted
+// emission with no compensating release — the case Part 1 of this fix now
+// handles going forward, but a lease-bounded or pre-fix orphan can still
+// exhibit this pattern). Three consecutive ticks (well under a second at the
+// default 100ms tick interval) is enough to rule out a one-tick race with
+// another dispatch while still surfacing genuinely stuck claims quickly.
+const claimLostWedgeThreshold = 3
+
+// noteClaimLost records one more consecutive claim-loss for (iid, stepID) and
+// logs it. Below the wedge threshold this is routine, low-severity noise
+// (Info); at the threshold, and every claimLostWedgeThreshold losses
+// thereafter (so the signal is NOT re-logged every single tick once a wedge
+// is suspected — non-noisy per D-6), it is logged at Error as the wedge
+// signature so it cannot silently persist unnoticed the way the original
+// defect did for a month.
+func (e *Engine) noteClaimLost(iid core.InstanceID, stepID string) {
+	key := retryKey{iid: iid, step: stepID}
+	e.mu.Lock()
+	e.claimLostStreak[key]++
+	streak := e.claimLostStreak[key]
+	e.mu.Unlock()
+
+	if streak >= claimLostWedgeThreshold && streak%claimLostWedgeThreshold == 0 {
+		e.logger.Error("step claim lost on repeated consecutive ticks; instance may be permanently wedged (D-6 orphan-claim signature)",
+			"instance_id", string(iid), "step_id", stepID, "consecutive_losses", streak)
+		return
+	}
+	e.logger.Info("claim lost", "instance_id", string(iid), "step_id", stepID)
+}
+
+// clearClaimLostStreak resets the consecutive-loss counter for (iid, stepID)
+// once a claim is won again, so a later unrelated bout of contention starts
+// counting from zero rather than inheriting a stale streak.
+func (e *Engine) clearClaimLostStreak(iid core.InstanceID, stepID string) {
+	key := retryKey{iid: iid, step: stepID}
+	e.mu.Lock()
+	delete(e.claimLostStreak, key)
+	e.mu.Unlock()
 }
 
 // dispatchOne runs one step through the idempotency cache and its Runner. It is
