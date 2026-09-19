@@ -67,7 +67,7 @@ the validator: `step_claims` PRIMARY KEY is `(instance_id, step_id)`
 once per instance, forever**. The result-cache key already carries attempt
 (`hash(instance_id + step_id + attempt)`, `:21`); claims do not. That asymmetry *is* the
 migration. Cost is now known and citable — the product ruling (#4) is not.
-*Note: `D-12` is an ID collision — `VERIFIED_DEFECT_REGISTER.md` D-12 = DAG/loops;
+*Note: `D-12` is an ID collision — `archive/VERIFIED_DEFECT_REGISTER.md` D-12 = DAG/loops;
 `docs/11-intelligence-architecture/00-ARCHITECTURE_REVIEW.md:166` D-12 = inert `intelligence:`
 config key. Rename one.*
 
@@ -173,7 +173,7 @@ so there is nowhere to *add* auth without restructuring (timing: **Now**); and t
 authentication, CORS policy, rate limiting, body limits, or server timeouts** (verified by
 zero-match grep and live probing). Loopback default limits real exposure, but `--addr` accepts any
 interface with no auth, no warning, and no deployment guide saying otherwise. This is the second
-reason `FINAL_RELEASE_VERDICT.md` is CONDITIONAL PASS rather than PASS.
+reason `archive/FINAL_RELEASE_VERDICT.md` is CONDITIONAL PASS rather than PASS.
 
 **21 · Disaster recovery — OPEN, and blocked by an undocumented durability guarantee**
 Nothing beyond `rebuild-state` + event replay. No backup procedure, no restore drill, no RPO/RTO.
@@ -216,14 +216,14 @@ amendment note closes the drift.
 **27 · Stale status docs — CONFIRMED, with a live example**
 `docs/09-gui-planning/DEFERRED_WORK_REGISTER.md` still lists `G-G10-3` (subprocess env
 secret-leak) as pending idle-slot work, while the same defect is `D-04` in
-`VERIFIED_DEFECT_REGISTER.md` and is marked **FIXED** as of 2026-09-05. Also `STATE.md` records
+`archive/VERIFIED_DEFECT_REGISTER.md` and is marked **FIXED** as of 2026-09-05. Also `STATE.md` records
 M10–M16 at `E-MERGE (blocked on founder)` and M17 at `C-VERIFY`, none of which is visible from
 `main`.
 
 **28 · Superseded reports still present — CONFIRMED process gap**
 An archive convention exists and is enforced for exactly one document
 (`archive/ENGINEERING_ARCHITECTURE_BLUEPRINT.md` — "SUPERSEDED… never cite"), but superseded root
-reports were never moved. `FINAL_VERDICT.md` is superseded by `FINAL_RELEASE_VERDICT.md`.
-`ENGINE_READINESS_SCORECARD.md` (overall **3.9/10, NOT READY**) predates the `engine-hardening`
+reports were never moved. `archive/FINAL_VERDICT.md` is superseded by `archive/FINAL_RELEASE_VERDICT.md`.
+`archive/ENGINE_READINESS_SCORECARD.md` (overall **3.9/10, NOT READY**) predates the `engine-hardening`
 branch that closed 11 CRITICAL + 12 IMPORTANT defects — it is simultaneously the most alarming
 document in the repo root and the most out of date. Both still read as current.
