@@ -681,8 +681,11 @@ Exit code: 0 written, 2 missing arguments, 1 write error. See TDS-07 §4.
 
 Schema-check `<data-dir>/config.yaml`: every `key:` must be one of the
 recognized V1 keys (`namespace`, `tick`, `anthropic_api_key`, `api_key`,
-`data_dir`, `log_level`, `intelligence`, `plugins_dir`); every line must
-have a colon.
+`data_dir`, `log_level`, `intelligence`, `plugins_dir`, `plugins_user`);
+every line must have a colon. `plugins_user` (username, or numeric
+`uid[:gid]`) isolates plugin subprocesses from `runtime.db`; setting it
+requires the engine to hold `CAP_SETUID`+`CAP_SETGID` or run as root, and
+plugin spawn fails explicitly if that privilege is absent (D-11).
 
 **Example output (valid):**
 ```
