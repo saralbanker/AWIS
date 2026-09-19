@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -97,6 +98,25 @@ type processHandle struct {
 	reqCounter int // monotonic per process; protected by manager mutex
 }
 
+// newPluginCmd constructs the *exec.Cmd for a plugin subprocess — dir, env
+// and SysProcAttr (Setpgid + optional dedicated-UID Credential, D-11) — with
+// no pipes attached and nothing started. Split out from spawnPlugin so the
+// construction step (in particular, "does uidSet produce the right
+// Credential") is directly testable without invoking cmd.Start(), which
+// requires the privilege spawnPlugin's own EPERM handling exists to detect
+// the absence of.
+func newPluginCmd(command string, args []string, env []string, dir string, uid, gid uint32, uidSet bool) *exec.Cmd {
+	cmd := exec.Command(command, args...)
+	cmd.Dir = dir
+	sysProcAttr := &syscall.SysProcAttr{Setpgid: true}
+	if uidSet {
+		sysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid}
+	}
+	cmd.SysProcAttr = sysProcAttr
+	cmd.Env = env // NFR-S-02: only manifest env + PATH
+	return cmd
+}
+
 // spawnPlugin starts the plugin process from the manifest runtime config.
 // env is the full environment to set (manifest env + PATH ONLY; NFR-S-02).
 // dir is the plugin's own directory (Manifest.Dir — the directory containing
@@ -107,14 +127,18 @@ type processHandle struct {
 // parent's working directory), matching the pre-B-21 behaviour.
 // Process group is set (Setpgid) so SIGKILL reaps all descendants.
 //
+// uid/gid/uidSet configure dedicated-UID plugin isolation (D-11, PRD §32
+// rows 38/53, founder ruling DEC-9): when uidSet is true, the subprocess is
+// spawned under the given uid/gid via SysProcAttr.Credential instead of the
+// engine's own UID, so it cannot open .awis/runtime.db (mode 0600, owned by
+// the engine's UID). When uidSet is false, behaviour is byte-for-byte
+// identical to pre-D-11: no Credential is set, Setpgid remains true.
+//
 // Pattern: subprocess.go cmd.SysProcAttr + StdinPipe/StdoutPipe (coordinate:
 //
 //	internal/runner/subprocess/subprocess.go lines 126–143).
-func spawnPlugin(command string, args []string, env []string, dir string) (*processHandle, error) {
-	cmd := exec.Command(command, args...)
-	cmd.Dir = dir
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Env = env // NFR-S-02: only manifest env + PATH
+func spawnPlugin(command string, args []string, env []string, dir string, uid, gid uint32, uidSet bool) (*processHandle, error) {
+	cmd := newPluginCmd(command, args, env, dir, uid, gid, uidSet)
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -128,6 +152,20 @@ func spawnPlugin(command string, args []string, env []string, dir string) (*proc
 	cmd.Stderr = &tailWriter{buf: &stderrBuf, max: stderrTailMax}
 
 	if err := cmd.Start(); err != nil {
+		// A configured plugin user whose spawn fails with EPERM means the
+		// engine lacks privilege to change its child's UID/GID (missing
+		// CAP_SETUID/CAP_SETGID, or the engine is not running as root). This
+		// must be reported explicitly and actionably — D-11 failure-mode
+		// requirement — and MUST NOT fall back to an unisolated spawn, which
+		// would silently defeat the isolation control.
+		if uidSet && errors.Is(err, syscall.EPERM) {
+			return nil, fmt.Errorf(
+				"plugin: spawn %q as plugins_user uid=%d gid=%d: operation not permitted — "+
+					"the engine process lacks privilege to change its child's UID/GID "+
+					"(needs CAP_SETUID/CAP_SETGID, or the engine must run as root) to enforce "+
+					"plugin isolation (D-11); refusing to fall back to an unisolated spawn: %w",
+				command, uid, gid, err)
+		}
 		return nil, fmt.Errorf("plugin: spawn %q: %w", command, err)
 	}
 
