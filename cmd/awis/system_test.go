@@ -12,6 +12,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -409,8 +410,22 @@ func TestSystemRehearsalInitStartSubmitTrace(t *testing.T) {
 	// generous multiple of the ~11.2s observed steady state, chosen to absorb
 	// contention without being unbounded.
 	terminalBudget := 45 * time.Second * raceScale
-	deadline := time.Now().Add(terminalBudget)
+	pollStart := time.Now()
+	deadline := pollStart.Add(terminalBudget)
+
+	// D-9: buildStatusJSON (status.go) puts only terminal-status instances in
+	// Recent; running/waiting/pending instances land in Active. The original
+	// loop only ever inspected Recent, so a timeout could not distinguish "the
+	// instance never existed" from "the instance was running the whole time" —
+	// both left finalStatus as "". These fields make that distinction visible
+	// without changing the pass/fail condition below, which is still governed
+	// solely by finalStatus (from Recent) reaching a terminal status.
+	var lastObservedStatus string
+	var sawInActive bool
+	var sawInRecent bool
+	pollCount := 0
 	for time.Now().Before(deadline) {
+		pollCount++
 		statusCmd := exec.Command(bin, "--data-dir="+dataDir, "--json", "status", "--all")
 		statusCmd.Dir = projDir
 		var statusStderr strings.Builder
@@ -428,6 +443,19 @@ func TestSystemRehearsalInitStartSubmitTrace(t *testing.T) {
 			if r.InstanceID == submitResult.InstanceID {
 				finalStatus = r.Status
 				found = true
+				sawInRecent = true
+				if r.Status != "" {
+					lastObservedStatus = r.Status
+				}
+				break
+			}
+		}
+		for _, a := range statusResult.Active {
+			if a.InstanceID == submitResult.InstanceID {
+				sawInActive = true
+				if a.Status != "" {
+					lastObservedStatus = a.Status
+				}
 				break
 			}
 		}
@@ -438,8 +466,16 @@ func TestSystemRehearsalInitStartSubmitTrace(t *testing.T) {
 	}
 
 	if !terminal[finalStatus] {
-		t.Fatalf("instance %s did not reach a terminal status within %s (last observed status: %q)",
-			submitResult.InstanceID, terminalBudget, finalStatus)
+		elapsed := time.Since(pollStart)
+		lastStatusDesc := lastObservedStatus
+		if lastStatusDesc == "" {
+			lastStatusDesc = "never observed in any bucket"
+		}
+		diag := captureRehearsalDiagnostics(bin, dataDir, projDir, submitResult.InstanceID)
+		t.Fatalf("instance %s did not reach a terminal status within %s (%d polls, %s elapsed): "+
+			"ever observed in active=%v, ever observed in recent=%v, last observed status: %s\n"+
+			"diagnostics:\n%s",
+			submitResult.InstanceID, terminalBudget, pollCount, elapsed, sawInActive, sawInRecent, lastStatusDesc, diag)
 	}
 	t.Logf("instance %s reached terminal status %q", submitResult.InstanceID, finalStatus)
 
@@ -480,4 +516,40 @@ func TestSystemRehearsalInitStartSubmitTrace(t *testing.T) {
 	if !sawTerminalEvent {
 		t.Errorf("trace timeline does not include a terminal workflow event: %s", traceStr)
 	}
+}
+
+// captureRehearsalDiagnostics runs 'awis trace <instanceID>' and
+// 'awis status --all --json' against the still-running (or already-exited)
+// runtime and returns their combined output for inclusion in a test failure
+// message (D-9). It never fails the test itself — a command error here is
+// itself diagnostic information (e.g. "runtime not reachable") and is
+// embedded in the returned text rather than swallowed.
+func captureRehearsalDiagnostics(bin, dataDir, projDir, instanceID string) string {
+	var b strings.Builder
+
+	traceCmd := exec.Command(bin, "--data-dir="+dataDir, "trace", instanceID)
+	traceCmd.Dir = projDir
+	traceOut, traceErr := traceCmd.CombinedOutput()
+	fmt.Fprintf(&b, "--- awis trace %s ---\n", instanceID)
+	if traceErr != nil {
+		fmt.Fprintf(&b, "(command error: %v)\n", traceErr)
+	}
+	b.Write(traceOut)
+	if len(traceOut) == 0 || traceOut[len(traceOut)-1] != '\n' {
+		b.WriteByte('\n')
+	}
+
+	statusCmd := exec.Command(bin, "--data-dir="+dataDir, "--json", "status", "--all")
+	statusCmd.Dir = projDir
+	statusOut, statusErr := statusCmd.CombinedOutput()
+	fmt.Fprintf(&b, "--- awis status --all --json ---\n")
+	if statusErr != nil {
+		fmt.Fprintf(&b, "(command error: %v)\n", statusErr)
+	}
+	b.Write(statusOut)
+	if len(statusOut) == 0 || statusOut[len(statusOut)-1] != '\n' {
+		b.WriteByte('\n')
+	}
+
+	return b.String()
 }
