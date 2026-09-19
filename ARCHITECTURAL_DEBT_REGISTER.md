@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-05 · **HEAD:** `8a87f70` · **Basis:** Tier 1 (source, execution, measurement)
 
-Debt that is **architectural** — inherent to a structural decision, not a coding slip. Coding defects are in `RELEASE_AUDIT_REPORT.md`. Each entry states what was decided, what it costs, whether the cost is currently acceptable, and the *trigger* that makes it unacceptable.
+Debt that is **architectural** — inherent to a structural decision, not a coding slip. Coding defects are in `archive/RELEASE_AUDIT_REPORT.md`. Each entry states what was decided, what it costs, whether the cost is currently acceptable, and the *trigger* that makes it unacceptable.
 
 Timing: **Now** = before Beta · **Next** = before the next milestone · **Watch** = accept, but instrument the trigger.
 
@@ -54,7 +54,7 @@ Throughput plateaus at ~3.4k rps while p50 rises **linearly with concurrency** �
 
 **Caveat, stated honestly:** measured on a trivial 1-row dataset, so this is the *best* case. Per-query cost rises with data volume and the ceiling falls proportionally.
 
-`FINAL_VERDICT.md` deferred this (D-09) as "undemonstrated at V1's current single-tenant scale." That was fair; it is now demonstrated. It remains acceptable for single-operator Beta.
+`archive/FINAL_VERDICT.md` deferred this (D-09) as "undemonstrated at V1's current single-tenant scale." That was fair; it is now demonstrated. It remains acceptable for single-operator Beta.
 
 **Trigger:** any second concurrent dashboard user, or any long-running write transaction (a `rebuild-state` on a large log will stall every HTTP read for its duration).
 

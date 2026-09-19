@@ -43,7 +43,7 @@ The engineering cost is now precisely known, not vague:
 > Iteration requires putting an iteration/attempt ordinal into that PK: a **frozen-surface
 > migration** touching claim, projection and rebuild paths.
 
-`D-12` in `VERIFIED_DEFECT_REGISTER.md:120` is explicit: **"NOT A DEFECT… deliberate, cited,
+`D-12` in `archive/VERIFIED_DEFECT_REGISTER.md:120` is explicit: **"NOT A DEFECT… deliberate, cited,
 frozen architectural decision (EDR-010). No action taken or recommended without a product
 decision to support loops, which would require redesigning step identity on a frozen surface."**
 
@@ -51,7 +51,7 @@ decision to support loops, which would require redesigning step identity on a fr
 and half of 4 is downstream of it. Until it is ruled, Phase 4/5 GUI planning is speculative
 work against a spec that forbids it.
 
-*(Caution: `D-12` is an ID collision. `VERIFIED_DEFECT_REGISTER.md` D-12 = DAG/loops.
+*(Caution: `D-12` is an ID collision. `archive/VERIFIED_DEFECT_REGISTER.md` D-12 = DAG/loops.
 `docs/11-intelligence-architecture/00-ARCHITECTURE_REVIEW.md:166` D-12 = "`intelligence:`
 config key recognised but ignored." Different registers, same ID. Rename one.)*
 
@@ -98,8 +98,8 @@ but the current unstated middle is the worst of both, because it lets docs claim
 | 21 | GUI Beta vs Creation/Edit APIs | **Five phases:** 1 read-only dashboard · 2 live monitoring (SSE, needs D1) · 3 management (submit/signal/cancel/register, needs D2) · 4 visual editor (G6+G7) · 5 n8n-class. "**GUI Beta**" is a deliberately narrower cut of Phases 1–2 only — an *observability release*, mutation layer and all of G3 dropped. | `GUI_ROADMAP.md`, `GUI_BETA_PRD.md:5` |
 | 23 | Deployment architecture | Blueprint §28 defines the deployment models; local-first single-binary is a **product commitment**, not just a stage (PRD §25), with a V2 cloud upgrade path. | Blueprint §28, PRD §25 |
 | 26 | EDR-002 Cobra vs stdlib | **Not a contradiction — a legitimate reversal recorded in the wrong place.** `IMPLEMENTATION_MASTER_PLAN.md:47` always permitted "cobra **or** stdlib `flag` — implementer's choice." M14 chose stdlib on dependency-policy grounds and recorded it three times. **EDR-002 is simply stale and needs an amendment note.** | `M14-core-cli/{IMPLEMENTATION_SPEC,AI_EXECUTION_CONTEXT,TRACEABILITY}.md` |
-| 27 | Stale status docs | **Confirmed, with a live example:** `DEFERRED_WORK_REGISTER.md` still lists `G-G10-3` (subprocess env secret-leak) as pending idle-slot work, but the same defect is `D-04` in `VERIFIED_DEFECT_REGISTER.md` and is marked **FIXED** as of 2026-09-05. | both registers |
-| 28 | Superseded reports still present | **Confirmed process gap.** An archive convention exists and is enforced for one doc (`archive/ENGINEERING_ARCHITECTURE_BLUEPRINT.md` — "never cite"), but superseded root reports were never moved. `FINAL_VERDICT.md` is superseded by `FINAL_RELEASE_VERDICT.md`; `ENGINE_READINESS_SCORECARD.md` (3.9/10) predates the hardening branch that closed most of what it counts. Both still sit in root looking current. | `canonical-reference-map.md`, root listing |
+| 27 | Stale status docs | **Confirmed, with a live example:** `DEFERRED_WORK_REGISTER.md` still lists `G-G10-3` (subprocess env secret-leak) as pending idle-slot work, but the same defect is `D-04` in `archive/VERIFIED_DEFECT_REGISTER.md` and is marked **FIXED** as of 2026-09-05. | both registers |
+| 28 | Superseded reports still present | **Confirmed process gap.** An archive convention exists and is enforced for one doc (`archive/ENGINEERING_ARCHITECTURE_BLUEPRINT.md` — "never cite"), but superseded root reports were never moved. `archive/FINAL_VERDICT.md` is superseded by `archive/FINAL_RELEASE_VERDICT.md`; `archive/ENGINE_READINESS_SCORECARD.md` (3.9/10) predates the hardening branch that closed most of what it counts. Both still sit in root looking current. | `canonical-reference-map.md`, root listing |
 | 16 | GUI blocked on D1–D4 | Confirmed — enumerated in Part 2. Note `ENGINE_FREEZE_REPORT.md` §6's "two small blockers" **are** D1 (global event cursor) and G6 (serializer). Same items, two vocabularies. | `ENGINE_GUI_DECISION_RECORD.md:9-21` |
 
 ---
@@ -148,7 +148,7 @@ than "not yet implemented":
 - The HTTP API has **no authentication, CORS policy, rate limiting, body limits, or server
   timeouts** (verified by zero-match grep and live probing). Loopback default limits exposure,
   but `--addr` accepts any interface with no auth, no warning, and no deployment guide saying
-  otherwise. This is the second reason `FINAL_RELEASE_VERDICT.md` is CONDITIONAL PASS.
+  otherwise. This is the second reason `archive/FINAL_RELEASE_VERDICT.md` is CONDITIONAL PASS.
 
 ### Operations, governance, identity
 
@@ -212,5 +212,5 @@ a contradiction that is currently free to resolve.
 5. **EDR-002 is stale, not contradicted** — the stdlib-`flag` reversal was permitted by IMP §47
    and recorded three times at M14. Add an amendment note to EDR-002 and the drift closes.
 6. **The `.gitignore` comment is false**: it states `web/` source "is tracked." It is not.
-7. **`ENGINE_READINESS_SCORECARD.md` (3.9/10, NOT READY) predates the hardening branch** and
+7. **`archive/ENGINE_READINESS_SCORECARD.md` (3.9/10, NOT READY) predates the hardening branch** and
    should be archived — it is the most alarming document in the root and the most out of date.

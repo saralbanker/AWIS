@@ -121,7 +121,8 @@ Live status: all active + waiting instances, plus last N completed (default N=10
 **Flags:**
 - `--namespace=<ns>` — filter by namespace
 - `--all` — include all terminal instances
-- `--watch` — re-print every 5s
+- `--watch` — re-print every 1s. As of 2026-09-18 the 1s interval is the intended
+  behaviour (see `cmd/awis/status.go`), superseding an earlier 5s figure.
 - `--n=<int>` — number of recent completed instances (default 10)
 
 **Example output:**

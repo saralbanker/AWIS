@@ -19,7 +19,7 @@ Rule used: **code beats doc.** Where docs claim something code does not do, said
 - Milestone tags exist: M02..M09 + M14. VERIFIED [git tag]
 - Ledger truth: `docs/05-implementation/STATE.md` — M00–M09 DONE-MILESTONES; M10,M11,M12,M13,M14,M15,M16 all `PHASE: E-MERGE (blocked on founder)`; **M17 = `C-VERIFY`, fresh M17-V1 re-run required**; M18-hardening-release not started. VERIFIED [STATE.md:6-130,tail]
 - **Tree is DIRTY: 339 changed paths** (89 added, 220 deleted, 6 modified, 24 untracked). VERIFIED [git status --porcelain]
-- **CRITICAL: the entire Beta GUI/API deliverable is UNTRACKED.** `internal/api/`, `cmd/awis-server/`, `internal/buildinfo/`, `web/` have zero tracked files → a clean clone cannot build `awis-server`; CI has never built or tested that code. VERIFIED [git status; FINAL_RELEASE_VERDICT.md:14-20; ARCHITECTURAL_DEBT_REGISTER.md AD-01]
+- **CRITICAL: the entire Beta GUI/API deliverable is UNTRACKED.** `internal/api/`, `cmd/awis-server/`, `internal/buildinfo/`, `web/` have zero tracked files → a clean clone cannot build `awis-server`; CI has never built or tested that code. VERIFIED [git status; archive/FINAL_RELEASE_VERDICT.md:14-20; ARCHITECTURAL_DEBT_REGISTER.md AD-01]
 - 15 root-level audit reports are also untracked (RELEASE_*, FINAL_*, SCALABILITY_ASSESSMENT, debt registers…). VERIFIED
 - Practical answer: **no commit is fully authoritative right now.** Authoritative *code* = `engine-hardening`@`8a87f70` **plus the uncommitted working tree**. That gap is the #1 open defect (AD-01, timing "Now").
 
@@ -29,10 +29,22 @@ Rule used: **code beats doc.** Where docs claim something code does not do, said
 
 ### Q: Which statements are verified by repo evidence vs inferred?
 - Per-answer tags below. Broad shape: engine/storage/CLI/plugin answers are **code-VERIFIED**; vision/personas/roadmap/licensing answers are **doc-VERIFIED only** (no code can confirm intent); monetization, licensing, compliance, DR are **UNKNOWN/absent**.
-- Known doc-vs-code drift is tracked in-repo: `DOCUMENT_DRIFT_REPORT.md`, `DOCUMENTATION_DIVERGENCE_REPORT.md`. VERIFIED
+- Known doc-vs-code drift is tracked in-repo: `archive/DOCUMENT_DRIFT_REPORT.md`, `archive/DOCUMENTATION_DIVERGENCE_REPORT.md`. VERIFIED
 
 ### Q: What reports/audits exist besides those referenced?
-- Root (untracked audit layer): ENGINE_READINESS_SCORECARD, FINAL_RELEASE_VERDICT, FINAL_VERDICT, FINAL_EXECUTIVE_SUMMARY, RELEASE_AUDIT_REPORT, RELEASE_BLOCKERS, RELEASE_CANDIDATE_AUDIT, RELEASE_CANDIDATE_REMEDIATION_REPORT, RELEASE_READINESS_REPORT, OPERATIONAL_READINESS_REVIEW, SCALABILITY_ASSESSMENT, ARCHITECTURAL_DEBT_REGISTER, DEFERRED_TECHNICAL_DEBT, VERIFIED_DEFECT_REGISTER, VERIFIED_GEMINI_FINDINGS, PHASE2_BLOCKERS, REGRESSION_REPORT, REPOSITORY_HEALTH_REPORT, DOCUMENT_DRIFT_REPORT, DOCUMENTATION_DIVERGENCE_REPORT, IMPLEMENTATION_REPORT, AWIS_CANONICAL_SPECIFICATION_TRIBUNAL_REPORT, PRD_RESEARCH_REPORT, IMPLEMENTATION_MASTER_PLAN_VERIFICATION_REPORT. VERIFIED [ls]
+- Commit a650b86 ("Phase 4: retire 23 superseded operational reports to archive/") relocated
+  most of these from the repo root into `archive/`: ENGINE_READINESS_SCORECARD, FINAL_RELEASE_VERDICT,
+  FINAL_VERDICT, FINAL_EXECUTIVE_SUMMARY, RELEASE_AUDIT_REPORT, RELEASE_BLOCKERS, RELEASE_CANDIDATE_AUDIT,
+  RELEASE_CANDIDATE_REMEDIATION_REPORT, RELEASE_READINESS_REPORT, OPERATIONAL_READINESS_REVIEW,
+  SCALABILITY_ASSESSMENT, VERIFIED_DEFECT_REGISTER, VERIFIED_GEMINI_FINDINGS, PHASE2_BLOCKERS,
+  REGRESSION_REPORT, REPOSITORY_HEALTH_REPORT, DOCUMENT_DRIFT_REPORT, DOCUMENTATION_DIVERGENCE_REPORT,
+  IMPLEMENTATION_REPORT — all now at `archive/<name>.md`. Five stayed at the repo root, unmoved:
+  ARCHITECTURAL_DEBT_REGISTER, DEFERRED_TECHNICAL_DEBT, AWIS_CANONICAL_SPECIFICATION_TRIBUNAL_REPORT,
+  PRD_RESEARCH_REPORT, IMPLEMENTATION_MASTER_PLAN_VERIFICATION_REPORT (the last is deliberately not
+  archived per a650b86's own commit message: it carries the five binding IMP amendments). None of
+  these 24 documents were ever untracked — every one was a tracked file both before and after the
+  move (`git log --follow` shows continuous history through the rename). VERIFIED [git show --stat
+  a650b86; git log --follow; git ls-files]
 - `docs/08-engine-hardening/` — 01-PRE-REVIEW-REPORT, 02-POST-REVIEW-REPORT, ENGINE_HARDENING_PLAN, ENGINE_FREEZE_REPORT. VERIFIED
 - `docs/09-gui-planning/` — 39 GUI docs (GUI_PRD, GUI_BETA_PRD, GUI_ARCHITECTURE, GUI_ROADMAP, GUI_PHASE1_*, REPOSITORY_TRUTH_AUDIT, …). UNTRACKED. VERIFIED
 - `docs/10-release-candidate-audit/`, `docs/11-intelligence-architecture/` (8 docs), `docs/12-intelligence-architecture-decision/` (7 docs incl. ARCHITECTURE_DECISION_RECORD). VERIFIED
@@ -46,8 +58,8 @@ Rule used: **code beats doc.** Where docs claim something code does not do, said
 
 ### Q: Engine maturity right now (post-hardening)?
 - `docs/08-engine-hardening/ENGINE_FREEZE_REPORT.md`: 11 CRITICAL + 12 IMPORTANT defects → **0 open**; 0 → **21 binary-level integration tests**; `make verify` + `make integration` both PASS. Verdict "engine ready to freeze". VERIFIED
-- `FINAL_RELEASE_VERDICT.md` (2026-09-05, supersedes FINAL_VERDICT.md): **CONDITIONAL PASS** — "engine is Beta-quality, its release envelope is not". Blocking: uncommitted deliverable + HTTP API has no auth/CORS/rate-limit/body-limit/timeouts. VERIFIED
-- `ENGINE_READINESS_SCORECARD.md` (2026-09-03, **PRE-hardening — largely superseded**): overall 3.9/10 NOT READY. Treat as historical; most listed defects were closed by `engine-hardening`. VERIFIED
+- `archive/FINAL_RELEASE_VERDICT.md` (2026-09-05, supersedes archive/FINAL_VERDICT.md): **CONDITIONAL PASS** — "engine is Beta-quality, its release envelope is not". Blocking: uncommitted deliverable + HTTP API has no auth/CORS/rate-limit/body-limit/timeouts. VERIFIED
+- `archive/ENGINE_READINESS_SCORECARD.md` (2026-09-03, **PRE-hardening — largely superseded**): overall 3.9/10 NOT READY. Treat as historical; most listed defects were closed by `engine-hardening`. VERIFIED
 - Architectural debt open: AD-01 no VCS history, AD-06 no migration downgrade guard, AD-07 no HTTP middleware seam (all "Now"); AD-02 frozen StoragePort can't express bounded reads, AD-04 FTS rebuilt per query, AD-05 durability undocumented (synchronous=NORMAL), AD-09 frontend types unenforced ("Next"); AD-03 single shared SQLite conn, AD-08 no mutation API ("Watch"). VERIFIED [ARCHITECTURAL_DEBT_REGISTER.md]
 
 ---
@@ -165,7 +177,7 @@ PRD NFR-Reliability (§11, availability-adjacent, no formal uptime % given): [sr
 - Signal delivery: exactly-once
 - Plugin crash recovery: auto-restart ≤3 attempts
 - No formal "availability %" (e.g. 99.9% uptime) SLA found anywhere — single-laptop local-first model has no uptime SLA concept.
-Measured (not target) scalability from SCALABILITY_ASSESSMENT.md (2026-09-05, HEAD 8a87f70): [src: SCALABILITY_ASSESSMENT.md:1-40]
+Measured (not target) scalability from archive/SCALABILITY_ASSESSMENT.md (2026-09-05, HEAD 8a87f70): [src: archive/SCALABILITY_ASSESSMENT.md:1-40]
 - "comfortable to roughly 5,000 instances", "operationally painful past ~10,000"
 - binding limit = O(n²) insertion sort in CLI status path (cmd/awis/status.go:408), not SQLite/engine/API
 - awis status: 2K=0.08s, 5K=0.58s, 10K=1.33s, 20K=4.93s; sort-alone 40K=19.08s
@@ -486,7 +498,7 @@ Measured (not target) scalability from SCALABILITY_ASSESSMENT.md (2026-09-05, HE
 ### Q21: GUI Beta vs Workflow Creation/Edit APIs — what separates them
 - GUI Beta (current/near-term scope) = read-only dashboard: view definitions, instances, events, live-ish status. No write path.
 - Workflow Creation/Edit APIs = future "G6" visual editor milestone requiring: a YAML SERIALIZER (`yaml.Marshal` emitter — "called nowhere in the repo today"), map-key-order round-trip safety (N4 risk, unaddressed), save-from-canvas API, round-trip regression suite — none of this exists yet [src: docs/09-gui-planning/ENGINE_GUI_DECISION_RECORD.md:39 "yaml.Marshal is called nowhere in the repo today"; REPOSITORY_TRUTH_AUDIT.md N4; ENGINE_GUI_WORK_BREAKDOWN.md G-G6-2..12]
-- Separator = presence of a definition→YAML serializer + mutation API; GUI Beta explicitly has neither (D-11 defect: "No workflow mutation API or YAML serializer") [src: VERIFIED_DEFECT_REGISTER.md D-11]
+- Separator = presence of a definition→YAML serializer + mutation API; GUI Beta explicitly has neither (D-11 defect: "No workflow mutation API or YAML serializer") [src: archive/VERIFIED_DEFECT_REGISTER.md D-11]
 - tag VERIFIED
 
 ### Q22: Visual builder as primary authoring? Text-first? Round-trip requirement?
@@ -555,7 +567,7 @@ ARCHITECTURAL_DEBT_REGISTER.md:
 - AD-09 frontend types unenforced (Next)
 [src: ARCHITECTURAL_DEBT_REGISTER.md]
 
-VERIFIED_DEFECT_REGISTER.md (top defects, D-01..D-13):
+archive/VERIFIED_DEFECT_REGISTER.md (top defects, D-01..D-13):
 - D-01 in-flight step crash recovery deadlock
 - D-02 cancellation intent lost on restart
 - D-03 dashboard shows oldest not newest instances
@@ -569,7 +581,7 @@ VERIFIED_DEFECT_REGISTER.md (top defects, D-01..D-13):
 - D-11 no workflow mutation API or YAML serializer
 - D-12 strict acyclic DAG precludes loop constructs
 - D-13 flaky system-rehearsal test under parallel load
-[src: VERIFIED_DEFECT_REGISTER.md]
+[src: archive/VERIFIED_DEFECT_REGISTER.md]
 
 DEFERRED_TECHNICAL_DEBT.md: single SQLite connection (safe to defer), 6 stale worktree-agent branches, GUI doesn't render Step in/out JSON Schema, .gitignore missing awis-server binary, awis-core-engineer.md still Opus-configured, one flaky system test.
 - tag VERIFIED

@@ -1142,8 +1142,11 @@ Full-featured web dashboard (see §35 Future Roadmap).
 ```
 
 **Invalid output (required format):**
+
+Semantic validation error (e.g. undefined fallback reference) — includes a `Line N:` location and an `Example:` block:
 ```
-✗ Validation failed: workflows/capture-decision.yaml
+awis: workflow validation failed: workflows/capture-decision.yaml
+
   Line 23: step 'confirm-entry' references unknown fallback 'manual-entry'
            but 'manual-entry' is not defined in this workflow
 
@@ -1156,6 +1159,15 @@ Full-featured web dashboard (see §35 Future Roadmap).
         name: manual_draft_provided
         timeout: 24h
         timeout_action: fail
+```
+
+YAML parse error — no `Line N:` prefix (the line number is embedded in the underlying parser message) and no `Example:` block:
+```
+awis: workflow validation failed: workflows/capture-decision.yaml
+
+  workflows/capture-decision.yaml: yaml: line 23: did not find expected key
+
+  Suggestion: Fix the YAML syntax error and retry.
 ```
 
 **Validation checks (required):**
@@ -2182,7 +2194,7 @@ Acceptance criteria are organized per functional area. All Must Have criteria mu
 ### Workflow Execution
 
 - [ ] `awis submit` returns an instance ID within 300ms
-- [ ] `awis submit` with `--input='<json>'` passes inputs to the workflow
+- [ ] `awis submit` with `--input k=v` (repeatable; last value wins per key) or `--input @file.json` passes inputs to the workflow
 - [ ] `awis signal` delivers signal within 200ms; instance transitions to running
 - [ ] Signal delivery is idempotent: delivering the same signal twice has no effect after first delivery
 - [ ] `awis cancel` with no `--compensate` leaves in-flight steps to complete; no new steps start
@@ -2192,7 +2204,7 @@ Acceptance criteria are organized per functional area. All Must Have criteria mu
 ### Workflow Validation
 
 - [ ] `awis workflow validate` on valid YAML: shows step summary and exits 0
-- [ ] `awis workflow validate` on invalid YAML: shows file path, line number, error, and example; exits 1
+- [ ] `awis workflow validate` on invalid YAML: shows file path, error, and (for semantic errors) line number and example; exits 3
 - [ ] Validation works without a running runtime
 - [ ] Fan-out transitions (multiple transitions with same `from`) are validated as valid
 - [ ] Condition expressions with invalid syntax cause validation failure with precise location
@@ -2543,6 +2555,7 @@ When the platform serves external developers beyond the solo-founder's portfolio
 | `OIP_CONSTITUTION.md` | Governing principles for OIP application | Active |
 | `ENGINEERING_ARCHITECTURE_BLUEPRINT.md` | Historical standalone OIP design — **superseded** | Archived |
 | `PRD_RESEARCH_REPORT.md` | V1 product definition research | Reference |
+| `docs/CLI_CONTRACT.md` (TDS-07) | Authoritative on the CLI surface (flags, output format, exit codes) where it conflicts with this PRD; three passages in §18 and §32 were corrected 2026-09-18 to match it | Active |
 
 ### Assumptions and Dependencies
 
