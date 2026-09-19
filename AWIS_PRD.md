@@ -1895,6 +1895,19 @@ Plugins are process-isolated:
 
 V3 will add WASM sandboxing for untrusted third-party plugins.
 
+### Plugin Isolation Deployment Requirement
+
+Filesystem-level isolation of plugin subprocesses from `runtime.db` is
+conditional, not automatic. The config key `plugins_user` (accepts a
+username, or a numeric `uid[:gid]`) tells the engine to spawn plugin
+subprocesses under a dedicated, unprivileged uid/gid via `SysProcAttr.Credential`;
+enabling it requires the engine process to hold `CAP_SETUID`+`CAP_SETGID`, or
+to run as root. If that privilege is absent, plugin spawn fails explicitly —
+it never falls back to an unisolated spawn silently. By default,
+`plugins_user` is unset: plugins run under the engine's own uid, `runtime.db`
+is not isolated from them at the filesystem level despite its 0600 mode, and
+the engine logs a warning once per run at plugin spawn.
+
 ### Secret Management Requirements
 
 **SR-01:** API keys and credentials must never appear in:
@@ -2211,7 +2224,7 @@ Acceptance criteria are organized per functional area. All Must Have criteria mu
 - [ ] Plugin crash: auto-restart within 3 attempts; step retries against restarted plugin
 - [ ] Plugin idle kill after `idle_timeout_s`: process killed; respawned on next request
 - [ ] `awis plugin status` shows health, PID, call counts, latency
-- [ ] Plugin has no access to EventLog or StateStore
+- [ ] Plugin environment is scrubbed to manifest env + PATH only (NFR-S-02); isolation from EventLog/StateStore at the filesystem level holds only when `plugins_user` is configured and the engine holds CAP_SETUID+CAP_SETGID (or root) — by default a plugin runs under the engine's own uid, is not isolated from runtime state, and the engine warns once at spawn
 
 ### Observability
 
@@ -2235,7 +2248,7 @@ Acceptance criteria are organized per functional area. All Must Have criteria mu
 ### Security
 
 - [ ] API keys never appear in EventLog, StateStore, or log output
-- [ ] Plugin process cannot read runtime.db
+- [ ] `runtime.db` (and its `-wal`/`-shm` sidecars) is kept at mode 0600 and a plugin subprocess's environment is scrubbed to manifest env + PATH only; a plugin is prevented from reading `runtime.db` only when `plugins_user` is configured and the engine holds CAP_SETUID+CAP_SETGID (or root) — by default the plugin runs under the engine's own uid and reads `runtime.db` unimpeded, with a one-time warning at spawn
 - [ ] All SQL queries are parameterized
 - [ ] Namespace prepended to all storage queries; cross-namespace access impossible via SDK
 
