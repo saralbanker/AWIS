@@ -899,18 +899,36 @@ func (s *SQLiteStorage) CountInstances(ctx context.Context, filter core.Instance
 	return count, nil
 }
 
+// stepClaimLease bounds how long an orphaned step_claims row can block
+// reclaiming (D-6, migration 0008). ClaimStep's INSERT and the StepStarted
+// emission that must follow a successful claim (internal/engine/tick.go
+// gatherDispatch) are normally milliseconds apart; this lease exists purely
+// to bound the rare case where the emission fails AND the compensating
+// release (internal/engine claimReleaseStore) also fails to run (e.g. a
+// process crash between the two). Five minutes is comfortably longer than any
+// plausible claim→emit gap while still recovering a genuinely orphaned
+// instance within an operationally reasonable window. A claim past this lease
+// is reclaimable ONLY together with the absence of a StepStarted event for
+// the same (instance, step) — see tryReclaimExpiredClaim; that second
+// condition is what makes reclaim safe, since a genuinely running step always
+// has a StepStarted event and can therefore never be stolen mid-flight.
+const stepClaimLease = 5 * time.Minute
+
 // ClaimStep atomically claims a step for a worker using the step_claims table
 // as an at-most-once gate (CONTRA-6 / EDR-006 / Blueprint §8 step 3).
 //
 // Single transaction semantics:
 //  1. Verify the instance exists (else return error).
 //  2. INSERT INTO step_claims — PK conflict means another worker already holds
-//     the claim; return (false, nil).
-//  3. On successful INSERT bump workflow_instances.version by 1 (optimistic-lock
-//     coupling so a concurrent UpsertInstance sees the version change).
+//     (or once held) the claim. tryReclaimExpiredClaim then decides whether
+//     the existing row is a safely-reclaimable orphan (D-6): if not, return
+//     (false, nil), matching pre-D-6 behavior exactly.
+//  3. On a successful INSERT (or a successful reclaim) bump
+//     workflow_instances.version by 1 (optimistic-lock coupling so a
+//     concurrent UpsertInstance sees the version change).
 //  4. Commit → (true, nil).
 //
-// claimed_at is sourced from the injectable clock.
+// claimed_at/expires_at are sourced from the injectable clock.
 func (s *SQLiteStorage) ClaimStep(ctx context.Context, instanceID core.InstanceID, stepID string, workerID string) (bool, error) {
 	tx, err := s.db.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -931,18 +949,29 @@ func (s *SQLiteStorage) ClaimStep(ctx context.Context, instanceID core.InstanceI
 	}
 
 	// Step 2: attempt INSERT.
-	claimedAt := s.now().UTC().Format(time.RFC3339Nano)
+	now := s.now().UTC()
+	claimedAt := now.Format(time.RFC3339Nano)
+	expiresAt := now.Add(stepClaimLease).Format(time.RFC3339Nano)
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO step_claims (instance_id, step_id, worker_id, claimed_at)
-		VALUES (?, ?, ?, ?)`,
-		string(instanceID), stepID, workerID, claimedAt,
+		INSERT INTO step_claims (instance_id, step_id, worker_id, claimed_at, expires_at)
+		VALUES (?, ?, ?, ?, ?)`,
+		string(instanceID), stepID, workerID, claimedAt, expiresAt,
 	)
 	if err != nil {
-		if isUniqueConstraintError(err) {
-			// Another worker already holds the claim.
+		if !isUniqueConstraintError(err) {
+			return false, fmt.Errorf("storage: ClaimStep insert: %w", err)
+		}
+		// PK conflict: another worker already holds — or once held — this
+		// claim. Reclaim it ONLY when it is a safely-identifiable orphan
+		// (D-6 safety constraint); otherwise this is unchanged pre-D-6
+		// behavior — the claim is genuinely held, report (false, nil).
+		reclaimed, rerr := s.tryReclaimExpiredClaim(ctx, tx, instanceID, stepID, workerID, now, claimedAt, expiresAt)
+		if rerr != nil {
+			return false, rerr
+		}
+		if !reclaimed {
 			return false, nil
 		}
-		return false, fmt.Errorf("storage: ClaimStep insert: %w", err)
 	}
 
 	// Step 3: bump instance version.
@@ -956,6 +985,82 @@ func (s *SQLiteStorage) ClaimStep(ctx context.Context, instanceID core.InstanceI
 	// Step 4: commit.
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("storage: ClaimStep commit: %w", err)
+	}
+	return true, nil
+}
+
+// tryReclaimExpiredClaim attempts to steal the existing step_claims row that
+// caused ClaimStep's INSERT to hit a PK conflict for (instanceID, stepID),
+// within the same transaction tx.
+//
+// *** D-6 safety constraint *** a naive expiry-only TTL causes double
+// execution: if a legitimately long-running step's claim expired and another
+// tick stole it, the step would run twice — strictly worse than the orphan
+// hang this migration fixes. Reclaim therefore requires BOTH:
+//
+//	(a) the existing claim is past its lease (expires_at has passed), AND
+//	(b) no StepStarted event exists for (instanceID, stepID) in
+//	    execution_events — the orphan signature: a genuinely running step
+//	    ALWAYS has a StepStarted event (gatherDispatch emits it as the very
+//	    next step after a successful claim), so a step satisfying (b) can
+//	    never be one that is actually in flight, and its claim can never be
+//	    stolen out from under it.
+//
+// A legacy claim from before migration 0008 (expires_at NULL) is treated as
+// NOT expired — an unknown expiry can never be proven orphaned, and (D-6)
+// correctness is preferred over unwedging speed for that pre-existing case.
+func (s *SQLiteStorage) tryReclaimExpiredClaim(
+	ctx context.Context, tx *sql.Tx,
+	instanceID core.InstanceID, stepID, workerID string,
+	now time.Time, claimedAt, expiresAt string,
+) (bool, error) {
+	var existingExpiresAt sql.NullString
+	err := tx.QueryRowContext(ctx,
+		`SELECT expires_at FROM step_claims WHERE instance_id = ? AND step_id = ?`,
+		string(instanceID), stepID,
+	).Scan(&existingExpiresAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// The conflicting row vanished between the INSERT and this read
+			// (concurrently released) — nothing to reclaim here; a later
+			// ClaimStep call will succeed on its own INSERT.
+			return false, nil
+		}
+		return false, fmt.Errorf("storage: ClaimStep read existing claim: %w", err)
+	}
+	if !existingExpiresAt.Valid {
+		return false, nil // legacy pre-0008 claim: unknown expiry, never reclaim.
+	}
+
+	expiry, err := parseTimeStr(existingExpiresAt.String)
+	if err != nil {
+		return false, fmt.Errorf("storage: ClaimStep parse existing expires_at: %w", err)
+	}
+	if !now.After(expiry) {
+		return false, nil // condition (a) fails: not yet expired.
+	}
+
+	var startedCount int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM execution_events WHERE instance_id = ? AND step_id = ? AND event_type = ?`,
+		string(instanceID), stepID, string(core.EventTypeStepStarted),
+	).Scan(&startedCount); err != nil {
+		return false, fmt.Errorf("storage: ClaimStep check StepStarted: %w", err)
+	}
+	if startedCount > 0 {
+		// condition (b) fails: a StepStarted event exists, so the step is (or
+		// was) genuinely running under this claim — never steal it.
+		return false, nil
+	}
+
+	// Both conditions hold: the existing claim is a safely-identified orphan.
+	// Replace it in place (same PK) with the new worker's claim.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE step_claims SET worker_id = ?, claimed_at = ?, expires_at = ?
+		 WHERE instance_id = ? AND step_id = ?`,
+		workerID, claimedAt, expiresAt, string(instanceID), stepID,
+	); err != nil {
+		return false, fmt.Errorf("storage: ClaimStep reclaim update: %w", err)
 	}
 	return true, nil
 }

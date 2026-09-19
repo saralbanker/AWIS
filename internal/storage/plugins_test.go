@@ -344,8 +344,8 @@ func TestPluginStore_Migration0005UpgradePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("currentVersion after upgrade: %v", err)
 	}
-	if v != 7 {
-		t.Fatalf("want schema_version 7 after upgrade, got %d", v)
+	if v != 8 {
+		t.Fatalf("want schema_version 8 after upgrade, got %d", v)
 	}
 
 	// Both tables must exist.
