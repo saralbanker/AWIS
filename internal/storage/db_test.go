@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -64,6 +65,56 @@ func TestOpenIdempotent(t *testing.T) {
 	if v != 8 {
 		t.Fatalf("want schema_version 8 after reopen, got %d", v)
 	}
+}
+
+// TestOpen_DatabaseFileMode0600 verifies the runtime database file — and its
+// WAL sidecars, when present — are created at mode 0600 (D-11, PRD §32 rows
+// 38/53, founder ruling DEC-9): a same-UID-but-different-owner process (e.g.
+// a plugin subprocess spawned under a dedicated plugins_user, internal/plugin
+// spawnPlugin) must be unable to open the file directly.
+func TestOpen_DatabaseFileMode0600(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "runtime.db")
+
+	db, err := Open(path, nil)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat(%q): %v", path, err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("db file mode = %v, want 0600", got)
+	}
+
+	// -wal/-shm sidecars: WAL mode is engaged synchronously by applyPragmas
+	// (PRAGMA journal_mode=WAL), so both exist by the time Open returns.
+	for _, suffix := range []string{"-wal", "-shm"} {
+		sidecar := path + suffix
+		info, err := os.Stat(sidecar)
+		if err != nil {
+			t.Fatalf("Stat(%q): %v (expected WAL sidecar to exist)", sidecar, err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Errorf("sidecar %q mode = %v, want 0600", sidecar, got)
+		}
+	}
+}
+
+// TestOpen_InMemoryDatabaseSkipsChmod verifies that Open(":memory:", ...) —
+// used by sdk/testing and examples/hello_workflow — does not attempt to
+// chmod a backing file that does not exist (D-11 regression guard: this
+// previously failed outright with "chmod :memory:: no such file or
+// directory").
+func TestOpen_InMemoryDatabaseSkipsChmod(t *testing.T) {
+	db, err := Open(":memory:", nil)
+	if err != nil {
+		t.Fatalf("Open(\":memory:\"): %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
 }
 
 // TestNMinus1Fixture tests the from-scratch fixture path: an empty DB (version

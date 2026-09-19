@@ -153,14 +153,19 @@ func runStart(args []string) {
 	}
 
 	// Build runtime.
+	// plugins_user (D-11, PRD §32 rows 38/53, founder ruling DEC-9): optional
+	// dedicated-UID plugin isolation. Empty ⇒ pre-D-11 behaviour (unisolated,
+	// with a one-time warning). A bad spec (unknown user, malformed uid:gid)
+	// fails NewRuntime outright — see sdk.NewRuntime.
 	rt, err := sdk.NewRuntime(sdk.Config{
 		Namespace:    namespace,
 		Storage:      store,
 		TickInterval: tick,
 		Intelligence: intelligencePort,
+		PluginUser:   cfg["plugins_user"],
 	})
 	if err != nil {
-		fail(1, fmt.Sprintf("start: cannot create runtime: %s", err), "", "")
+		fail(1, fmt.Sprintf("start: cannot create runtime: %s", err), configPath(), "check the plugins_user setting (awis config show)")
 	}
 
 	// 4b. Register the built-in native handlers (B-9).
