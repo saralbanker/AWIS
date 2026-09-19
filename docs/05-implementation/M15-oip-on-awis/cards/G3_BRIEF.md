@@ -132,7 +132,13 @@ properly disclosed. The "two seams" phrasing above ("two disclosed seams (P0 + P
 drafting error that omitted P2; it has been corrected to name all three. There are zero
 UNDISCLOSED changes to `internal/`, frozen interfaces, or platform go.mod.
 
-### G3 Question 2 (TDS-06 sign-off) — STILL PENDING founder sign-off
+### G3 Question 2 (TDS-06 sign-off) — PASS, founder ruling 2026-09-19
 
-`apps/oip/docs/RECORD_FORMAT.md` remains DRAFT — PENDING FOUNDER SIGN-OFF. This question has
-not been ruled on and is not addressed by this entry.
+`apps/oip/docs/RECORD_FORMAT.md` was signed by the founder on 2026-09-19. The signed format
+includes the three specification defects corrected 2026-09-18 (superseded made a derived
+read-time state; `distinguishes` keys mandatory with nullable values; ID allocation
+concurrency rule). The format is acceptable as the canonical OIP Record format.
+
+### Gate G3 — COMPLETE
+
+With Question 1 PASS (2026-09-18) and Question 2 PASS (2026-09-19), Gate G3 is COMPLETE.
