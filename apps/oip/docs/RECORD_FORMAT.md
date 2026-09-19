@@ -1,7 +1,7 @@
-**DRAFT — PENDING FOUNDER SIGN-OFF (Gate G3 / TDS-06); the Record format is OIP's irreversible artifact.**
-**Corrected 2026-09-18: three specification defects resolved (superseded made a derived
-state, `distinguishes` keys/values requirement clarified, ID allocation concurrency rule
-added). Still PENDING FOUNDER SIGN-OFF.**
+**SIGNED — FOUNDER SIGN-OFF 2026-09-19 (Gate G3 Question 2 / TDS-06); the Record format is OIP's irreversible artifact.**
+**This sign-off covers the three specification defects corrected 2026-09-18: superseded
+made a derived read-time state, `distinguishes` keys mandatory with nullable values, and
+the ID allocation concurrency rule. Satisfies Gate G3 Question 2 / TDS-06.**
 
 # OIP Record Format — TDS-06
 

@@ -2,10 +2,10 @@
 # Write rule (EEOS §3.3): no phase or card transition is real until it is written here.
 # Status vocabulary: DRAFT | READY | DISPATCHED | DONE | STOPPED | WITHDRAWN
 
-# ── M10 awaiting founder merge ────────────────────────────────────────────────
+# ── M10 CLOSED (reconciled 2026-09-19) ─────────────────────────────────────────
 MILESTONE: M10-yaml-dsl
 BRANCH: m10-yaml-dsl
-PHASE: E-MERGE (blocked on founder)
+PHASE: CLOSED
 GATE: none (non-gated boundary; squash-merge on founder review)
 CARDS:
   M10-C1   DONE    awis-builder   a575113
@@ -24,13 +24,15 @@ EVIDENCE: V1 PASS 17/17 (awis-verifier, 2026-07-10, at cd2429b). Full record: mo
   TRACEABILITY execution record + ticked VALIDATION_CHECKLIST + HANDOFF actuals.
 PR-BODY: diff = main...m10-yaml-dsl (26 files, +2542/−30 incl. ledger docs;
   module cards under docs/05-implementation/M10-yaml-dsl/cards/)
-NEXT: founder squash-merge (E-MERGE, human-only); M11 proceeds stacked on m10-yaml-dsl
-  per founder directive 2026-07-10 ("complete all milestones")
+CODE-IN-MAIN: yes — 0 commits ahead of main (m10-yaml-dsl is an ancestor of main); it
+  reached main by branch stacking, not by a discrete founder squash-merge (see LAST-9
+  reconciliation entry below).
+NEXT: none — M10 is closed.
 
-# ── M11 awaiting founder merge ────────────────────────────────────────────────
+# ── M11 CLOSED (reconciled 2026-09-19) ─────────────────────────────────────────
 MILESTONE: M11-subprocess-runner
 BRANCH: m11-subprocess-runner (stacked on m10-yaml-dsl)
-PHASE: E-MERGE (blocked on founder)
+PHASE: CLOSED
 GATE: none (non-gated boundary)
 CARDS:
   M11-C1   DONE    awis-builder   5f3cb87
@@ -42,12 +44,15 @@ MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE (Fable, 2026-07-10):
   untouched; runner reviewed line-by-line (process-group kill, envelope-wins, ReadAll/Wait
   ordering all correct); TDS-04 finalized (DoD); pytest in CI; e2e keystone green.
 EVIDENCE: module TRACEABILITY execution record + ticked VALIDATION_CHECKLIST + HANDOFF actuals.
-NEXT: founder squash-merge; M12 proceeds stacked on m11-subprocess-runner
+CODE-IN-MAIN: yes — 0 commits ahead of main (m11-subprocess-runner is an ancestor of main);
+  it reached main by branch stacking, not by a discrete founder squash-merge (see LAST-9
+  reconciliation entry below).
+NEXT: none — M11 is closed.
 
-# ── M12 awaiting founder merge ────────────────────────────────────────────────
+# ── M12 CLOSED (reconciled 2026-09-19) ─────────────────────────────────────────
 MILESTONE: M12-plugin-system
 BRANCH: m12-plugin-system (stacked on m11-subprocess-runner)
-PHASE: E-MERGE (blocked on founder)
+PHASE: CLOSED
 GATE: none (non-gated boundary)
 CARDS:
   M12-C1   DONE    awis-builder   5e6eebb
@@ -60,12 +65,15 @@ MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE (Fable, 2026-07-10) 
   Opus-designated adversarial FSM review (upward substitution): invariants 1-5 verified;
   frozen surfaces untouched; gates + pytest green at HEAD.
 EVIDENCE: module TRACEABILITY + ticked VALIDATION_CHECKLIST + HANDOFF actuals.
-NEXT: founder squash-merge; M13 proceeds stacked on m12-plugin-system
+CODE-IN-MAIN: yes — 0 commits ahead of main (m12-plugin-system is an ancestor of main); it
+  reached main by branch stacking, not by a discrete founder squash-merge (see LAST-9
+  reconciliation entry below).
+NEXT: none — M12 is closed.
 
-# ── M13 awaiting founder merge ────────────────────────────────────────────────
+# ── M13 CLOSED (reconciled 2026-09-19) ─────────────────────────────────────────
 MILESTONE: M13-git-context-plugin
 BRANCH: m13-git-context-plugin (stacked on m12-plugin-system)
-PHASE: E-MERGE (blocked on founder)
+PHASE: CLOSED
 GATE: none (non-gated boundary)
 CARDS:
   M13-C1   DONE    awis-builder   76574ff
@@ -75,12 +83,15 @@ BLOCKERS: none
 MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE (Fable, 2026-07-10): consumer-only
   milestone; OIP plugin dependency exists; manifest Blueprint-verbatim (python3 delta recorded).
 EVIDENCE: module TRACEABILITY + ticked VALIDATION_CHECKLIST + HANDOFF actuals.
-NEXT: founder squash-merge; M14 proceeds stacked on m13-git-context-plugin
+CODE-IN-MAIN: yes — 0 commits ahead of main (m13-git-context-plugin is an ancestor of main);
+  it reached main by branch stacking, not by a discrete founder squash-merge (see LAST-9
+  reconciliation entry below).
+NEXT: none — M13 is closed.
 
-# ── M14 awaiting founder merge ────────────────────────────────────────────────
+# ── M14 CLOSED (reconciled 2026-09-19) ─────────────────────────────────────────
 MILESTONE: M14-core-cli
 BRANCH: m14-core-cli (stacked on m13-git-context-plugin)
-PHASE: E-MERGE (blocked on founder)
+PHASE: CLOSED
 GATE: none (non-gated boundary)
 CARDS:
   M14-C1   DONE    awis-builder   709ce0e
@@ -93,13 +104,17 @@ BLOCKERS: none
 MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE — D-CLOSE (Fable, 2026-07-10): F-3/CONTRA-5
   settled + proven live; dev loop (submit->status->trace->signal) real-binary tested incl.
   crash recovery; frozen layers untouched.
-NEXT: founder squash-merge; M15 proceeds stacked on m14-core-cli
+CODE-IN-MAIN: yes — 0 commits ahead of main (m14-core-cli is an ancestor of main; tagged
+  milestone/M14); it reached main by branch stacking, not by a discrete founder
+  squash-merge (see LAST-9 reconciliation entry below).
+NEXT: none — M14 is closed.
 
-# ── M15 active ────────────────────────────────────────────────────────────────
+# ── M15 CLOSED (reconciled 2026-09-19) ─────────────────────────────────────────
 MILESTONE: M15-oip-on-awis
 BRANCH: m15-oip-on-awis (stacked on m14-core-cli)
-PHASE: E-MERGE (blocked on founder: G3 VERDICT + TDS-06 SIGN-OFF — see G3_BRIEF.md)
-GATE: G3 + TDS-06 sign-off (FOUNDER-ONLY)
+PHASE: CLOSED
+GATE: G3 COMPLETE — Question 1 (platform boundary/QG-4) PASS, founder ruling 2026-09-18;
+  Question 2 (TDS-06 sign-off) PASS, founder ruling 2026-09-19. See G3_BRIEF.md.
 CARDS:
   M15-P0   DONE    awis-builder   c3fba29   (disclosed platform seam)
   M15-C1   DONE    awis-builder   80ef917
@@ -108,27 +123,36 @@ CARDS:
   M15-C3r  DONE    awis-builder   0e452f8   (fixture restored; P1/P2 seams disclosed)
   M15-V1   DONE    awis-verifier  (PASS all rows, 2026-07-11 at 9973a3f)
 BLOCKERS: none
-MERGE-RECOMMENDATION: APPROVED subject to G3 verdict + TDS-06 sign-off. Seams disclosed:
-  P0 LoadWorkflowFile, P1 RegisterPlugin/ns-scoped Submit fallback/--namespace, P2 engine
-  fallback-join sentinel (frozen fixture exposed AND-join defect; RB mechanism).
-NEXT: founder G3 + merge; M16 proceeds stacked
+MERGE-RECOMMENDATION: APPROVED subject to G3 verdict + TDS-06 sign-off (both now granted).
+  Seams disclosed: P0 LoadWorkflowFile, P1 RegisterPlugin/ns-scoped Submit fallback/
+  --namespace, P2 engine fallback-join sentinel (frozen fixture exposed AND-join defect;
+  RB mechanism).
+CODE-IN-MAIN: yes — reached main by branch stacking (m15-oip-on-awis sits beneath M16's
+  A-INIT commit), not by a gated merge or squash commit. No commit ever represented a
+  gate decision for this milestone; both G3 gates were performed retroactively (see
+  LAST-9 reconciliation entry below).
+NEXT: none — M15 is closed.
 
-# ── M16 active ────────────────────────────────────────────────────────────────
+# ── M16 CLOSED (reconciled 2026-09-19) ─────────────────────────────────────────
 MILESTONE: M16-anthropic-adapter
 BRANCH: m16-anthropic-adapter (stacked on m15-oip-on-awis)
-PHASE: E-MERGE (blocked on founder)
+PHASE: CLOSED
 GATE: none
 CARDS:
   M16-C1   DONE    awis-builder   3b12689
   M16-V1   DONE    awis-verifier  (PASS all rows at 3b12689)
 MERGE-RECOMMENDATION: APPROVED FOR SQUASH MERGE (D-CLOSE Fable 2026-07-11)
-NEXT: founder merge; M17 proceeds stacked
+CODE-IN-MAIN: yes — reached main by branch stacking (m16-anthropic-adapter sits beneath
+  M17's A-INIT commit), not by a gated merge or squash commit. V1 passed. No merge commit
+  ever represented a gate decision for this milestone (see LAST-9 reconciliation entry
+  below).
+NEXT: none — M16 is closed.
 
-# ── M17 active ────────────────────────────────────────────────────────────────
+# ── M17 CLOSED (reconciled 2026-09-19) ─────────────────────────────────────────
 MILESTONE: M17-full-cli-init
 BRANCH: m17-full-cli-init (stacked on m16-anthropic-adapter)
-PHASE: C-VERIFY (M17-C2r landed 4808070; a fresh M17-V1 re-run is required before D-CLOSE — not
-  dispatched this session)
+PHASE: CLOSED
+GATE: none
 CARDS:
   M17-C1   DONE        awis-builder   a342394
   M17-C2   DONE        awis-builder   744d3d0
@@ -137,16 +161,45 @@ CARDS:
   M17-C1r  DONE        awis-scribe    ead48d5   (see LAST-5)
   M17-V1   FAIL        awis-verifier  (2026-08-21, re-run, isolated worktree at ef626e7; see LAST-6)
   M17-C2r  DONE        awis-builder   4808070   (see LAST-8)
-BLOCKERS: row 8 (scope-diff) still unresolved on a literal-wording basis — CLOSED at LAST-3 by
-  implementer self-trace, re-flagged FAIL by an independent verifier at LAST-6 who declined to
-  accept that self-trace as adjudication; still needs an actual CE/founder call, not another
-  self-trace. Rows 1 and 3 believed closed per M17-C2r's own report (LAST-8) but NOT yet
-  confirmed by an independent verifier — do not treat as PASS until re-measured.
-NEXT: dispatch a fresh, independent M17-V1 re-run (isolated worktree, no context from the C2r
-  implementation session) to re-measure rows 1, 3, and 8 from scratch — per this session's
-  standing instruction that no ledger claim is trusted without execution. Row 8 remains
-  explicitly out of any implementation card's scope; it can only close via CE/founder
-  adjudication, not further self-tracing.
+BLOCKERS: none — all eight VALIDATION_CHECKLIST rows are now dispositioned (see LAST-9):
+  rows 2/4/5/6 PASS (LAST-6); row 3 PASS, re-measured; row 8 WAIVED per DEC-2; row 1
+  CLOSED WITH RISK ACCEPTED per DEC-5; row 7 MEASURED WITH EXCEPTIONS per DEC-4.
+CODE-IN-MAIN: yes — reached main by branch stacking (m17-full-cli-init sits beneath a
+  B-2/B-3 hardening commit), not by a gated merge or squash commit. M17-V1 was recorded
+  FAIL twice (LAST-2, LAST-6) before all eight checklist rows were dispositioned; no
+  merge commit ever represented a D-CLOSE decision for this milestone.
+NEXT: none — M17 is closed.
+
+LAST-9: 2026-09-19 Beta Baseline reconciliation (defect D-5, beta-baseline program): this
+  ledger had not been updated since 2026-08-21 and had been contradicted by the repository
+  ever since. Correction: M15, M16, and M17 code is ALL already in main. It arrived by
+  branch stacking, not by gated merges — each milestone's branch sits beneath the next
+  one's A-INIT commit (m15 -> "M16 A-INIT", m16 -> "M17 A-INIT", m17 -> a B-2/B-3
+  hardening commit). No merge or squash commit ever represented a gate decision for any
+  of the three. Both of M15's founder gates have now been performed retroactively: G3
+  Question 1 (platform boundary/QG-4) PASS 2026-09-18; G3 Question 2 (TDS-06 sign-off)
+  PASS 2026-09-19 (see G3_BRIEF.md and apps/oip/docs/RECORD_FORMAT.md). M15 CLOSED. M16's
+  code is in main and its V1 passed. M16 CLOSED. M17's eight VALIDATION_CHECKLIST rows
+  are now all dispositioned: row 3 PASS, re-measured; row 8 WAIVED per DEC-2; row 1
+  CLOSED WITH RISK ACCEPTED per DEC-5; row 7 MEASURED WITH EXCEPTIONS per DEC-4 (rows
+  2/4/5/6 already PASS per LAST-6). Disposition record:
+  docs/13-beta-baseline/CURRENT_TRUTH_LEDGER.md (D-3, DEC-2, DEC-4, DEC-5). M17 CLOSED.
+  M15, M16, and M17 moved to DONE-MILESTONES below. This entry records that the
+  reconciliation happened and that the gates were performed retroactively; it does not
+  editorialize on how the gap arose.
+
+  EXTENSION (same date, same reconciliation): this ledger also still recorded M10, M11,
+  M12, M13, and M14 with phase "blocked on founder" merge. Verified git facts: each of
+  m10-yaml-dsl, m11-subprocess-runner, m12-plugin-system, m13-git-context-plugin, and
+  m14-core-cli has 0 commits ahead of main (each is an ancestor of main); milestone/M14
+  is tagged. Unlike M15, none of these five carries a GATE — each was recorded
+  "GATE: none (non-gated boundary; squash-merge on founder review)" — so there was no
+  gate that could be performed retroactively; the only outstanding step recorded against
+  each was the founder squash-merge itself, which never happened as a discrete act. All
+  five reached main the same way M15-M17 did: by branch stacking, each milestone's branch
+  sitting beneath the next milestone's work, so no merge commit ever represented a merge
+  decision for any of them. M10, M11, M12, M13, and M14 are now CLOSED and moved to
+  DONE-MILESTONES below on that basis.
 
 LAST-8: 2026-08-21 (same session) — M17-C2r executed by awis-builder, HEAD 4808070, single
   commit "M17-C2r: race-scaled rehearsal deadline (row 1) and replay.txt golden (row 3)".
@@ -304,5 +357,9 @@ LAST-PRIOR: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERG
       Sonnet/Haiku subagents only (no Opus; Opus-designated work is done inline by Fable,
       upward substitution per EEOS rule 8); milestones stack branches, E-MERGE stays human.
 
-DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07 M08 M09   # history: git log + module HANDOFFs
+DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07 M08 M09 M10 M11 M12 M13 M14 M15 M16 M17   # history: git log + module HANDOFFs
 # M09 merge sha 03d5045 (founder squash-merge, verified against main log at reconciliation)
+# M10-M17 all reached main by branch stacking, not a discrete founder squash-merge; no
+# commit represents a merge or gate decision for any of these eight. M15's two founder
+# gates were performed retroactively; the other seven carried no gate. See LAST-9
+# (2026-09-19) and each milestone's own block above.
