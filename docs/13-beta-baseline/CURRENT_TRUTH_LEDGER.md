@@ -210,3 +210,69 @@ Methodology notes:
   Correction of record: earlier ledger revisions stated "no P0 exists". That was
   true of the facts then known and remains true of the facts — D-11's promotion
   is a severity RULING, not a new measurement.
+
+---
+
+## 7. Beta Baseline declaration
+
+**BETA BASELINE READY** — declared 2026-09-23.
+
+Verified artifact: `9952cc0` (code identical to `main` at declaration; the only
+delta is a three-line edit to this ledger, no code, test or build file).
+
+### Gate conditions
+
+| Condition | Result |
+|-----------|--------|
+| P0 = 0 | MET — none open |
+| P1 = 0 | MET — D-1, D-2, D-3, D-6, D-9, D-11, D-17 all resolved on main |
+| Full 10-iteration load campaign clean (DEC-22) | MET — 10/10 iterations, 30/30 concurrent full-suite runs, 392s, zero failures, zero panics, zero data races |
+| CI parity green | MET — gofmt, vet, lint (golangci-lint v2.12.2), oip-isolation, build, test, race, e1, docs-lint (in-place and clean-checkout), pytest 41/41 |
+| Fixes provably detect their defects | MET — D-17 and the D-18 drain each neutralised and re-run; tests FAIL against unfixed code, pass against fixed, tree restored clean |
+| Race-clean under repetition | MET — `-race -count=3` across engine, storage and cmd/awis: no DATA RACE |
+| Product runs end to end | MET — init/start/submit/trace/status/stop completes; API serves; GUI bundle byte-identical to committed |
+| Frozen surfaces intact | MET — StoragePort zero-diff since 24449d9; migration 0008 verified fresh and upgrade |
+
+### What this baseline IS
+
+The repository is internally consistent. main is authoritative and green.
+Eight milestones (M10-M17) are reconciled against reality. Gate G3 is complete
+and TDS-06 is signed. Documentation authority is consolidated: 46 root
+documents reduced to 23, with 23 superseded operational reports retired to the
+archive directory and explicitly marked non-authoritative. Three stale PRD
+passages were corrected against the canonical CLI contract. Every conclusion in
+this ledger carries a proof token.
+
+### What this baseline is NOT — stated limitations
+
+1. **CI has never actually run.** Per DEC-20 nothing is pushed; `origin/main`
+   remains at f3a897b. Every CI result here is a faithful LOCAL reproduction of
+   .github/workflows/ci.yml, not GitHub Actions. `macos-latest` has never been
+   exercised, and the D-11 plugin work touches SysProcAttr — the most
+   platform-sensitive code added this session. "Current CI behavior" ranks 4th
+   in the evidence hierarchy; what exists here is rank-4 evidence by simulation.
+2. **D-6's trigger was never explained.** The orphaned-claim mechanism and the
+   tick blast radius are both fixed and verified, but WHY a storage error
+   becomes persistent under concurrent load was never established.
+3. **Plugin isolation is conditional, not default.** PRD §32 rows 38/53 were
+   restated to the truth: by default a plugin reads runtime.db unimpeded.
+   Enforcement requires plugins_user AND CAP_SETUID/CAP_SETGID.
+4. **Open defects**: D-13 (deferred, feature work), D-16 (P3 doc), D-18's
+   documented goroutine leak under a permanently stalled writer, D-19 (P2,
+   lexicographic started_at ordering at second boundaries).
+5. **D-15 was not re-neutralised in the final pass.** It was verified
+   thoroughly at 21d1f3c (an ancestor of the verified artifact) — all four
+   drain sites, bounded buffer, strictly-additive diff — but the final gate
+   folded it into the D-18 drain rather than re-deriving it separately.
+6. **Live intelligence is unverified.** Anthropic is Implemented / Mock
+   Verified / Live Verification Unavailable — no credential exists. OpenRouter
+   and Local LLM are roadmap; no milestone contract requires them.
+
+### The finding that matters most
+
+Every genuine product defect this program found — D-6, D-15, D-17 — was
+invisible to `make test`, `make race` and the E1 zero-AI gate. Each appeared
+only under three concurrent test suites, or only by reading source. A
+conventional sign-off would have declared this baseline ready weeks ago and
+shipped all three. The load campaign is a gate condition (DEC-22) precisely
+because a single green run is not evidence of a working engine.
