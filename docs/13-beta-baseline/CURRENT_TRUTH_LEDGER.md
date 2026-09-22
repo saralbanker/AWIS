@@ -172,6 +172,11 @@ Methodology notes:
 - The Director ran a verification and a destructive `git stash drop` in the same
   command, so the drop executed before its own check could be read. Separate
   the two.
+- TWO Verifiers stalled without reporting because they launched a long task in
+  the background and then blocked waiting for a notification that never
+  resumed them. Each cost a full round-trip to recover. Verification cards MUST
+  instruct agents never to block on a background notification, and to poll
+  artifacts on disk instead.
 
 ## 6. Phase gate status
 
