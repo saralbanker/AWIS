@@ -10,6 +10,7 @@ package main
 // These tests are skipped under -short.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -73,26 +75,162 @@ func writeWorkflowYAML(t *testing.T, dir string) {
 	}
 }
 
-// waitForHeader reads from r until it finds a line containing "● running" or the timeout expires.
-func waitForHeader(t *testing.T, r io.Reader, timeout time.Duration) bool {
-	t.Helper()
-	buf := make([]byte, 4096)
-	deadline := time.Now().Add(timeout)
-	var collected []byte
-	for time.Now().Before(deadline) {
-		n, err := r.Read(buf)
-		if n > 0 {
-			collected = append(collected, buf[:n]...)
-			if strings.Contains(string(collected), "● running") {
-				return true
+// maxDaemonLogBytes bounds daemonLogCapture's retained buffer: the most
+// recent maxDaemonLogBytes of a test's daemon output, never more (D-15 —
+// "keep the most recent N KB; do not grow without limit").
+const maxDaemonLogBytes = 64 * 1024
+
+// daemonLogCapture drains a daemon subprocess's combined stdout+stderr pipe
+// continuously for the lifetime of a test (D-15). Before this, the FOUR call
+// sites below wired the pipe, read it only until waitForHeader saw the
+// startup header, and then NEVER read it again: once the ~64KB kernel pipe
+// buffer filled, the daemon's next log write blocked — pre-D-18, that froze
+// the whole tick loop — and the daemon's own log, the one artifact that
+// would diagnose this defect class, went nowhere (it was never captured for
+// a failure message either). draining continuously fixes both: the pipe
+// buffer never fills, and the captured tail is available to
+// captureRehearsalDiagnostics.
+type daemonLogCapture struct {
+	mu     sync.Mutex
+	buf    []byte
+	closed bool
+}
+
+// startDaemonLogCapture launches the single draining goroutine for r. It
+// exits on its own once r returns an error (EOF when the daemon process
+// exits and closes its inherited write end) — no explicit stop is needed;
+// exactly one goroutine per call, never growing.
+func startDaemonLogCapture(r io.Reader) *daemonLogCapture {
+	c := &daemonLogCapture{}
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := r.Read(buf)
+			if n > 0 {
+				c.mu.Lock()
+				c.buf = append(c.buf, buf[:n]...)
+				if len(c.buf) > maxDaemonLogBytes {
+					c.buf = c.buf[len(c.buf)-maxDaemonLogBytes:]
+				}
+				c.mu.Unlock()
+			}
+			if err != nil {
+				c.mu.Lock()
+				c.closed = true
+				c.mu.Unlock()
+				return
 			}
 		}
+	}()
+	return c
+}
+
+// String returns the currently captured (bounded) tail of the daemon's log.
+func (c *daemonLogCapture) String() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return string(c.buf)
+}
+
+// isClosed reports whether the underlying pipe has hit EOF/error (the daemon
+// process exited): once true, cap's buffer will never change again, so a
+// caller waiting on it can stop early instead of polling out the rest of its
+// deadline.
+func (c *daemonLogCapture) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
+
+// waitForHeaderPollInterval is how often waitForHeader checks cap's captured
+// output. This is polling EXTERNAL subprocess I/O (arbitrary OS-scheduled
+// byte arrival), not internal engine state — unlike the engine package's
+// idiom (helpers_test.go/hydrate_test.go: manualClock, never time.Sleep),
+// there is no engine clock to advance here, so a short bounded poll against
+// a real deadline is the standard, correct tool for this job.
+const waitForHeaderPollInterval = 20 * time.Millisecond
+
+// waitForHeader blocks until cap's captured output contains "● running" or
+// timeout expires — identical bool/timeout/logging contract to the original
+// one-shot read loop, just driven by daemonLogCapture's continuous drain
+// instead of reading r directly (a second, ad hoc reader here would race the
+// continuous drain goroutine for bytes off the same pipe). Nothing here
+// weakens the deadline or the pass/fail condition.
+func waitForHeader(t *testing.T, cap *daemonLogCapture, timeout time.Duration) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		collected := cap.String()
+		if strings.Contains(collected, "● running") {
+			return true
+		}
+		if cap.isClosed() || !time.Now().Before(deadline) {
+			t.Logf("waitForHeader: did not see '● running' within %s; got:\n%s", timeout, collected)
+			return false
+		}
+		time.Sleep(waitForHeaderPollInterval)
+	}
+}
+
+// TestDaemonLogCapture_DrainsBoundsAndUnblocksTheWriter is the D-15 unit
+// proof for daemonLogCapture, independent of spawning a real subprocess: an
+// in-memory io.Pipe stands in for the daemon's stdout/stderr pipe. It proves
+// (a) captured content is readable via String(), (b) the buffer is bounded
+// to maxDaemonLogBytes — the most recent bytes only, never growing further —
+// and (c) draining continuously means a writer that would have blocked on a
+// full OS pipe buffer never does here, because something is always reading.
+func TestDaemonLogCapture_DrainsBoundsAndUnblocksTheWriter(t *testing.T) {
+	pr, pw := io.Pipe()
+	cap := startDaemonLogCapture(pr)
+
+	// Write far more than maxDaemonLogBytes in chunks; io.Pipe's Write blocks
+	// until a Read consumes it, so this ALSO proves the drain goroutine is
+	// continuously reading (D-15) — a stalled drain would hang this loop.
+	chunk := bytes.Repeat([]byte("x"), 4096)
+	total := 0
+	writeDone := make(chan error, 1)
+	go func() {
+		for total < maxDaemonLogBytes*3 {
+			n, err := pw.Write(chunk)
+			total += n
+			if err != nil {
+				writeDone <- err
+				return
+			}
+		}
+		writeDone <- pw.Close()
+	}()
+
+	select {
+	case err := <-writeDone:
 		if err != nil {
-			break
+			t.Fatalf("write to pipe: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("writes did not complete within 10s; daemonLogCapture is not draining continuously (D-15 regression)")
+	}
+
+	// Give the drain goroutine a moment to consume the final chunk(s) after
+	// Close (Close does not itself guarantee the reader has caught up);
+	// isClosed() is the deterministic signal that it has seen EOF.
+	deadline := time.Now().Add(5 * time.Second)
+	for !cap.isClosed() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !cap.isClosed() {
+		t.Fatal("daemonLogCapture never observed EOF after the writer closed")
+	}
+
+	got := cap.String()
+	if len(got) != maxDaemonLogBytes {
+		t.Fatalf("captured length = %d, want exactly maxDaemonLogBytes (%d) — bounded, not unbounded growth",
+			len(got), maxDaemonLogBytes)
+	}
+	for _, c := range got {
+		if c != 'x' {
+			t.Fatalf("captured content corrupted; expected all 'x', found %q", c)
 		}
 	}
-	t.Logf("waitForHeader: did not see '● running' within %s; got:\n%s", timeout, string(collected))
-	return false
 }
 
 // TestSystemScenarioA builds the binary; starts runtime in temp dir with hello workflow;
@@ -127,8 +265,13 @@ func TestSystemScenarioA(t *testing.T) {
 	// Close write end in parent so read end gets EOF when process exits.
 	_ = pw.Close()
 
+	// Drain the pipe continuously for the rest of this test (D-15): reading
+	// it only until the header appeared and never again let the daemon's log
+	// writes block once the kernel pipe buffer filled.
+	logCap := startDaemonLogCapture(pr)
+
 	// Wait for startup header.
-	if !waitForHeader(t, pr, 15*time.Second) {
+	if !waitForHeader(t, logCap, 15*time.Second) {
 		startCmd.Process.Kill() //nolint:errcheck
 		t.Fatal("runtime did not print startup header within 15s")
 	}
@@ -202,7 +345,10 @@ func TestSystemScenarioB(t *testing.T) {
 	}
 	_ = pw1.Close()
 
-	if !waitForHeader(t, pr1, 15*time.Second) {
+	// Drain continuously for the rest of this test (D-15) — see TestSystemScenarioA.
+	logCap1 := startDaemonLogCapture(pr1)
+
+	if !waitForHeader(t, logCap1, 15*time.Second) {
 		startCmd1.Process.Kill() //nolint:errcheck
 		t.Fatal("runtime 1 did not print startup header within 15s")
 	}
@@ -254,7 +400,10 @@ func TestSystemScenarioB(t *testing.T) {
 	}
 	_ = pw2.Close()
 
-	if !waitForHeader(t, pr2, 15*time.Second) {
+	// Drain continuously for the rest of this test (D-15) — see TestSystemScenarioA.
+	logCap2 := startDaemonLogCapture(pr2)
+
+	if !waitForHeader(t, logCap2, 15*time.Second) {
 		startCmd2.Process.Kill() //nolint:errcheck
 		t.Fatal("runtime 2 did not print startup header within 15s")
 	}
@@ -342,7 +491,13 @@ func TestSystemRehearsalInitStartSubmitTrace(t *testing.T) {
 	}
 	_ = pw.Close()
 
-	if !waitForHeader(t, pr, 15*time.Second) {
+	// Drain continuously for the rest of this test (D-15) — see TestSystemScenarioA.
+	// Also handed to captureRehearsalDiagnostics on failure below: the
+	// daemon's own log is the one artifact that would diagnose this defect
+	// class, and it was never captured for a failure message before.
+	logCap := startDaemonLogCapture(pr)
+
+	if !waitForHeader(t, logCap, 15*time.Second) {
 		startCmd.Process.Kill() //nolint:errcheck
 		t.Fatal("runtime did not print startup header within 15s")
 	}
@@ -471,7 +626,7 @@ func TestSystemRehearsalInitStartSubmitTrace(t *testing.T) {
 		if lastStatusDesc == "" {
 			lastStatusDesc = "never observed in any bucket"
 		}
-		diag := captureRehearsalDiagnostics(bin, dataDir, projDir, submitResult.InstanceID)
+		diag := captureRehearsalDiagnostics(bin, dataDir, projDir, submitResult.InstanceID, logCap)
 		t.Fatalf("instance %s did not reach a terminal status within %s (%d polls, %s elapsed): "+
 			"ever observed in active=%v, ever observed in recent=%v, last observed status: %s\n"+
 			"diagnostics:\n%s",
@@ -520,11 +675,14 @@ func TestSystemRehearsalInitStartSubmitTrace(t *testing.T) {
 
 // captureRehearsalDiagnostics runs 'awis trace <instanceID>' and
 // 'awis status --all --json' against the still-running (or already-exited)
-// runtime and returns their combined output for inclusion in a test failure
-// message (D-9). It never fails the test itself — a command error here is
-// itself diagnostic information (e.g. "runtime not reachable") and is
-// embedded in the returned text rather than swallowed.
-func captureRehearsalDiagnostics(bin, dataDir, projDir, instanceID string) string {
+// runtime, plus (D-15) the daemon's OWN captured log — logCap's continuously
+// drained, bounded tail (startDaemonLogCapture) — and returns their combined
+// output for inclusion in a test failure message (D-9). It never fails the
+// test itself — a command error here is itself diagnostic information (e.g.
+// "runtime not reachable") and is embedded in the returned text rather than
+// swallowed. logCap may be nil (no daemon log available); that section is
+// simply omitted.
+func captureRehearsalDiagnostics(bin, dataDir, projDir, instanceID string, logCap *daemonLogCapture) string {
 	var b strings.Builder
 
 	traceCmd := exec.Command(bin, "--data-dir="+dataDir, "trace", instanceID)
@@ -549,6 +707,19 @@ func captureRehearsalDiagnostics(bin, dataDir, projDir, instanceID string) strin
 	b.Write(statusOut)
 	if len(statusOut) == 0 || statusOut[len(statusOut)-1] != '\n' {
 		b.WriteByte('\n')
+	}
+
+	if logCap != nil {
+		daemonLog := logCap.String()
+		fmt.Fprintf(&b, "--- daemon log (captured, most recent %d bytes) ---\n", maxDaemonLogBytes)
+		if daemonLog == "" {
+			fmt.Fprint(&b, "(empty)\n")
+		} else {
+			b.WriteString(daemonLog)
+			if daemonLog[len(daemonLog)-1] != '\n' {
+				b.WriteByte('\n')
+			}
+		}
 	}
 
 	return b.String()
