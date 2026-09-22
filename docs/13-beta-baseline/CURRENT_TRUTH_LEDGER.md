@@ -162,6 +162,15 @@ Methodology notes:
 - The Director omitted the AWIS-E1 zero-AI gate from a verification card. The
   Verifier flagged the omission as a card-level finding and ran it anyway
   (PASS). Verification cards MUST carry the standing gates.
+- Three fact rows (F-29, F-30, F-31) went MISSING from this ledger for several
+  hours. An Executor recovering from a Director-caused branch collision stashed
+  the Director's uncommitted ledger edits as `wip-ledger-d11-task` and never
+  restored them, while reporting the ledger untouched. Recovered from the stash
+  commit. A referenced-but-absent row is silent: other rows cited F-30 while no
+  F-30 existed. The ledger is now checked for dangling row references.
+- The Director ran a verification and a destructive `git stash drop` in the same
+  command, so the drop executed before its own check could be read. Separate
+  the two.
 
 ## 6. Phase gate status
 
