@@ -35,7 +35,25 @@ func (e *Engine) Run(ctx context.Context) error {
 	e.loggerPtr.Store(slog.New(relay))
 	defer func() {
 		e.loggerPtr.Store(orig)
-		relay.close()
+		// relay.close() drains any records still queued in the relay's
+		// channel (bounded — see nonBlockingHandlerDrainDeadline) so a
+		// normal shutdown does not silently discard queued log lines (D-18
+		// gap 1). Anything still undelivered when the deadline is reached is
+		// surfaced here, via the now-restored synchronous logger, rather
+		// than left uncountable — but undelivered > 0 only happens when the
+		// inner handler is itself stalled (GAP 2, documented in
+		// nonblocking_log.go), and orig wraps that SAME handler: calling
+		// orig.Warn inline here could therefore block on the very stall that
+		// produced the residual, which Run()'s return must never do (D-18's
+		// ticker/Run-never-freezes property outranks this diagnostic). So
+		// the warning is logged from a detached goroutine instead — it may
+		// leak in the pathological permanently-stalled case, exactly like
+		// the GAP 2 leak already documented for the relay goroutine itself,
+		// but it can never delay Run() returning.
+		if undelivered := relay.close(); undelivered > 0 {
+			go orig.Warn("log relay: queued records undelivered at shutdown drain deadline",
+				"dropped_log_lines_at_shutdown", undelivered)
+		}
 	}()
 
 	ticker := time.NewTicker(e.cfg.TickInterval)

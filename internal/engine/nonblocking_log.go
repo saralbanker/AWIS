@@ -40,6 +40,7 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // nonBlockingHandlerChanCap bounds the relay channel: generous enough that a
@@ -49,11 +50,23 @@ import (
 // bound").
 const nonBlockingHandlerChanCap = 1024
 
+// nonBlockingHandlerDrainDeadline bounds how long close() waits for records
+// still queued in h.ch to be delivered to the inner handler before giving up
+// (D-18 gap 1: close() must drain, not silently discard, but must also never
+// block shutdown indefinitely). 200ms is short enough that Run() returning
+// stays prompt — well under the 2s deadlock guard the D-18 tests already use
+// elsewhere in this package — while being generous for flushing up to
+// nonBlockingHandlerChanCap queued records through a healthy inner handler,
+// which is the only case this deadline is meant to accommodate; a genuinely
+// stalled writer will exceed it every time; see loop's GAP 2 comment.
+const nonBlockingHandlerDrainDeadline = 200 * time.Millisecond
+
 // nonBlockingHandler implements slog.Handler by relaying every record to a
 // single background goroutine (loop, started by newNonBlockingHandler).
 // WithAttrs/WithGroup return a derived handler that shares the same channel,
-// shutdown signal, and drop counter, so every handler derived from the same
-// root still funnels through exactly one goroutine and one drop count.
+// shutdown signal, drop counter, and drained signal, so every handler
+// derived from the same root still funnels through exactly one goroutine and
+// one drop count.
 type nonBlockingHandler struct {
 	inner slog.Handler
 
@@ -61,6 +74,11 @@ type nonBlockingHandler struct {
 	done      chan struct{}
 	closeOnce *sync.Once
 	dropped   *atomic.Int64
+
+	// drained is closed by loop() once it has fully drained h.ch after done
+	// fires (see loop's drain step). close() waits on it, bounded by
+	// nonBlockingHandlerDrainDeadline — see close()'s doc comment and GAP 2.
+	drained chan struct{}
 
 	// notify, if non-nil, receives a best-effort (non-blocking) signal after
 	// every record the relay goroutine actually writes. Test-only
@@ -77,6 +95,7 @@ func newNonBlockingHandler(inner slog.Handler) *nonBlockingHandler {
 		done:      make(chan struct{}),
 		closeOnce: &sync.Once{},
 		dropped:   &atomic.Int64{},
+		drained:   make(chan struct{}),
 	}
 	go h.loop()
 	return h
@@ -104,40 +123,100 @@ func (h *nonBlockingHandler) Handle(_ context.Context, r slog.Record) error {
 }
 
 func (h *nonBlockingHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &nonBlockingHandler{inner: h.inner.WithAttrs(attrs), ch: h.ch, done: h.done, closeOnce: h.closeOnce, dropped: h.dropped}
+	return &nonBlockingHandler{inner: h.inner.WithAttrs(attrs), ch: h.ch, done: h.done, closeOnce: h.closeOnce, dropped: h.dropped, drained: h.drained}
 }
 
 func (h *nonBlockingHandler) WithGroup(name string) slog.Handler {
-	return &nonBlockingHandler{inner: h.inner.WithGroup(name), ch: h.ch, done: h.done, closeOnce: h.closeOnce, dropped: h.dropped}
+	return &nonBlockingHandler{inner: h.inner.WithGroup(name), ch: h.ch, done: h.done, closeOnce: h.closeOnce, dropped: h.dropped, drained: h.drained}
 }
 
 // loop is the single goroutine that performs the actual (possibly blocking)
 // handler work, so nothing else ever has to.
+//
+// GAP 2 (documented, accepted limitation — not fixed): if h.inner.Handle is
+// itself permanently stalled (e.g. a full pipe or a stuck collector that
+// never unblocks), this goroutine is blocked in-flight inside deliver's call
+// to h.inner.Handle below and cannot be interrupted — closing h.done does not
+// preempt an in-progress call. The goroutine then leaks for the life of the
+// process, pinning up to nonBlockingHandlerChanCap queued records. This is a
+// genuine, pathological Go limitation (a blocking call in progress cannot be
+// cancelled from outside), not something this fix addresses; close() bounds
+// how long IT waits (nonBlockingHandlerDrainDeadline) so shutdown itself is
+// never held hostage by this leaked goroutine — see close()'s doc comment.
 func (h *nonBlockingHandler) loop() {
 	ctx := context.Background()
 	for {
 		select {
 		case r := <-h.ch:
-			if n := h.dropped.Swap(0); n > 0 {
-				r.AddAttrs(slog.Int64("dropped_log_lines_under_backpressure", n))
-			}
-			_ = h.inner.Handle(ctx, r) // best-effort: nothing else to do with a logging failure here.
-			if h.notify != nil {
-				select {
-				case h.notify <- struct{}{}:
-				default:
-				}
-			}
+			h.deliver(ctx, r)
 		case <-h.done:
+			h.drain(ctx)
 			return
 		}
 	}
 }
 
-// close stops the relay goroutine. Safe to call multiple times or on any
-// handler derived via WithAttrs/WithGroup (they share closeOnce/done).
-func (h *nonBlockingHandler) close() {
-	h.closeOnce.Do(func() { close(h.done) })
+// deliver hands r to the inner handler and pings notify (if set). Shared by
+// loop's normal path and drain so every record is handled identically
+// regardless of which path delivers it.
+func (h *nonBlockingHandler) deliver(ctx context.Context, r slog.Record) {
+	if n := h.dropped.Swap(0); n > 0 {
+		r.AddAttrs(slog.Int64("dropped_log_lines_under_backpressure", n))
+	}
+	_ = h.inner.Handle(ctx, r) // best-effort: nothing else to do with a logging failure here.
+	if h.notify != nil {
+		select {
+		case h.notify <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// drain delivers every record still queued in h.ch to the inner handler
+// before the relay goroutine exits, so a normal shutdown does not silently
+// discard queued log lines (D-18 gap 1: "the first occurrence of an error
+// must never be lost", "dropped output must be countable, not silent").
+// It has no deadline of its own — close() is what bounds how long the
+// CALLER waits for this to finish (see close()'s doc comment and GAP 2
+// above); drain itself just keeps delivering until h.ch is observed empty,
+// then signals h.drained so a waiting close() can stop waiting.
+func (h *nonBlockingHandler) drain(ctx context.Context) {
+	for {
+		select {
+		case r := <-h.ch:
+			h.deliver(ctx, r)
+		default:
+			close(h.drained)
+			return
+		}
+	}
+}
+
+// close stops the relay goroutine, first waiting (bounded by
+// nonBlockingHandlerDrainDeadline) for it to drain and deliver every record
+// still queued in h.ch — a normal shutdown (writer healthy, channel empty or
+// lightly loaded) drains essentially immediately and returns well within the
+// deadline. It returns the number of queued records that were still
+// undelivered when the deadline was reached (0 in the normal case): if the
+// inner handler is itself stuck mid-write when close is called, the relay
+// goroutine cannot be interrupted (GAP 2, documented on loop/drain above) and
+// the drain signal will never arrive, so close() gives up after the deadline
+// rather than hanging shutdown, and reports whatever is still sitting in
+// h.ch at that point as undelivered. Safe to call multiple times or on any
+// handler derived via WithAttrs/WithGroup (they share closeOnce/done/
+// drained); only the first call's return value is meaningful, matching
+// closeOnce's existing once-only semantics.
+func (h *nonBlockingHandler) close() int64 {
+	var undelivered int64
+	h.closeOnce.Do(func() {
+		close(h.done)
+		select {
+		case <-h.drained:
+		case <-time.After(nonBlockingHandlerDrainDeadline):
+			undelivered = int64(len(h.ch))
+		}
+	})
+	return undelivered
 }
 
 // droppedCount is a test-observable snapshot of the pending (not yet folded
