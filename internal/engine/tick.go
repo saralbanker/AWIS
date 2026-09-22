@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"strconv"
@@ -31,27 +32,52 @@ func (e *Engine) Run(ctx context.Context) error {
 }
 
 // Tick runs one pass of the pull pipeline (Blueprint §8 stage order).
+//
+// D-17: a single instance's error must not prevent every other instance, or
+// the two scan stages below the SCAN_RUNNABLE loop, from running. Each
+// instance is processed in isolation — its error is logged immediately
+// (instance_id + error, so the failure is diagnosable per instance, which is
+// the entire point: this class of failure was previously undiagnosable
+// because it silently starved everything after the first failing instance)
+// and collected, but does NOT stop the loop. SIGNAL_SCAN and
+// SIGNAL_TIMEOUT_SCAN then run unconditionally — even when ListInstances
+// itself failed (so this tick saw zero instances) or every instance errored —
+// because they are independent stages, not a continuation of SCAN_RUNNABLE.
+//
+// Tick still returns an error: the individual per-instance errors (each
+// already logged) and any ListInstances error are joined with errors.Join and
+// returned together, so a caller that wants the full picture (or wants to
+// errors.Is/As against a specific cause) still can, while no single error
+// aborts processing of anything else this tick. A nil return means every
+// instance this tick, and the ListInstances call, succeeded.
 func (e *Engine) Tick(ctx context.Context) error {
 	// SCAN_TRIGGERABLE (T5/F-2) — trigger.go.
 	e.scanTriggerable(ctx)
 
 	// SCAN_RUNNABLE.
+	var errs []error
 	instances, err := e.storage.ListInstances(ctx, core.InstanceFilter{Status: core.InstanceStatusRunning})
 	if err != nil {
-		return fmt.Errorf("engine: Tick list running instances: %w", err)
-	}
-	for _, inst := range instances {
-		if err := e.processInstance(ctx, inst); err != nil {
-			return err
+		errs = append(errs, fmt.Errorf("engine: Tick list running instances: %w", err))
+	} else {
+		for _, inst := range instances {
+			if err := e.processInstance(ctx, inst); err != nil {
+				e.logger.Error("process instance failed; skipping for this tick",
+					"instance_id", string(inst.InstanceID), "error", err.Error())
+				errs = append(errs, fmt.Errorf("engine: Tick process instance %s: %w", inst.InstanceID, err))
+			}
 		}
 	}
 
-	// SIGNAL_SCAN — deliver undelivered inbox signals (M07-C2).
+	// SIGNAL_SCAN — deliver undelivered inbox signals (M07-C2). Runs
+	// regardless of any error above (D-17 point 2).
 	e.signalScan(ctx)
 
-	// SIGNAL_TIMEOUT_SCAN — expire timed-out wait_records (M07-C3r).
+	// SIGNAL_TIMEOUT_SCAN — expire timed-out wait_records (M07-C3r). Runs
+	// regardless of any error above (D-17 point 2).
 	e.signalTimeoutScan(ctx)
-	return nil
+
+	return errors.Join(errs...)
 }
 
 // signalScan is the SIGNAL_SCAN stage: it drives the delivery scan (internal/
