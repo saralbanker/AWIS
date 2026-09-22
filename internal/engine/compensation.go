@@ -66,7 +66,7 @@ func (e *Engine) runCompensation(ctx context.Context, dv *defView, inst core.Wor
 			if !completed[cs.StepID] {
 				continue
 			}
-			e.logger.Error("compensation failed: no native runner registered",
+			e.log().Error("compensation failed: no native runner registered",
 				"instance_id", string(inst.InstanceID), "step_id", cs.StepID)
 			return e.emitWorkflowCompensationFailed(ctx, inst, cs.StepID, core.StepError{
 				Code:    "runner_unavailable",
@@ -82,7 +82,7 @@ func (e *Engine) runCompensation(ctx context.Context, dv *defView, inst core.Wor
 			continue // forward step never completed ⇒ no undo (EDR-011 §6).
 		}
 		if undoErr := e.runUndo(ctx, inst, cs, nr); undoErr != nil {
-			e.logger.Error("compensation undo exhausted",
+			e.log().Error("compensation undo exhausted",
 				"instance_id", string(inst.InstanceID), "step_id", cs.StepID,
 				"error", undoErr.Message)
 			return e.emitWorkflowCompensationFailed(ctx, inst, cs.StepID, *undoErr)
@@ -114,7 +114,7 @@ func (e *Engine) runUndo(ctx context.Context, inst core.WorkflowInstance, cs cor
 			StepID:     cs.StepID,
 			Attempt:    attempt,
 			Inputs:     undoInputs,
-			Logger: e.logger.With(
+			Logger: e.log().With(
 				"instance_id", string(inst.InstanceID),
 				"step_id", cs.StepID,
 				"phase", "compensation",
@@ -128,7 +128,7 @@ func (e *Engine) runUndo(ctx context.Context, inst core.WorkflowInstance, cs cor
 		if attempt < maxAttempts && cs.Retry != nil && codeRetryable(cs.Retry, serr.Code) {
 			// Backoff computed for the audit trail; NOT slept (V1, see file doc).
 			delay := backoffDelay(*cs.Retry, attempt)
-			e.logger.Info("compensation undo retry",
+			e.log().Info("compensation undo retry",
 				"instance_id", string(inst.InstanceID), "step_id", cs.StepID,
 				"attempt", attempt, "backoff", delay.String())
 			continue

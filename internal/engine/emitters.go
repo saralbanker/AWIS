@@ -280,7 +280,7 @@ func (e *Engine) emitWorkflowCompensationFailed(ctx context.Context, inst core.W
 // logEmit records an emission at Info with the structured keys required by the
 // IMP DoD (instance_id / step_id / event_type).
 func (e *Engine) logEmit(ev core.ExecutionEvent) {
-	e.logger.Info("emit",
+	e.log().Info("emit",
 		"instance_id", string(ev.InstanceID),
 		"step_id", ev.StepID,
 		"event_type", string(ev.EventType),

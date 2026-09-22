@@ -219,7 +219,7 @@ func (e *Engine) expectedVersion(ctx context.Context, iid core.InstanceID) int {
 			e.mu.Unlock()
 			return 0
 		default:
-			e.logger.Warn("expectedVersion: durable read failed; falling back to cached version",
+			e.log().Warn("expectedVersion: durable read failed; falling back to cached version",
 				"instance_id", string(iid), "error", err.Error())
 		}
 	}

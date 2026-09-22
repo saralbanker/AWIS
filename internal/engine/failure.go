@@ -191,7 +191,7 @@ func (e *Engine) routeTerminalFailure(ctx context.Context, dv *defView, inst cor
 			return false, err
 		}
 		e.addPending(inst.InstanceID, step.Fallback)
-		e.logger.Info("settle", "instance_id", string(inst.InstanceID), "step_id", step.ID, "outcome", "fallback")
+		e.log().Info("settle", "instance_id", string(inst.InstanceID), "step_id", step.ID, "outcome", "fallback")
 		return false, nil
 	}
 
@@ -205,7 +205,7 @@ func (e *Engine) routeTerminalFailure(ctx context.Context, dv *defView, inst cor
 		for _, to := range targets {
 			e.addPending(inst.InstanceID, to)
 		}
-		e.logger.Info("settle", "instance_id", string(inst.InstanceID), "step_id", step.ID, "outcome", "on_error")
+		e.log().Info("settle", "instance_id", string(inst.InstanceID), "step_id", step.ID, "outcome", "on_error")
 		return false, nil
 	}
 
@@ -217,7 +217,7 @@ func (e *Engine) routeTerminalFailure(ctx context.Context, dv *defView, inst cor
 	if err := e.emitWorkflowFailed(ctx, inst, step.ID, stepErr); err != nil {
 		return false, err
 	}
-	e.logger.Info("settle", "instance_id", string(inst.InstanceID), "step_id", step.ID, "outcome", "failed")
+	e.log().Info("settle", "instance_id", string(inst.InstanceID), "step_id", step.ID, "outcome", "failed")
 	if err := e.maybeCompensate(ctx, dv, inst, step.ID); err != nil {
 		return true, err
 	}
@@ -241,7 +241,7 @@ func (e *Engine) settleFailure(ctx context.Context, dv *defView, inst core.Workf
 			return false, err
 		}
 		e.scheduleRetry(inst.InstanceID, step.ID, attempt+1, backoffDelay(*step.Retry, attempt))
-		e.logger.Info("settle", "instance_id", string(inst.InstanceID), "step_id", step.ID, "outcome", "retrying")
+		e.log().Info("settle", "instance_id", string(inst.InstanceID), "step_id", step.ID, "outcome", "retrying")
 		return false, nil
 	}
 	// Terminal failure: drop any retry bookkeeping and route.

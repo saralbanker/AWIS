@@ -2,7 +2,9 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"runtime/debug"
 	"strconv"
 	"sync"
@@ -15,7 +17,45 @@ import (
 // Run drives the pull loop at Config.TickInterval until ctx is cancelled. A tick
 // error is logged and the loop continues (a transient storage error must not kill
 // the engine); ctx cancellation returns ctx.Err().
+//
+// D-18: for Run's lifetime, e's logger is swapped for one wrapped in a
+// non-blocking relay (nonblocking_log.go) — this covers every e.log() call
+// reachable from Tick (the D-17 per-instance failure log, signalTimeoutScan's
+// Warn, logEmit's Info, dispatch/settle, …), not just this function's own
+// "tick failed" line: log/slog's built-in handlers hold ONE shared mutex
+// around the writer for the duration of each write, so relaying only one
+// call site is not sufficient — any OTHER direct call sharing the same
+// underlying handler would still block trying to acquire that mutex while a
+// different goroutine's write to it is stuck. The original logger is
+// restored when Run returns, so Tick() called directly (no Run() active —
+// e.g. by tests) logs synchronously, exactly as before D-18.
 func (e *Engine) Run(ctx context.Context) error {
+	orig := e.log()
+	relay := newNonBlockingHandler(orig.Handler())
+	e.loggerPtr.Store(slog.New(relay))
+	defer func() {
+		e.loggerPtr.Store(orig)
+		// relay.close() drains any records still queued in the relay's
+		// channel (bounded — see nonBlockingHandlerDrainDeadline) so a
+		// normal shutdown does not silently discard queued log lines (D-18
+		// gap 1). Anything still undelivered when the deadline is reached is
+		// surfaced here, via the now-restored synchronous logger, rather
+		// than left uncountable — but undelivered > 0 only happens when the
+		// inner handler is itself stalled (GAP 2, documented in
+		// nonblocking_log.go), and orig wraps that SAME handler: calling
+		// orig.Warn inline here could therefore block on the very stall that
+		// produced the residual, which Run()'s return must never do (D-18's
+		// ticker/Run-never-freezes property outranks this diagnostic). So
+		// the warning is logged from a detached goroutine instead — it may
+		// leak in the pathological permanently-stalled case, exactly like
+		// the GAP 2 leak already documented for the relay goroutine itself,
+		// but it can never delay Run() returning.
+		if undelivered := relay.close(); undelivered > 0 {
+			go orig.Warn("log relay: queued records undelivered at shutdown drain deadline",
+				"dropped_log_lines_at_shutdown", undelivered)
+		}
+	}()
+
 	ticker := time.NewTicker(e.cfg.TickInterval)
 	defer ticker.Stop()
 	for {
@@ -24,34 +64,59 @@ func (e *Engine) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-ticker.C:
 			if err := e.Tick(ctx); err != nil {
-				e.logger.Error("tick failed", "error", err.Error())
+				e.log().Error("tick failed", "error", err.Error())
 			}
 		}
 	}
 }
 
 // Tick runs one pass of the pull pipeline (Blueprint §8 stage order).
+//
+// D-17: a single instance's error must not prevent every other instance, or
+// the two scan stages below the SCAN_RUNNABLE loop, from running. Each
+// instance is processed in isolation — its error is logged immediately
+// (instance_id + error, so the failure is diagnosable per instance, which is
+// the entire point: this class of failure was previously undiagnosable
+// because it silently starved everything after the first failing instance)
+// and collected, but does NOT stop the loop. SIGNAL_SCAN and
+// SIGNAL_TIMEOUT_SCAN then run unconditionally — even when ListInstances
+// itself failed (so this tick saw zero instances) or every instance errored —
+// because they are independent stages, not a continuation of SCAN_RUNNABLE.
+//
+// Tick still returns an error: the individual per-instance errors (each
+// already logged) and any ListInstances error are joined with errors.Join and
+// returned together, so a caller that wants the full picture (or wants to
+// errors.Is/As against a specific cause) still can, while no single error
+// aborts processing of anything else this tick. A nil return means every
+// instance this tick, and the ListInstances call, succeeded.
 func (e *Engine) Tick(ctx context.Context) error {
 	// SCAN_TRIGGERABLE (T5/F-2) — trigger.go.
 	e.scanTriggerable(ctx)
 
 	// SCAN_RUNNABLE.
+	var errs []error
 	instances, err := e.storage.ListInstances(ctx, core.InstanceFilter{Status: core.InstanceStatusRunning})
 	if err != nil {
-		return fmt.Errorf("engine: Tick list running instances: %w", err)
-	}
-	for _, inst := range instances {
-		if err := e.processInstance(ctx, inst); err != nil {
-			return err
+		errs = append(errs, fmt.Errorf("engine: Tick list running instances: %w", err))
+	} else {
+		for _, inst := range instances {
+			if err := e.processInstance(ctx, inst); err != nil {
+				e.log().Error("process instance failed; skipping for this tick",
+					"instance_id", string(inst.InstanceID), "error", err.Error())
+				errs = append(errs, fmt.Errorf("engine: Tick process instance %s: %w", inst.InstanceID, err))
+			}
 		}
 	}
 
-	// SIGNAL_SCAN — deliver undelivered inbox signals (M07-C2).
+	// SIGNAL_SCAN — deliver undelivered inbox signals (M07-C2). Runs
+	// regardless of any error above (D-17 point 2).
 	e.signalScan(ctx)
 
-	// SIGNAL_TIMEOUT_SCAN — expire timed-out wait_records (M07-C3r).
+	// SIGNAL_TIMEOUT_SCAN — expire timed-out wait_records (M07-C3r). Runs
+	// regardless of any error above (D-17 point 2).
 	e.signalTimeoutScan(ctx)
-	return nil
+
+	return errors.Join(errs...)
 }
 
 // signalScan is the SIGNAL_SCAN stage: it drives the delivery scan (internal/
@@ -64,9 +129,9 @@ func (e *Engine) signalScan(ctx context.Context) {
 	if !ok {
 		return
 	}
-	sc := signal.NewScanner(store, e, e.now, e.newID, e.cfg.WorkerID, e.logger)
+	sc := signal.NewScanner(store, e, e.now, e.newID, e.cfg.WorkerID, e.log())
 	if err := sc.Scan(ctx); err != nil {
-		e.logger.Warn("signal scan failed", "error", err.Error())
+		e.log().Warn("signal scan failed", "error", err.Error())
 	}
 }
 
@@ -275,7 +340,7 @@ func (e *Engine) gatherDispatch(ctx context.Context, dv *defView, inst core.Work
 			// it with a release failure).
 			if rs, ok := e.storage.(claimReleaseStore); ok {
 				if rerr := rs.ReleaseStepClaim(ctx, inst.InstanceID, stepID); rerr != nil {
-					e.logger.Error("failed to release orphaned step claim after StepStarted emission failure",
+					e.log().Error("failed to release orphaned step claim after StepStarted emission failure",
 						"instance_id", string(inst.InstanceID), "step_id", stepID,
 						"emit_error", err.Error(), "release_error", rerr.Error())
 				}
@@ -295,7 +360,7 @@ func (e *Engine) gatherDispatch(ctx context.Context, dv *defView, inst core.Work
 			continue
 		}
 
-		e.logger.Info("dispatch", "instance_id", string(inst.InstanceID), "step_id", stepID)
+		e.log().Info("dispatch", "instance_id", string(inst.InstanceID), "step_id", stepID)
 		items = append(items, dispatchItem{step: step, sc: sc, startedAt: startedAt})
 	}
 
@@ -315,7 +380,7 @@ func (e *Engine) gatherDispatch(ctx context.Context, dv *defView, inst core.Work
 		if err != nil {
 			return nil, err
 		}
-		e.logger.Info("dispatch retry", "instance_id", string(inst.InstanceID), "step_id", stepID, "attempt", attempt)
+		e.log().Info("dispatch retry", "instance_id", string(inst.InstanceID), "step_id", stepID, "attempt", attempt)
 		items = append(items, dispatchItem{step: step, sc: sc, startedAt: startedAt})
 	}
 
@@ -337,7 +402,7 @@ func (e *Engine) settleSuccess(ctx context.Context, inst core.WorkflowInstance, 
 			return err
 		}
 	}
-	e.logger.Info("settle", "instance_id", string(inst.InstanceID), "step_id", it.step.ID, "outcome", "completed")
+	e.log().Info("settle", "instance_id", string(inst.InstanceID), "step_id", it.step.ID, "outcome", "completed")
 	return nil
 }
 
@@ -380,11 +445,11 @@ func (e *Engine) noteClaimLost(iid core.InstanceID, stepID string) {
 	e.mu.Unlock()
 
 	if streak >= claimLostWedgeThreshold && streak%claimLostWedgeThreshold == 0 {
-		e.logger.Error("step claim lost on repeated consecutive ticks; instance may be permanently wedged (D-6 orphan-claim signature)",
+		e.log().Error("step claim lost on repeated consecutive ticks; instance may be permanently wedged (D-6 orphan-claim signature)",
 			"instance_id", string(iid), "step_id", stepID, "consecutive_losses", streak)
 		return
 	}
-	e.logger.Info("claim lost", "instance_id", string(iid), "step_id", stepID)
+	e.log().Info("claim lost", "instance_id", string(iid), "step_id", stepID)
 }
 
 // clearClaimLostStreak resets the consecutive-loss counter for (iid, stepID)
@@ -404,7 +469,7 @@ func (e *Engine) dispatchOne(ctx context.Context, iid core.InstanceID, step core
 	// Idempotency key = instance_id/step_id/attempt (Blueprint §20; attempt=1 at C1).
 	key := core.IdempotencyKey(string(iid) + "/" + step.ID + "/" + strconv.Itoa(sc.Attempt))
 	if cached, ok, err := e.storage.GetCachedResult(ctx, key); err != nil {
-		e.logger.Warn("cache read failed; treating as miss",
+		e.log().Warn("cache read failed; treating as miss",
 			"instance_id", string(iid), "step_id", step.ID, "error", err.Error())
 	} else if ok {
 		return dispatchResult{out: cached}
@@ -430,7 +495,7 @@ func (e *Engine) dispatchOne(ctx context.Context, iid core.InstanceID, step core
 		return dispatchResult{stepErr: serr}
 	}
 	if err := e.storage.CacheResult(ctx, key, out, idempotencyTTL); err != nil {
-		e.logger.Warn("cache write failed",
+		e.log().Warn("cache write failed",
 			"instance_id", string(iid), "step_id", step.ID, "error", err.Error())
 	}
 	return dispatchResult{out: out, usage: usage}
