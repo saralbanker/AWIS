@@ -46,12 +46,12 @@ func (e *Engine) signalTimeoutScan(ctx context.Context) {
 	now := e.now()
 	records, err := store.ListDueWaitRecords(ctx, now)
 	if err != nil {
-		e.logger.Warn("signal timeout scan: list due wait records", "error", err.Error())
+		e.log().Warn("signal timeout scan: list due wait records", "error", err.Error())
 		return
 	}
 	for _, wr := range records {
 		if err := e.processTimeout(ctx, store, wr); err != nil {
-			e.logger.Error("signal timeout: process expired wait",
+			e.log().Error("signal timeout: process expired wait",
 				"instance_id", string(wr.InstanceID), "step_id", wr.StepID,
 				"timeout_action", wr.TimeoutAction, "error", err.Error())
 		}
@@ -140,7 +140,7 @@ func (e *Engine) processTimeout(ctx context.Context, store signalTimeoutStore, w
 		return e.emitStepCompleted(ctx, inst, wr.StepID, 1, map[string]any{}, startedAt)
 
 	default:
-		e.logger.Warn("signal timeout: unknown timeout_action; treating as fail",
+		e.log().Warn("signal timeout: unknown timeout_action; treating as fail",
 			"timeout_action", wr.TimeoutAction,
 			"instance_id", string(wr.InstanceID), "step_id", wr.StepID)
 		step := dv.steps[wr.StepID]

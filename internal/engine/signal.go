@@ -84,7 +84,7 @@ func (e *Engine) Signal(ctx context.Context, instanceID core.InstanceID, name st
 	if err := store.InsertSignal(ctx, sig); err != nil {
 		return fmt.Errorf("engine: Signal intake %s/%s: %w", instanceID, name, err)
 	}
-	e.logger.Info("signal intake",
+	e.log().Info("signal intake",
 		"instance_id", string(instanceID), "signal_name", name, "signal_id", sig.SignalID)
 	return nil
 }
@@ -123,7 +123,7 @@ func (e *Engine) enterWait(ctx context.Context, inst core.WorkflowInstance, step
 			t := now.Add(d)
 			timeoutAt = &t
 		} else {
-			e.logger.Warn("signal step: unparseable timeout; wait_record written with NULL timeout_at",
+			e.log().Warn("signal step: unparseable timeout; wait_record written with NULL timeout_at",
 				"step_id", step.ID, "timeout", string(wc.Timeout), "error", err.Error())
 		}
 	}
@@ -179,7 +179,7 @@ func (e *Engine) enterWait(ctx context.Context, inst core.WorkflowInstance, step
 	}
 
 	e.rememberWait(inst.InstanceID, wc.SignalName, step.ID)
-	e.logger.Info("wait entry",
+	e.log().Info("wait entry",
 		"instance_id", string(inst.InstanceID), "step_id", step.ID, "signal_name", wc.SignalName)
 	return nil
 }
@@ -238,7 +238,7 @@ func (e *Engine) recoverWait(ctx context.Context, iid core.InstanceID, signalNam
 	}
 	wrs, err := store.ListWaitRecordsByInstance(ctx, iid)
 	if err != nil {
-		e.logger.Warn("Resolve: durable wait-record recovery failed",
+		e.log().Warn("Resolve: durable wait-record recovery failed",
 			"instance_id", string(iid), "signal_name", signalName, "error", err.Error())
 		return "", false
 	}
