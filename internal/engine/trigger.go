@@ -56,7 +56,7 @@ func (e *Engine) Ingest(ctx context.Context, ev core.DomainEvent) error {
 	if err := store.InsertDomainEvent(ctx, ev); err != nil {
 		return fmt.Errorf("engine: Ingest %s: %w", ev.EventID, err)
 	}
-	e.logger.Info("ingest", "event_id", ev.EventID, "event_type", ev.EventType, "namespace", ev.Namespace)
+	e.log().Info("ingest", "event_id", ev.EventID, "event_type", ev.EventType, "namespace", ev.Namespace)
 	return nil
 }
 
@@ -75,16 +75,16 @@ func (e *Engine) scanTriggerable(ctx context.Context) {
 	// TTL prune first: the 7-day retention bound is authoritative, so an event
 	// past its TTL never fires (EDR-011 §4 / Blueprint §10 L724).
 	if n, err := store.PruneExpiredDomainEvents(ctx, e.now().Add(-domainEventTTL)); err != nil {
-		e.logger.Warn("domain-event prune failed", "error", err.Error())
+		e.log().Warn("domain-event prune failed", "error", err.Error())
 	} else if n > 0 {
-		e.logger.Info("domain-event prune", "pruned", n)
+		e.log().Info("domain-event prune", "pruned", n)
 	}
 
 	// Empty namespace ⇒ all namespaces: the engine has no namespace enumeration,
 	// so it lists across namespaces and resolves each event via ListWorkflows.
 	events, err := store.ListUnconsumedDomainEvents(ctx, "")
 	if err != nil {
-		e.logger.Warn("domain-event scan failed", "error", err.Error())
+		e.log().Warn("domain-event scan failed", "error", err.Error())
 		return
 	}
 	for _, ev := range events {
@@ -99,7 +99,7 @@ func (e *Engine) scanTriggerable(ctx context.Context) {
 func (e *Engine) matchAndFire(ctx context.Context, store triggerStore, ev core.DomainEvent) {
 	defs, err := e.storage.ListWorkflows(ctx, ev.Namespace)
 	if err != nil {
-		e.logger.Warn("trigger scan list workflows failed",
+		e.log().Warn("trigger scan list workflows failed",
 			"event_id", ev.EventID, "namespace", ev.Namespace, "error", err.Error())
 		return
 	}
@@ -109,25 +109,25 @@ func (e *Engine) matchAndFire(ctx context.Context, store triggerStore, ev core.D
 		if !e.triggerMatches(def, ev) {
 			continue
 		}
-		e.logger.Info("trigger match", "event_id", ev.EventID, "definition_id", def.ID)
+		e.log().Info("trigger match", "event_id", ev.EventID, "definition_id", def.ID)
 		// inputs = DomainEvent.payload VERBATIM (EDR-011 §4).
 		if _, err := e.Submit(ctx, def.ID, def.Version, ev.Payload); err != nil {
-			e.logger.Warn("trigger submit failed",
+			e.log().Warn("trigger submit failed",
 				"event_id", ev.EventID, "definition_id", def.ID, "error", err.Error())
 			continue
 		}
 		fired++
-		e.logger.Info("trigger fire", "event_id", ev.EventID, "definition_id", def.ID)
+		e.log().Info("trigger fire", "event_id", ev.EventID, "definition_id", def.ID)
 	}
 
 	if fired == 0 {
 		return // unmatched (or all Submits failed) ⇒ survive to TTL prune.
 	}
 	if err := store.MarkDomainEventConsumed(ctx, ev.EventID, e.now()); err != nil {
-		e.logger.Warn("trigger mark consumed failed", "event_id", ev.EventID, "error", err.Error())
+		e.log().Warn("trigger mark consumed failed", "event_id", ev.EventID, "error", err.Error())
 		return
 	}
-	e.logger.Info("trigger consume", "event_id", ev.EventID, "fired", fired)
+	e.log().Info("trigger consume", "event_id", ev.EventID, "fired", fired)
 }
 
 // triggerMatches reports whether def has an event trigger matching ev
@@ -155,13 +155,13 @@ func (e *Engine) triggerMatches(def core.WorkflowDefinition, ev core.DomainEvent
 		}
 		cond, err := expr.ParseCondition(filter)
 		if err != nil {
-			e.logger.Warn("trigger filter parse failed",
+			e.log().Warn("trigger filter parse failed",
 				"event_id", ev.EventID, "definition_id", def.ID, "filter", filter, "error", err.Error())
 			continue
 		}
 		ok, err := cond.Eval(expr.Env{Event: ev.Payload})
 		if err != nil {
-			e.logger.Warn("trigger filter eval failed",
+			e.log().Warn("trigger filter eval failed",
 				"event_id", ev.EventID, "definition_id", def.ID, "error", err.Error())
 			continue
 		}

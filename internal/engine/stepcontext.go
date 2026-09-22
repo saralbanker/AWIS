@@ -15,7 +15,7 @@ import (
 // logged at Warn (FR-WD-05).
 func (e *Engine) assembleContext(inst core.WorkflowInstance, step core.Step, attempt int) (core.StepContext, *core.StepError) {
 	env := buildEnv(inst)
-	stepLog := e.logger.With(
+	stepLog := e.log().With(
 		"instance_id", string(inst.InstanceID),
 		"step_id", step.ID,
 	)

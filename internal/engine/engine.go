@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/awis/awis/internal/core"
@@ -62,9 +63,19 @@ type Engine struct {
 	storage core.StoragePort
 	runners map[core.StepType]Runner
 	cfg     Config
-	logger  *slog.Logger
 	now     func() time.Time
 	newID   func() string
+
+	// loggerPtr holds the engine's current logger. New() stores exactly the
+	// logger it was given (or the JSON-on-stderr default), unwrapped — so
+	// every direct caller (Cancel, Submit, Tick called outside Run, …) logs
+	// synchronously, exactly as before D-18. Run() swaps in a non-blocking
+	// relay (nonblocking_log.go) for its own lifetime only, and restores the
+	// original on return (tick.go). atomic.Pointer because Submit/Signal/
+	// Cancel can legitimately run concurrently with Run() in the daemon, so
+	// a plain field would be a data race the instant Run() swaps it; log()
+	// is the only accessor — see it for why.
+	loggerPtr atomic.Pointer[slog.Logger]
 
 	mu   sync.Mutex
 	seq  map[core.InstanceID]int // per-instance next-assigned sequence_num
@@ -142,11 +153,10 @@ func New(storage core.StoragePort, runners map[core.StepType]Runner, cfg Config,
 	if newIDFn == nil {
 		newIDFn = newUUIDv4
 	}
-	return &Engine{
+	e := &Engine{
 		storage:  storage,
 		runners:  runners,
 		cfg:      cfg,
-		logger:   logger,
 		now:      cfg.Clock,
 		newID:    newIDFn,
 		seq:      make(map[core.InstanceID]int),
@@ -161,6 +171,13 @@ func New(storage core.StoragePort, runners map[core.StepType]Runner, cfg Config,
 
 		claimLostStreak: make(map[retryKey]int),
 	}
+	e.loggerPtr.Store(logger)
+	return e
+}
+
+// log returns the engine's current logger (see loggerPtr's field comment).
+func (e *Engine) log() *slog.Logger {
+	return e.loggerPtr.Load()
 }
 
 // defKey identifies a cached definition view by (id, version).

@@ -57,7 +57,7 @@ func (e *Engine) Cancel(ctx context.Context, instanceID core.InstanceID, reason 
 
 	if isTerminalStatus(inst.Status) {
 		// EXACT B4 idempotency warning (do not reformat).
-		e.logger.Warn(fmt.Sprintf("instance %s is already in terminal state %s; cancel is a no-op",
+		e.log().Warn(fmt.Sprintf("instance %s is already in terminal state %s; cancel is a no-op",
 			instanceID, inst.Status))
 		return nil
 	}
@@ -192,7 +192,7 @@ func (e *Engine) handleCancellation(ctx context.Context, dv *defView, inst core.
 			return err
 		}
 		e.markFailed(inst.InstanceID, stepID) // B-4: never re-activate a cancelled retry.
-		e.logger.Info("settle", "instance_id", string(inst.InstanceID), "step_id", stepID, "outcome", "cancelled")
+		e.log().Info("settle", "instance_id", string(inst.InstanceID), "step_id", stepID, "outcome", "cancelled")
 	}
 	e.dropAllPending(inst.InstanceID)
 
