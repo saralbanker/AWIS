@@ -363,3 +363,37 @@ DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07 M08 M09 M10 M11 M12 M13 M14 M15
 # commit represents a merge or gate decision for any of these eight. M15's two founder
 # gates were performed retroactively; the other seven carried no gate. See LAST-9
 # (2026-09-19) and each milestone's own block above.
+
+# ── M18 A-INIT (2026-10-10) ─────────────────────────────────────────────────────
+MILESTONE: M18-hardening-release
+BRANCH: m18-hardening-release (branched from main at 4977de7)
+PHASE: B-BUILD
+GATE: G4 — Release (fires at D-CLOSE/E-MERGE; no card tags v1.0.0 or renders ship/no-ship)
+CARDS:
+  M18-C1   READY   awis-builder    (NFR-P-01/02/04/05/06/07 benchmarks + `make bench` wiring)
+  M18-C2   READY   awis-builder    (NFR-P-08/09 + formal QG-1 rehearsal + V1_BENCHMARKS skeleton)
+  M18-C3   READY   awis-builder    (.goreleaser.yaml, 4 platforms + `make release-dry` wiring)
+  M18-C4   READY   awis-builder    (V1_BENCHMARKS final + QG-3/4/5 reconfirm + §32 re-measure + fix-only)
+  M18-V1   READY   awis-verifier   (independent re-verification; see cards/M18-V1.md)
+BLOCKERS: none
+NEXT: M18-C1 — dispatch per EEOS P1.
+ENTRY-GATE EVIDENCE: this A-INIT's immediate predecessor action (same session) fixed and
+  verified a real, reproduced macOS CI failure on main — TestResolvePluginUser_UnknownNumericUID
+  (internal/plugin/isolation_test.go), caused by a test assuming uid 4294967294 has no passwd
+  entry on every platform; macOS Directory Services maps it to the built-in "nobody" account.
+  Fix: made the test probe for an actually-unassigned uid at runtime instead of hardcoding one
+  (internal/plugin/isolation.go, the production code, was untouched — correct logic, bad test
+  assumption). Committed 4977de7, pushed, confirmed GREEN on real GitHub Actions run 38041177134
+  (ubuntu-latest + macos-latest + EEOS docs-lint, all ✓) — not a local simulation. This resolves
+  CURRENT_TRUTH_LEDGER.md §7 Limitation 1 ("CI has never actually run... macos-latest has never
+  been exercised") for this specific commit.
+NOT IN SCOPE FOR THIS A-INIT: M18 exit work (B-BUILD dispatch, benchmarking, release tooling)
+  was explicitly deferred past entry per this session's task scope — cards are READY, none
+  dispatched.
+AMENDMENTS APPLIED: F-6 (week-6 schedule load) is moot — M16/M17 have been closed for months;
+  no float action needed.
+SOURCES COMPILED: IMP §27.M18, §20-21, §23 (G4), §25 (CONTRA-2, F-6), §26, §28; IKB §4 row 18;
+  PRD §31 (QG-1..5, NFR-P-01..09), §32 (Must-Have acceptance); CURRENT_TRUTH_LEDGER.md (M17
+  DEC-4 disposition, open non-blocking defects D-13/D-16/D-18/D-19, NFR-P-03 credential gap).
+NEXT (after B-BUILD/C-VERIFY): D-CLOSE semantic review (Fable) → G4 human verdict → `v1.0.0`
+  tag → E-MERGE.
