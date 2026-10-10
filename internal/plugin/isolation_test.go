@@ -104,8 +104,25 @@ func TestResolvePluginUser_MalformedUidGid(t *testing.T) {
 // TestResolvePluginUser_UnknownNumericUID verifies a numeric uid with no
 // passwd entry is an error (its gid cannot be inferred).
 func TestResolvePluginUser_UnknownNumericUID(t *testing.T) {
-	// uid 4294967294 is astronomically unlikely to have a passwd entry.
-	if _, _, err := ResolvePluginUser("4294967294"); err == nil {
-		t.Fatal("ResolvePluginUser(unassigned uid): want error, got nil")
+	// uid 4294967294 (0xFFFFFFFE) is the classic "unassigned" sentinel on
+	// Linux/BSD, but macOS's Directory Services maps it to the built-in
+	// "nobody" account for legacy NFS compatibility, so it is not safe to
+	// assume unassigned on every platform. Probe a small set of high
+	// numeric uids and use whichever one this host's passwd database
+	// actually has no entry for.
+	candidates := []string{"4294967294", "4294967293", "4294967292", "4000000000"}
+	var probeUID string
+	for _, c := range candidates {
+		if _, err := user.LookupId(c); err != nil {
+			probeUID = c
+			break
+		}
+	}
+	if probeUID == "" {
+		t.Skip("every candidate uid resolved to a real account on this host; cannot exercise the unknown-uid error path")
+	}
+
+	if _, _, err := ResolvePluginUser(probeUID); err == nil {
+		t.Fatalf("ResolvePluginUser(%q): want error, got nil", probeUID)
 	}
 }
