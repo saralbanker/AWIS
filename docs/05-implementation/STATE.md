@@ -376,10 +376,20 @@ CARDS:
   M18-C3   DONE    awis-builder(haiku)  e15497b  (goreleaser v2.17.0 pinned; 4 static archives + sha256 OK)
   M18-C3r  DONE    awis-builder(haiku)  99f7b13  (clone v1.0.0 release: `awis version 1.0.0`; 96-entry notes)
   M18-C3r2 DONE    awis-builder(haiku)  34894e7  (verify/release job split; persist-credentials:false; no release cache; actionlint clean)
-  M18-C4   DISPATCHED awis-builder(haiku)  (V1_BENCHMARKS final + QG-3/4/5 reconfirm + §32 re-measure + fix-only)
+  M18-C4   DONE    awis-builder(haiku)  54fcf15  (P-01 & P-05 fixed fix-only; 9/9 NFR PASS 3/3 runs; §32 53/2/1/3)
+  M18-C4r  DISPATCHED awis-builder(haiku)  (fix-only: trace human StepCompleted adapter/tokens suffix, PRD §32 row)
   M18-V1   READY   awis-verifier   (independent re-verification; see cards/M18-V1.md)
 BLOCKERS: none
-NEXT: M18-C4 — dispatched 2026-10-11 per EEOS P1; then push + real CI, then C-VERIFY (V1).
+NEXT: M18-C4r — dispatched 2026-10-11 per EEOS P1; then push + real CI, then C-VERIFY (V1).
+C4-REVIEW (CE): diff reviewed — stmt cache (fixed SQL only, MaxOpenConns=1 pool, closed by
+  DB.Close, ad-hoc fallback) + buffered trace writer (goldens pin bytes) are fix-only; no
+  engine/core/sdk/StoragePort-interface change. CE independent P-01 re-run x5 (idle host):
+  P99 4.549/4.605/4.582/4.653/4.636ms → PASS 5/5 (margin ~7%, recorded as thin).
+CE-RULINGS on C4 UNRESOLVED: (a) QG-4 = PASS by prior founder authority — G3 Q1 PASS
+  2026-09-18 (M15 cards/G3_BRIEF.md:126) adjudicated exactly these disclosed seams P0/P1/P2
+  ("zero UNDISCLOSED changes"); M18 does not re-litigate. (b) PRD §32 "trace shows ... adapter,
+  tokens" (C4's row 41) is a contractual Must-Have mis-scored SATISFIED at M17 → fix authorized
+  → cards/M18-C4r.md. (c) macOS for C4 commits: push after C4r. (d) P-01 margin: see above.
 C3r2-REVIEW (CE): accepted. Residual (accepted, not a defect): release-job checkout receives the
   job token as its fetch credential (first-party action, not persisted); verify-job module cache
   shared with ci.yml (gate-only job, builds nothing published).
