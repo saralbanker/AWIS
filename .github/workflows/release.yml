@@ -4,9 +4,25 @@ name: Release
 # binaries (linux and darwin, amd64 and arm64), checksums, and a GitHub release whose
 # notes are the milestone PR titles selected by the changelog filter in .goreleaser.yaml.
 #
-# Nothing publishes unless the gates pass on the tagged commit: the same `make verify`
-# target that the ci.yml verify job runs (ubuntu leg) runs here first, with the same
-# pins, and goreleaser runs only after it is green. ci.yml is deliberately not modified.
+# Two jobs, in order:
+#   verify  - contents: read. Runs the same `make verify` target that the ci.yml verify
+#             job runs (ubuntu leg), with the same pins. Publishes nothing.
+#   release - needs verify. contents: write, job-level only. Runs only goreleaser.
+#
+# Why the split: `make verify` executes repository code (all Go tests, Python plugin
+# subprocesses, go install of third-party tools). Those gates therefore never run in a
+# job that holds a write-scoped token.
+#
+# Token handling: the workflow-level permissions are empty, so no job inherits write
+# scope. actions/checkout runs with persist-credentials: false in both jobs, so no token
+# is written to .git/config for any later step to read. In the release job the
+# goreleaser step is the only step that sets GITHUB_TOKEN in its env. The release
+# checkout still receives the job token as its default fetch credential; it uses it only
+# to fetch, and it is not persisted.
+#
+# Cache: the verify job uses setup-go's module cache because it publishes nothing. The
+# release job sets cache: false, so it restores no cache entry, and no entry written by
+# another run can reach the binaries it builds.
 #
 # Triggers only on v* tags. Branch pushes and pull requests never run this workflow.
 
@@ -14,22 +30,23 @@ on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
-  release:
-    name: Verify and release
+  verify:
+    name: Verify (make verify)
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
     steps:
-      # fetch-depth: 0 is REQUIRED, not a default worth trimming: goreleaser builds the
-      # changelog from the commit range since the previous v* tag, and `make test` includes
-      # a git-history test that a depth-1 clone would silently skip (see ci.yml).
+      # fetch-depth: 0 is REQUIRED, not a default worth trimming: `make test` includes a
+      # git-history test that a depth-1 clone would silently skip (see ci.yml).
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -45,8 +62,31 @@ jobs:
       - name: Verify gates (make verify)
         run: make verify
 
-      # Same goreleaser pin as the Makefile (GORELEASER_VERSION := v2.17.0). The token is
-      # given to this step only; nothing before it can read it.
+  release:
+    name: Release (goreleaser v2.17.0)
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      # fetch-depth: 0 is REQUIRED: goreleaser builds the changelog from the commit range
+      # since the previous v* tag.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # No module cache: this job builds the published binaries from a clean toolchain.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: false
+
+      # Same goreleaser pin as the Makefile (GORELEASER_VERSION := v2.17.0). This is the
+      # only step that receives GITHUB_TOKEN.
       - name: Release (goreleaser v2.17.0)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
