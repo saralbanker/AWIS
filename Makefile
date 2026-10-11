@@ -53,8 +53,28 @@ e1:
 integration:
 	go test -tags integration -count=1 -timeout 15m ./test/integration/...
 
+# bench runs the M18 NFR benchmark suite (IMP §27.M18; PRD §11, §31, §32). Each
+# benchmark runs once (-benchtime=1x): sample counts are fixed by the harness,
+# not by b.N. Each prints one result line per NFR with its threshold, measured
+# percentiles, fixture size and RESULT.
+#
+# Exit status is non-zero only if a benchmark fails to run to completion, or an
+# expected benchmark produced no result. A MISS is a measured result: it is
+# reported here and fixed, if at all, only by a targeted C4 card (IMP §27.M18).
+# Test binaries run one after another (-p 1), so one package's fixture I/O can
+# never overlap another package's timed sections.
+BENCH_EXPECT := BenchmarkNFRP01 BenchmarkNFRP02 BenchmarkNFRP04 BenchmarkNFRP05 BenchmarkNFRP06 BenchmarkNFRP07
 bench:
-	@echo "NOT-YET (wired at M02/M06/M18): bench"
+	@out=$$(mktemp) || exit 1; \
+	if ! go test -p 1 -run '^$$' -bench 'BenchmarkNFRP' -benchtime=1x -count=1 -timeout 30m ./internal/engine/ ./cmd/awis/ > "$$out" 2>&1; then \
+		cat "$$out"; rm -f "$$out"; echo "bench: FAILED: a benchmark did not run to completion"; exit 1; \
+	fi; \
+	cat "$$out"; \
+	for b in $(BENCH_EXPECT); do \
+		if ! grep -q "^$$b" "$$out"; then rm -f "$$out"; echo "bench: FAILED: expected benchmark $$b produced no result"; exit 1; fi; \
+	done; \
+	rm -f "$$out"; \
+	echo "bench: all six NFR benchmarks ran to completion"
 
 release-dry:
 	@echo "NOT-YET (wired at M02/M06/M18): release-dry"
