@@ -373,11 +373,20 @@ CARDS:
   M18-C1   DONE    awis-builder(haiku)  16cf735  (P2 salvage re-dispatch after rate-limit death of run 1)
   M18-C2   WITHDRAWN awis-builder(haiku) (STOPPED E1: stale QG-1 premise — superseded by C2r)
   M18-C2r  DONE    awis-builder(haiku)  f895a12  (P-08 max 39.0ms PASS; P-09 max 5.7ms PASS; QG-1 linux 248ms completed)
-  M18-C3   DISPATCHED awis-builder(haiku)  (.goreleaser.yaml, 4 platforms + `make release-dry` wiring)
+  M18-C3   DONE    awis-builder(haiku)  e15497b  (goreleaser v2.17.0 pinned; 4 static archives + sha256 OK)
+  M18-C3r  DISPATCHED awis-builder(haiku)  (fix-only: version ldflags, v* release workflow, release-notes proof)
   M18-C4   READY   awis-builder    (V1_BENCHMARKS final + QG-3/4/5 reconfirm + §32 re-measure + fix-only)
   M18-V1   READY   awis-verifier   (independent re-verification; see cards/M18-V1.md)
 BLOCKERS: none
-NEXT: M18-C3 — dispatched 2026-10-11 per EEOS P1.
+NEXT: M18-C3r — dispatched 2026-10-11 per EEOS P1; then C4.
+CI-EVIDENCE: run 38146475809 @ bbdcfa5 (C1+C2r on branch) — ubuntu-latest ✓, macos-latest ✓,
+  docs-lint ✓. cmd/awis ok on macOS (36.9s) incl. TestQG1RehearsalCompletesHelloWorld (no
+  skip/GOOS gate) → QG-1 macOS leg real-CI (completed + ≤5min asserted).
+C3-REVIEW (CE): accepted; awis-server excluded (PRD: no server mode in V1) — accepted. Three
+  release blockers found → C3r: (R1) buildinfo.Version const → v1.0.0 binary would print
+  0.1.0-dev; (R2) no `v*` tag workflow (IMP §21); (R3) snapshot skips changelog, release notes
+  never produced. ENV: host /tmp quota exhausted by pre-existing /tmp/pytest-of-virus (not
+  touched; agents use TMPDIR on /mnt/data).
 C2r-REVIEW (CE): diff in scope (5 files, tests/bench/docs + Makefile BENCH_EXPECT only); CE re-ran
   TestQG1RehearsalCompletesHelloWorld independently → PASS, 249ms, status completed. P-08 timed
   interval (first Manager.Call on fresh Manager = spawn+handshake+reject RPC, upper bound) accepted.
