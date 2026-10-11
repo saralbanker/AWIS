@@ -372,12 +372,15 @@ GATE: G4 — Release (fires at D-CLOSE/E-MERGE; no card tags v1.0.0 or renders s
 CARDS:
   M18-C1   DONE    awis-builder(haiku)  16cf735  (P2 salvage re-dispatch after rate-limit death of run 1)
   M18-C2   WITHDRAWN awis-builder(haiku) (STOPPED E1: stale QG-1 premise — superseded by C2r)
-  M18-C2r  DISPATCHED awis-builder(haiku)  (C2 revision: QG-1 on shipped binary; P-09 method pinned)
-  M18-C3   READY   awis-builder    (.goreleaser.yaml, 4 platforms + `make release-dry` wiring)
+  M18-C2r  DONE    awis-builder(haiku)  f895a12  (P-08 max 39.0ms PASS; P-09 max 5.7ms PASS; QG-1 linux 248ms completed)
+  M18-C3   DISPATCHED awis-builder(haiku)  (.goreleaser.yaml, 4 platforms + `make release-dry` wiring)
   M18-C4   READY   awis-builder    (V1_BENCHMARKS final + QG-3/4/5 reconfirm + §32 re-measure + fix-only)
   M18-V1   READY   awis-verifier   (independent re-verification; see cards/M18-V1.md)
 BLOCKERS: none
-NEXT: M18-C2r — dispatched 2026-10-11 per EEOS P1.
+NEXT: M18-C3 — dispatched 2026-10-11 per EEOS P1.
+C2r-REVIEW (CE): diff in scope (5 files, tests/bench/docs + Makefile BENCH_EXPECT only); CE re-ran
+  TestQG1RehearsalCompletesHelloWorld independently → PASS, 249ms, status completed. P-08 timed
+  interval (first Manager.Call on fresh Manager = spawn+handshake+reject RPC, upper bound) accepted.
 CE-RULING C2-E1 (2026-10-11): C2 STOP verified — shipped `awis` registers examples.hello.*
   (B-9, cmd/awis/start.go:179); M17 TRACEABILITY 'ends failed' claim is stale. QG-1 runs on the
   shipped binary (option A; acceptance unchanged: completed, ≤5min). NFR-P-09 binding method =
