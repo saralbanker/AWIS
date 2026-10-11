@@ -379,9 +379,9 @@ CARDS:
   M18-C4   DONE    awis-builder(haiku)  54fcf15  (P-01 & P-05 fixed fix-only; 9/9 NFR PASS 3/3 runs; §32 53/2/1/3)
   M18-C4r  DONE    awis-builder(haiku)  3addeb9  (trace adapter/tokens suffix; native bytes unchanged; P-05 max 469.9ms PASS)
   M18-V1   DONE(FAIL) awis-verifier(haiku)  @4092406 (report in TRACEABILITY.md; no commit — identity forbids doc edits)
-  M18-C5   DISPATCHED awis-builder(haiku)  (V1 remediation: deterministic pre-commit crash test + record fixes)
+  M18-C5   DONE    awis-builder(haiku)  29cb521  (crash test deterministic: loaded 30/30 vs control 26/30; records fixed)
 BLOCKERS: none
-NEXT: M18-C5 — dispatched 2026-10-11; then push + real CI; then M18-V1 re-run (affected rows).
+NEXT: push + real CI on C5 HEAD; then M18-V1 re-run (V1r) on affected rows.
 V1-RESULT (2026-10-11, @4092406): FAIL. Reproduced independently: all 9 NFR rows (3 runs, verdicts
   MATCH), QG-1 (linux 249ms completed; macOS real-CI cmd/awis ok 42.292s), QG-5, make verify/
   contract/e1/release-dry, 4 static archives, notes→`awis version 1.0.0`, no v* tag, frozen-
