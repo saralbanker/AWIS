@@ -1,0 +1,70 @@
+# GoReleaser configuration (IMP §21 CD; M18-C3).
+#
+# Ships the product CLI only: cmd/awis. cmd/awis-server is the server/GUI track,
+# not a V1 product (AWIS_PRD.md excludes "Server mode (HTTP API)" from V1), so it
+# is deliberately not built here.
+#
+# Targets: linux and darwin, amd64 and arm64 (four binaries). CGO is off: the SQLite
+# driver (modernc.org/sqlite) is pure Go, so no C toolchain is needed. Linux binaries
+# are fully static; darwin binaries are CGO-free Mach-O that link only the system
+# libSystem, which macOS requires.
+#
+# Toolchain: goreleaser runs the same `go` as `make build`, which honours the
+# go.mod pin (go 1.26, toolchain go1.26.4). CI installs "1.26.x"
+# (.github/workflows/ci.yml), so both use the same Go line.
+#
+# Version: internal/buildinfo.Version is a const ("0.1.0-dev"), which -X ldflags
+# cannot override, so no version is injected at link time.
+#
+# Run only through `make release-dry`, which always passes --snapshot: nothing is
+# tagged, published, or sent to a remote, and no GitHub API is called. The
+# changelog uses the offline `git` source (commit subjects), never `github`.
+version: 2
+
+project_name: awis
+
+builds:
+  - id: awis
+    main: ./cmd/awis
+    binary: awis
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+archives:
+  - id: awis
+    ids:
+      - awis
+    formats:
+      - tar.gz
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+# Milestone tags (milestone/M*, CE ledger bookkeeping) are not release tags; release
+# tags are v* (IMP §21). Excluding them keeps "milestone/M14" out of the snapshot
+# version and out of the changelog's previous-tag lookup.
+git:
+  ignore_tags:
+    - "milestone/*"
+
+# Release notes are milestone PR titles only (IMP §21): squash-merged commit subjects
+# that start with a milestone ID (e.g. "M18: ..."). Only `include` is used, because
+# goreleaser ignores `exclude` once `include` is set; CE ledger commits, merges and
+# other direct commits are therefore not release notes.
+changelog:
+  use: git
+  sort: asc
+  filters:
+    include:
+      - "^M[0-9]{2}"
