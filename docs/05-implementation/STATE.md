@@ -367,7 +367,7 @@ DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07 M08 M09 M10 M11 M12 M13 M14 M15
 # ── M18 A-INIT (2026-10-10) ─────────────────────────────────────────────────────
 MILESTONE: M18-hardening-release
 BRANCH: m18-hardening-release (branched from main at 4977de7)
-PHASE: C-VERIFY
+PHASE: B-BUILD (V1 ❌ → revision card C5)
 GATE: G4 — Release (fires at D-CLOSE/E-MERGE; no card tags v1.0.0 or renders ship/no-ship)
 CARDS:
   M18-C1   DONE    awis-builder(haiku)  16cf735  (P2 salvage re-dispatch after rate-limit death of run 1)
@@ -378,9 +378,25 @@ CARDS:
   M18-C3r2 DONE    awis-builder(haiku)  34894e7  (verify/release job split; persist-credentials:false; no release cache; actionlint clean)
   M18-C4   DONE    awis-builder(haiku)  54fcf15  (P-01 & P-05 fixed fix-only; 9/9 NFR PASS 3/3 runs; §32 53/2/1/3)
   M18-C4r  DONE    awis-builder(haiku)  3addeb9  (trace adapter/tokens suffix; native bytes unchanged; P-05 max 469.9ms PASS)
-  M18-V1   DISPATCHED awis-verifier(haiku)  (clean worktree @ 4092406; CI run 38152488419)
+  M18-V1   DONE(FAIL) awis-verifier(haiku)  @4092406 (report in TRACEABILITY.md; no commit — identity forbids doc edits)
+  M18-C5   DISPATCHED awis-builder(haiku)  (V1 remediation: deterministic pre-commit crash test + record fixes)
 BLOCKERS: none
-NEXT: M18-V1 — dispatched 2026-10-11 (C-VERIFY) on isolated clean worktree at 4092406.
+NEXT: M18-C5 — dispatched 2026-10-11; then push + real CI; then M18-V1 re-run (affected rows).
+V1-RESULT (2026-10-11, @4092406): FAIL. Reproduced independently: all 9 NFR rows (3 runs, verdicts
+  MATCH), QG-1 (linux 249ms completed; macOS real-CI cmd/awis ok 42.292s), QG-5, make verify/
+  contract/e1/release-dry, 4 static archives, notes→`awis version 1.0.0`, no v* tag, frozen-
+  surface diff clean (46 files, no violation). FAILs: (1) CI 38152488419 macOS red —
+  TestDeliverSignal_CrashPreCommit (pre-existing M07 test race; same 5/30 on main 4977de7 under
+  load) → E1/Race skipped on macOS (QG-3 macOS unevidenced); (3) PRD §32 row 14 + STOP row 13:
+  PRD text vs frozen TDS-07 (scored SAT at M17); (4) card's literal `sha256sum -c
+  dist/checksums.txt` must run inside dist/ (card wording defect; `cd dist && sha256sum -c` OK
+  x4); (5) card omits AWIS-E1 by name (E1 runs via make verify/e1 — card defect). STOPs: QG-2
+  (founder), QG-4 (verifier declines to adopt G3 ruling — founder confirms at G4).
+CE-CLASSIFICATION: FAIL-1/2 = release-gate failure (CI must be green) → C5 test-only fix (child
+  pauses at documented crash-point 1; assertions unchanged; not a product defect — 13⇔13
+  invariant held). FAIL-3/STOP-3 = authority conflict (PRD vs TDS-07) → FOUNDER DECISION at G4,
+  recorded via C5 doc fix. FAIL-4/5 = card text defects, product behavior verified — no action
+  beyond record. X-3 (V1 benches on tmpfs vs C4 on NVMe) — verdicts identical, recorded.
 C4r-NOTE: run 1 STOPPED on model policy (agent had not seen MODEL-DIRECTIVE; no edits) →
   re-dispatched with directive cited → DONE 3addeb9.
 CE-RULING row 41 (2026-10-11): PARTIAL — timing/adapter/tokens satisfied; "outputs" not in the
