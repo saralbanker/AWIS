@@ -1,0 +1,14 @@
+Trace:  / nfr-i-000000
+Status: completed ✓  Duration: 9s
+
+Timeline:
+  00:00  ● WorkflowStarted
+  00:01  ► StepStarted          step-a (attempt 1)
+  00:02  ✓ StepCompleted        step-a                1.5s
+  00:03  ► StepStarted          step-b
+  00:04  ✗ StepFailed           step-b              
+  00:05  → StepFallbackActivated → step-c
+  00:06  ► StepStarted          step-c (attempt 2)
+  00:07  ✓ StepCompleted        step-c                0.2s
+  00:08  ✓ SignalReceived       approve
+  00:09  ✓ WorkflowCompleted     total: 9s

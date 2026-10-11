@@ -6,9 +6,11 @@ package main
 // in chronological order. Human = TDS-07/QG-2 shape; --full includes payloads.
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/awis/awis/internal/core"
@@ -149,15 +151,20 @@ func runTrace(args []string) {
 	//   00:00  ► StepStarted      draft-entry (attempt 1)
 	//   00:13  ✓ StepCompleted    draft-entry  13.1s   adapter: anthropic, tokens: 847
 	//   ...
+	// The timeline goes through one buffered writer. An unbuffered fmt.Printf per
+	// line made one write syscall per event, which dominated `awis trace` on a
+	// 100K-event instance (NFR-P-05). A failed write is reported at flush, the way
+	// emitJSON reports a failed encode.
+	out := &traceWriter{buf: bufio.NewWriter(os.Stdout)}
 	statusSymStr := statusSymbol(inst.Status)
-	fmt.Printf("Trace: %s / %s\n", inst.DefinitionID, inst.InstanceID)
+	out.printf("Trace: %s / %s\n", inst.DefinitionID, inst.InstanceID)
 	durStr := ""
 	if durationMs != nil {
 		durStr = fmt.Sprintf("  Duration: %ds", *durationMs/1000)
 	}
-	fmt.Printf("Status: %s %s%s\n", inst.Status, statusSymStr, durStr)
-	fmt.Println()
-	fmt.Println("Timeline:")
+	out.printf("Status: %s %s%s\n", inst.Status, statusSymStr, durStr)
+	out.printf("\n")
+	out.printf("Timeline:\n")
 
 	startedAt := inst.StartedAt
 	for _, ev := range events {
@@ -168,8 +175,34 @@ func runTrace(args []string) {
 
 		sym := traceEventSymbol(ev.EventType)
 		evStr := formatTraceEvent(ev, full)
-		fmt.Printf("  %s  %s %s\n", timeStr, sym, evStr)
+		out.printf("  %s  %s %s\n", timeStr, sym, evStr)
 	}
+	if err := out.flush(); err != nil {
+		fail(1, fmt.Sprintf("trace: cannot write output: %s", err), string(instanceID), "check where awis trace output is going")
+	}
+}
+
+// traceWriter is the human timeline's output: a bufio.Writer that keeps the
+// first write error. Once a write fails, later lines are skipped and flush
+// returns that error, so every write result is checked without a check per line.
+type traceWriter struct {
+	buf *bufio.Writer
+	err error
+}
+
+// printf writes one formatted line unless an earlier write already failed.
+func (tw *traceWriter) printf(format string, args ...any) {
+	if tw.err == nil {
+		_, tw.err = fmt.Fprintf(tw.buf, format, args...)
+	}
+}
+
+// flush writes out any buffered lines and returns the first error seen.
+func (tw *traceWriter) flush() error {
+	if tw.err == nil {
+		tw.err = tw.buf.Flush()
+	}
+	return tw.err
 }
 
 // traceEventSymbol returns the TDS-07 symbol for a trace event type.
