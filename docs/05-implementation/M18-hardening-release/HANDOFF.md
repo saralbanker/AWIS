@@ -1,5 +1,5 @@
 # M18 → v1.0.0 Handoff
-**Status: C-VERIFY PASS / D-CLOSE done (2026-10-11) — awaiting founder G4 + E-MERGE.** This file is created at A-INIT (2026-10-10), per the module
+**Status: C-VERIFY PASS / D-CLOSE done (2026-10-11); G4 founder rulings recorded (2026-10-12) — awaiting founder squash-merge + `v1.0.0` tag (E-MERGE).** This file is created at A-INIT (2026-10-10), per the module
 template — module previously had no HANDOFF.md/TRACEABILITY.md (it had only a 6-line
 README.md, `Status: Partitioned — materialize at entry`). It remains a draft, with every
 "guaranteed output" below unconfirmed, until B-BUILD/C-VERIFY run and D-CLOSE records actuals.
@@ -55,9 +55,13 @@ README.md, `Status: Partitioned — materialize at entry`). It remains a draft, 
 - QG-1 PASS (linux + real macOS CI), QG-3 PASS (E1 both CI legs), QG-5 PASS; QG-2 and QG-4
   founder-owned; NFR-P-03 UNMEASURABLE.
 - Real CI green: run 38155115251 @b78ae44 (ubuntu, macos, docs-lint).
-- Founder decisions open for G4: QG-2 measurement; QG-4 confirmation; PRD §32 rows 13 and 14
-  (PRD text vs TDS-07) and row 41 (trace "outputs"; CLI_CONTRACT internal inconsistency);
-  NFR-P-03 acceptance as UNMEASURABLE; non-blocking backlog M18-B1 (release-note bookkeeping
-  noise), M18-B2 (unreproduced SQLITE_BUSY on first submit).
-- Not performed (human-only): G4 verdict, `v1.0.0` tag push, E-MERGE. OIP dogfood week:
+- G4 founder rulings (2026-10-12; full record TRACEABILITY.md "G4 founder rulings"): QG-2
+  WAIVED for v1.0.0 (unmeasured, risk accepted, not PASS → M18-B3); QG-4 PASS (G3 Q1 ruling
+  covers all nine disclosed M15 paths incl. `--namespace`); PRD §32 rows 13/14 — TDS-07
+  governs, PRD wording corrected, implementation unchanged → SATISFIED; row 41 PARTIAL accepted
+  (outputs via `--json`; human format post-release → M18-B4); NFR-P-03 stays UNMEASURABLE;
+  prior exceptions (rows 37/40/44, 5/28/32) carried forward; M18-B1/B2 stay in backlog.
+  §32 totals: 52 SAT / 2 NOT / 2 PARTIAL / 3 UNMEASURABLE.
+- Real CI green at PR head 883925a (pre-ruling): push 38156031710, pull_request 38156060642.
+- Not performed (human-only, EEOS rule 6): squash-merge, `v1.0.0` tag push, publication (E-MERGE). OIP dogfood week:
   advisory, not started by this module.

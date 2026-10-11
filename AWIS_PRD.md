@@ -631,7 +631,7 @@ Requirements are classified as **Must Have** (V1 required), **Should Have** (V1 
 
 **AD-1:** As an Application Developer, I want to define a workflow in YAML and have it validated before registration, so that syntax errors surface before execution time.
 
-**Acceptance:** `awis workflow validate my-workflow.yaml` reports: valid (with step summary) or invalid (with file path, line number, error description, and corrected example). Works without a running runtime.
+**Acceptance:** `awis workflow validate my-workflow.yaml` reports: valid (`<path>  valid ✓`, exit 0) or invalid (with file path, line number, error description, and corrected example). Works without a running runtime.
 
 ---
 
@@ -1060,7 +1060,7 @@ AWIS V1 has no graphical screens. The "screen inventory" is the set of terminal 
 | `awis cancel` | Cancellation confirmation: instance ID, reason, final status | Both | Rare |
 | `awis workflow list` | Tabular: ID, version, namespace, step count, instance count | App Developer | Setup verification |
 | `awis workflow show <id>` | Step list with types and transitions; trigger summary | App Developer | Introspection |
-| `awis workflow validate` | Valid: step summary. Invalid: line numbers, errors, examples | App Developer | Authoring iteration |
+| `awis workflow validate` | Valid: `<path>  valid ✓`. Invalid: line numbers, errors, examples | App Developer | Authoring iteration |
 | `awis plugin list` | Tabular: name, version, status, capabilities, uptime | Platform Builder | Management |
 | `awis plugin status <n>` | Detail: health, process, per-capability call stats | Platform Builder | Debugging |
 | `awis plugin install` | Progress: download, dependency install, capability registration | Platform Builder | On demand |
@@ -1134,11 +1134,7 @@ Full-featured web dashboard (see §35 Future Roadmap).
 
 **Valid output:**
 ```
-✓ capture-decision v1.0.0 is valid
-  Steps: 4 (plugin: 1, intelligence: 1, signal: 2)
-  Intelligence: draft capability (required: false, fallback: manual-entry)
-  Plugins: git-context-plugin (git.context.assemble)
-  Triggers: manual, event (git.push.completed)
+workflows/capture-decision.yaml  valid ✓
 ```
 
 **Invalid output (required format):**
@@ -2199,11 +2195,11 @@ Acceptance criteria are organized per functional area. All Must Have criteria mu
 - [ ] Signal delivery is idempotent: delivering the same signal twice has no effect after first delivery
 - [ ] `awis cancel` with no `--compensate` leaves in-flight steps to complete; no new steps start
 - [ ] `awis cancel --compensate` runs compensation plan after in-flight steps complete
-- [ ] Cancelling a terminal instance returns no error
+- [ ] Cancelling a terminal instance returns no error from the engine (`Engine.Cancel` is a no-op returning nil, with a warning logged); `awis cancel` on a terminal instance exits 1 with "instance already in terminal state" (TDS-07 `cancel` errors)
 
 ### Workflow Validation
 
-- [ ] `awis workflow validate` on valid YAML: shows step summary and exits 0
+- [ ] `awis workflow validate` on valid YAML: prints `<path>  valid ✓` and exits 0 (TDS-07 `workflow validate`)
 - [ ] `awis workflow validate` on invalid YAML: shows file path, error, and (for semantic errors) line number and example; exits 3
 - [ ] Validation works without a running runtime
 - [ ] Fan-out transitions (multiple transitions with same `from`) are validated as valid
