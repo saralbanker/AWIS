@@ -377,10 +377,17 @@ CARDS:
   M18-C3r  DONE    awis-builder(haiku)  99f7b13  (clone v1.0.0 release: `awis version 1.0.0`; 96-entry notes)
   M18-C3r2 DONE    awis-builder(haiku)  34894e7  (verify/release job split; persist-credentials:false; no release cache; actionlint clean)
   M18-C4   DONE    awis-builder(haiku)  54fcf15  (P-01 & P-05 fixed fix-only; 9/9 NFR PASS 3/3 runs; §32 53/2/1/3)
-  M18-C4r  DISPATCHED awis-builder(haiku)  (fix-only: trace human StepCompleted adapter/tokens suffix, PRD §32 row)
+  M18-C4r  DONE    awis-builder(haiku)  3addeb9  (trace adapter/tokens suffix; native bytes unchanged; P-05 max 469.9ms PASS)
   M18-V1   READY   awis-verifier   (independent re-verification; see cards/M18-V1.md)
 BLOCKERS: none
-NEXT: M18-C4r — dispatched 2026-10-11 per EEOS P1; then push + real CI, then C-VERIFY (V1).
+NEXT: push branch + real CI on HEAD, then C-VERIFY: dispatch M18-V1.
+C4r-NOTE: run 1 STOPPED on model policy (agent had not seen MODEL-DIRECTIVE; no edits) →
+  re-dispatched with directive cited → DONE 3addeb9.
+CE-RULING row 41 (2026-10-11): PARTIAL — timing/adapter/tokens satisfied; "outputs" not in the
+  human view; CLI_CONTRACT internally inconsistent (--full text says outputs truncated to 120
+  chars; TDS-07 §4 sample shows none); outputs available via --json. Picking a human format is
+  design, not fix-only → FOUNDER DECISION at G4. §32 totals now 52 SAT / 2 NOT (37,40) /
+  2 PARTIAL (41,44) / 3 UNMEASURABLE (5,28,32). Recorded in docs/V1_BENCHMARKS.md.
 C4-REVIEW (CE): diff reviewed — stmt cache (fixed SQL only, MaxOpenConns=1 pool, closed by
   DB.Close, ad-hoc fallback) + buffered trace writer (goldens pin bytes) are fix-only; no
   engine/core/sdk/StoragePort-interface change. CE independent P-01 re-run x5 (idle host):
