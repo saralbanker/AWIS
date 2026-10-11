@@ -367,7 +367,7 @@ DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07 M08 M09 M10 M11 M12 M13 M14 M15
 # ── M18 A-INIT (2026-10-10) ─────────────────────────────────────────────────────
 MILESTONE: M18-hardening-release
 BRANCH: m18-hardening-release (branched from main at 4977de7)
-PHASE: C-VERIFY (V1r)
+PHASE: E-MERGE (blocked on founder: G4 verdict + v1.0.0 tag + merge)
 GATE: G4 — Release (fires at D-CLOSE/E-MERGE; no card tags v1.0.0 or renders ship/no-ship)
 CARDS:
   M18-C1   DONE    awis-builder(haiku)  16cf735  (P2 salvage re-dispatch after rate-limit death of run 1)
@@ -380,9 +380,14 @@ CARDS:
   M18-C4r  DONE    awis-builder(haiku)  3addeb9  (trace adapter/tokens suffix; native bytes unchanged; P-05 max 469.9ms PASS)
   M18-V1   DONE(FAIL) awis-verifier(haiku)  @4092406 (report in TRACEABILITY.md; no commit — identity forbids doc edits)
   M18-C5   DONE    awis-builder(haiku)  29cb521  (crash test deterministic: loaded 30/30 vs control 26/30; records fixed)
-  M18-V1r  DISPATCHED awis-verifier(haiku)  (re-verification of V1-affected rows + delta proof)
+  M18-V1r  DONE(PASS) awis-verifier(haiku)  @b78ae44 (report in TRACEABILITY.md; checklist ticked by CE)
 BLOCKERS: none
-NEXT: M18-V1r — dispatched 2026-10-11.
+NEXT: FOUNDER — G4 ship/no-ship verdict (brief: HANDOFF.md actuals + docs/V1_BENCHMARKS.md +
+  VALIDATION_CHECKLIST.md), squash-merge PR, then push tag `v1.0.0` (release.yml publishes).
+D-CLOSE (Opus CE in Fable's role per MODEL-DIRECTIVE, 2026-10-11): semantic review PASS, no
+  architectural drift (TRACEABILITY.md). V1r PASS @b78ae44; CI 38155115251 green both legs.
+BACKLOG (non-blocking): M18-B1 release-note bookkeeping noise; M18-B2 one unreproduced
+  SQLITE_BUSY on first `awis submit` after `awis start` (CE repro 0/50).
 CI-EVIDENCE-2: run 38154745869 @1043b9a (contains C5 29cb521) — ubuntu ✓, macos ✓, docs-lint ✓.
 V1-RESULT (2026-10-11, @4092406): FAIL. Reproduced independently: all 9 NFR rows (3 runs, verdicts
   MATCH), QG-1 (linux 249ms completed; macOS real-CI cmd/awis ok 42.292s), QG-5, make verify/
