@@ -5,6 +5,7 @@ package storage
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -25,8 +26,9 @@ const dbFileMode = 0o600
 // DB is the SQLite connection wrapper. It holds a single *sql.DB opened in WAL
 // mode. Methods on StoragePort are added in subsequent cards.
 type DB struct {
-	db  *sql.DB
-	now func() string // injectable clock for migration timestamps
+	db    *sql.DB
+	now   func() string // injectable clock for migration timestamps
+	stmts *stmtCache    // prepared fixed-SQL reads (stmt_cache.go); closed by Close
 }
 
 // Open opens (or creates) the SQLite database at path, applies WAL pragmas and
@@ -56,7 +58,7 @@ func Open(path string, clock func() time.Time) (*DB, error) {
 		return nil, err
 	}
 
-	d := &DB{db: sqlDB, now: nowFn}
+	d := &DB{db: sqlDB, now: nowFn, stmts: newStmtCache(sqlDB)}
 
 	if err := runMigrations(sqlDB, nowFn); err != nil {
 		_ = sqlDB.Close()
@@ -93,9 +95,10 @@ func Open(path string, clock func() time.Time) (*DB, error) {
 	return d, nil
 }
 
-// Close releases the underlying database connection.
+// Close closes the cached prepared statements, then releases the underlying
+// database connection. Both errors are reported.
 func (d *DB) Close() error {
-	return d.db.Close()
+	return errors.Join(d.stmts.close(), d.db.Close())
 }
 
 // ExposedDB returns the underlying *sql.DB for use in tests that need

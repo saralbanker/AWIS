@@ -77,7 +77,7 @@ func (s *SQLiteStorage) CancellationIntent(ctx context.Context, instanceID core.
 // instanceID. Returns ErrInstanceNotFound when no row exists.
 func (s *SQLiteStorage) CancellationRequested(ctx context.Context, instanceID core.InstanceID) (bool, error) {
 	var flag int
-	err := s.db.db.QueryRowContext(ctx,
+	err := s.db.queryRow(ctx,
 		`SELECT cancellation_requested FROM workflow_instances WHERE instance_id = ?`,
 		string(instanceID),
 	).Scan(&flag)
