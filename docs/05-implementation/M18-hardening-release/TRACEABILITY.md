@@ -112,3 +112,28 @@ single-row reads GetInstance/CancellationRequested; single constructor storage.O
 DB.Close; ad-hoc fallback), cmd/awis/trace.go (buffered writer; TDS-07 adapter/tokens suffix).
 No change to internal/core, internal/engine (non-test), sdk/, StoragePort interface,
 internal/plugin, plugins/, python/, apps/, ci.yml, go.mod. **No architectural drift.**
+
+## G4 founder rulings (founder, 2026-10-12 — recorded by Opus CE)
+Pre-ruling gate check (CE, 2026-10-12): PR #1 head 883925a = branch HEAD, base 4977de7 = main,
+mergeable CLEAN; delta b78ae44..883925a is 4 ledger docs only (V1r PASS still covers the code);
+real CI at 883925a green both events — push 38156031710 and pull_request 38156060642: ubuntu +
+macOS Test/Race/Zero-AI gate (E1) success, docs-lint success; `git ls-remote --tags origin 'v*'`
+empty.
+
+| Item | Ruling | Evidence | Recorded status |
+|---|---|---|---|
+| QG-2 | **WAIVED for v1.0.0** — unmeasured; risk accepted; measure post-release when an independent developer is available. Not PASS. | No human-subject measurement exists (VALIDATION_CHECKLIST QG-2) | WAIVED (unmeasured) → backlog M18-B3 |
+| QG-4 | **PASS by founder authority** — G3 Q1 ruling (2026-09-18) confirmed to cover all nine disclosed M15 platform paths, incl. the `--namespace` flag in `cmd/awis/{main,errors,submit}.go` (0e452f8; disclosed in M15 BOUNDARY_EVIDENCE.md:134-163) | V1_BENCHMARKS.md QG-4 row; `TestOIPSystemE2E` + 8 `TestQG3_*` PASS | PASS |
+| PRD §32 rows 13, 14 | **TDS-07 governs; PRD wording corrected; implementation unchanged** (D-12 class, as rows 8/15) | CLI_CONTRACT `cancel` errors ("Exit 1: instance already in terminal state"; cmd/awis/cancel.go:69); `TestCancel_TerminalNoOpWarning` (engine no-op, nil); `workflow validate` → `<path>  valid ✓` exit 0 (CE re-observed on apps/oip/workflows/capture-decision.yaml) | SATISFIED under corrected text |
+| PRD §32 row 41 | **PARTIAL accepted for v1.0.0**; outputs via `awis trace --json`; human trace-output clarification/fix scheduled post-release | V1_BENCHMARKS.md row-41 ruling; fix 3addeb9 (timing/adapter/tokens) | PARTIAL (accepted) → backlog M18-B4 |
+| NFR-P-03 | Stays **UNMEASURABLE**, not verified | No Anthropic credential (CURRENT_TRUTH_LEDGER.md §7.6) | UNMEASURABLE |
+| Prior exceptions (rows 37, 40, 44; 5, 28, 32) | Carried forward under DEC-11 / DEC-4 | V1_BENCHMARKS.md drift note | unchanged |
+| M18-B1, M18-B2 | Remain in existing backlog, non-blocking | STATE.md M18 BACKLOG | unchanged |
+
+PRD correction (AWIS_PRD.md, same commit as this record): §32 rows 13 and 14 restated to the
+TDS-07 behavior; the same "step summary" claim corrected where the PRD states it elsewhere
+(§15 command table, AD-1 acceptance, §18 "Valid output" block) so the PRD does not contradict
+itself. Row 41 text unchanged (accepted PARTIAL, not reworded).
+§32 totals after rulings: 52 SATISFIED · 2 NOT SATISFIED (37, 40) · 2 PARTIAL (41, 44) ·
+3 UNMEASURABLE (5, 28, 32) = 59.
+Not performed (human-only, EEOS rule 6): squash-merge, `v1.0.0` tag push, publication.

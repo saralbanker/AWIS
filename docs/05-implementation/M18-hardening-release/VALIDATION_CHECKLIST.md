@@ -2,7 +2,8 @@
 <!-- Written at A-INIT (2026-10-10). Ticked 2026-10-11 by the CE from M18-V1r's verdicts
      (awis-verifier, clean worktree @ b78ae44, VERDICT PASS; report in TRACEABILITY.md) — the
      verifier's identity forbids doc edits, so it reported and the CE recorded. Unticked rows
-     carry their disposition inline. -->
+     carry their disposition inline. G4 founder rulings (2026-10-12) recorded inline by the CE;
+     full record in TRACEABILITY.md "G4 founder rulings". -->
 
 ### Quality gates (PRD §31)
 - [x] QG-1: `awis init` → `awis start` → `awis submit hello-world` → `awis trace <id>`
@@ -14,14 +15,18 @@
       documentation. **Human-subject measurement — founder-administered, not a card
       deliverable.** Recorded here as a founder ruling when performed (M17 DEC-4 pattern).
       **V1r: NOT TICKED —** STOP — founder-administered human-subject measurement; pending founder.
+      **G4 founder ruling (2026-10-12): WAIVED for v1.0.0 — unmeasured; risk accepted; NOT PASS.**
+      Measure post-release when an independent developer is available (backlog M18-B3).
 - [x] QG-3: all workflows (incl. OIP's) complete with `NullAdapter` as sole intelligence
       provider. Re-confirm at M18 HEAD against the existing AWIS-E1 CI gate (from M6) — do
       not re-derive from scratch. (C4)
       **V1r:** PASS — `make e1` 8/8; macOS + ubuntu `Zero-AI gate (E1)` success in CI 38155115251.
-- [ ] QG-4: OIP's `capture-decision`/`recall-decision` workflows run on AWIS with zero
+- [x] QG-4: OIP's `capture-decision`/`recall-decision` workflows run on AWIS with zero
       modification to AWIS platform code. Re-confirm against the M15 G3 boundary demo
       (`git log --stat` artifact) at M18 HEAD. (C4)
       **V1r: NOT TICKED —** STOP — 9 disclosed platform paths in M15 range; founder G3 Q1 PASS (2026-09-18) on these seams; verifier does not adopt — founder confirms at G4.
+      **G4 founder ruling (2026-10-12): PASS** — G3 Q1 ruling confirmed to cover all nine disclosed
+      paths, incl. the `--namespace` flag in `cmd/awis/{main,errors,submit}.go` (M15 0e452f8).
 - [x] QG-5: `WorkflowTestHarness` runs a complete workflow (incl. WAIT/signal delivery) in a
       Go unit test in < 1s with zero external dependencies. Re-confirm against the existing
       M09-derived test. (C4)
@@ -37,6 +42,7 @@
       credential in any verification environment.** Record disposition only, same as PRD §32
       rows 28/32 (M17 DEC-4). Not a blocker.
       **V1r: NOT TICKED —** UNMEASURABLE (no ANTHROPIC_API_KEY); disposition recorded in docs/V1_BENCHMARKS.md; non-blocking per module spec.
+      **G4 founder ruling (2026-10-12):** stays UNMEASURABLE — not verified; non-blocking.
 - [x] NFR-P-04: signal delivery latency < 200ms. (C1)
       **V1r:** PASS — max 99.635ms.
 - [x] NFR-P-05: `awis trace` query time (100K events) < 500ms. (C1, 100K-event fixture)
@@ -67,6 +73,10 @@
       `9c477b5`). Any row that changed status is called out explicitly, not silently
       absorbed. (C4)
       **V1r:** PASS by card rule — all 59 rows re-measured; status changes called out explicitly: rows 8/15/38/53 NOT→SAT; rows 13, 14, 41 were mis-scored SAT at M17 DEC-4 (not code regressions) and are now 13 FOUNDER DECISION, 14 NOT SATISFIED as written, 41 PARTIAL — founder decisions at G4. Totals 50/3/2/3/1.
+      **G4 founder rulings (2026-10-12):** rows 13, 14 — TDS-07 governs; PRD wording corrected,
+      implementation unchanged → SATISFIED under corrected text. Row 41 — PARTIAL accepted for
+      v1.0.0 (outputs via `--json`; human format post-release, backlog M18-B4). Rows 37/40/44 and
+      5/28/32 carried forward (DEC-11 / DEC-4). Totals now 52 SAT / 2 NOT / 2 PARTIAL / 3 UNMEASURABLE.
 
 ### Fix-only discipline
 - [x] Any NFR miss found in C1/C2 either (a) has a scoped, targeted fix landed in C4 with the
