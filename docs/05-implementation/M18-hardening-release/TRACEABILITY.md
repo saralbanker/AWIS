@@ -39,3 +39,46 @@
 - A-INIT (this document, 2026-10-10): module materialized (six files compiled against
   IMP §27.M18, IKB §4 row 18, PRD §31/§32, CONTRA-2) + 5 cards (C1–C4, V1) written READY.
   No card dispatched yet.
+- B-BUILD (2026-10-11; Opus CE orchestration, Haiku 5.5 execution per founder MODEL-DIRECTIVE):
+  C1 16cf735 · C2 WITHDRAWN (stale QG-1 premise) → C2r f895a12 · C3 e15497b · C3r 99f7b13 ·
+  C3r2 34894e7 (release.yml token hardening, from background security review) · C4 54fcf15
+  (fix-only: stmt cache → NFR-P-01; buffered trace → NFR-P-05 single-instance) · C4r 3addeb9
+  (trace adapter/tokens suffix, PRD §32 row 41) · C5 29cb521 (V1 remediation, below).
+  CE rulings and per-card review evidence: STATE.md M18 block.
+
+## M18-V1 verification report (run 1, awis-verifier/Haiku 5.5, clean worktree @ 4092406)
+Recorded by CE from the verifier's verbatim report (the verifier's identity forbids doc edits,
+so it did not write this file; see STATE.md V1-RESULT). VERDICT: **FAIL**.
+
+| Row | Verdict | Evidence (verifier-measured) |
+|---|---|---|
+| QG-1 | PASS | linux `TestQG1RehearsalCompletesHelloWorld` 249ms, status completed; macOS real CI job 114508620323 `ok github.com/awis/awis/cmd/awis 42.292s` (no skip/GOOS gate) |
+| QG-2 | STOP | founder-administered human-subject measurement |
+| QG-3 | FAIL | local `make e1` 8/8 PASS; CI 38152488419 ubuntu E1 success, macOS E1 **skipped** (job failed at Test) |
+| QG-4 | STOP | 9 disclosed platform paths in M15 range (P0 c3fba29, P1 0ef33c8, C3r 0e452f8); `TestOIPSystemE2E` + 8 `TestQG3_*` PASS at HEAD; verifier declines to adopt G3 founder ruling — founder confirms |
+| QG-5 | PASS | `TestQG5_WaitSignalWithin1s` 0.01s; `TestCheckpointM9_OIPCaptureWorkflow` 0.01s; macOS CI sdk/testing ok |
+| NFR-P-01 | PASS | P99 4.792 / 4.668 / 4.533ms (<5ms) — MATCH |
+| NFR-P-02 | PASS | P95 1.143 / 1.177 / 1.160ms (gate ≤50ms; target <10ms informational) — MATCH-ON-VERDICT |
+| NFR-P-03 | UNMEASURABLE | no `ANTHROPIC_API_KEY`; `TestLiveSmoke` SKIP |
+| NFR-P-04 | PASS | max 99.594 / 99.812 / 99.550ms (<200ms) — MATCH-ON-VERDICT |
+| NFR-P-05 | PASS | multi max 2.082 / 2.414 / 1.832ms; single max 464.648 / 461.568 / 469.400ms (<500ms) — MATCH-ON-VERDICT |
+| NFR-P-06 | PASS | max 404.998 / 409.603 / 407.595ms (<30s) — MATCH |
+| NFR-P-07 | PASS | max 101.742 / 101.421 / 101.064ms (<300ms) — MATCH |
+| NFR-P-08 | PASS | max 40.593 / 41.608 / 42.252ms (<3s) — MATCH |
+| NFR-P-09 | PASS | binding max 5.502 / 6.645 / 5.661ms (<50ms); floor 0.72–0.75ms — MATCH |
+| make bench | PASS | 3/3 exit 0, eight benchmarks |
+| make release-dry | PASS | 4 archives; `file`: Mach-O x86_64/arm64, ELF x86-64/aarch64 static; `(cd dist && sha256sum -c checksums.txt)` OK×4; snapshot `awis version 0.0.0-SNAPSHOT-4092406` |
+| release notes | PASS | throwaway clone, push URL nonexistent, token unset, `GORELEASER_CURRENT_TAG=v1.0.0`: `awis version 1.0.0`; 100 `M##` entries (41 bookkeeping — backlog M18-B1) |
+| V1_BENCHMARKS.md | PASS | all rows present (stale macOS-pending sentence → fixed in C5) |
+| PRD §32 re-measure | FAIL | row 14 SAT→not satisfied as written, not called out; row 13 STOP (PRD vs TDS-07) → recorded in C5 |
+| fix-only discipline | PASS | C1 misses fixed by scoped C4 diffs, re-measured PASS 3/3 |
+| frozen-surface diff | PASS | `git diff main...4092406`: 46 files, no violation; no existing test modified |
+| `make verify` / `contract` / `e1` | PASS | exit 0 each |
+| `git tag -l 'v*'` | PASS | empty |
+
+FAILs: (1) CI 38152488419 macOS Test: `--- FAIL: TestDeliverSignal_CrashPreCommit … 13 signal(s)
+marked delivered, want 0` (pre-existing M07 test race; main 4977de7 also 5/30 under load);
+(2) consequent macOS E1 skipped; (3) PRD row 14; (4) card text: checksum command must run in
+dist/; (5) card text omits AWIS-E1 by name. PRD §32 at 4092406 per verifier: 50 SAT · 3 NOT
+(14, 37, 40) · 2 PARTIAL (41, 44) · 3 UNMEASURABLE (5, 28, 32) · 1 STOP (13).
+CE disposition: STATE.md CE-CLASSIFICATION; remediation card M18-C5 (29cb521).
