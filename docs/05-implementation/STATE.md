@@ -370,13 +370,32 @@ BRANCH: m18-hardening-release (branched from main at 4977de7)
 PHASE: B-BUILD
 GATE: G4 — Release (fires at D-CLOSE/E-MERGE; no card tags v1.0.0 or renders ship/no-ship)
 CARDS:
-  M18-C1   READY   awis-builder    (NFR-P-01/02/04/05/06/07 benchmarks + `make bench` wiring)
-  M18-C2   READY   awis-builder    (NFR-P-08/09 + formal QG-1 rehearsal + V1_BENCHMARKS skeleton)
+  M18-C1   DONE    awis-builder(haiku)  16cf735  (P2 salvage re-dispatch after rate-limit death of run 1)
+  M18-C2   DISPATCHED awis-builder(haiku)  (NFR-P-08/09 + formal QG-1 rehearsal + V1_BENCHMARKS skeleton)
   M18-C3   READY   awis-builder    (.goreleaser.yaml, 4 platforms + `make release-dry` wiring)
   M18-C4   READY   awis-builder    (V1_BENCHMARKS final + QG-3/4/5 reconfirm + §32 re-measure + fix-only)
   M18-V1   READY   awis-verifier   (independent re-verification; see cards/M18-V1.md)
 BLOCKERS: none
-NEXT: M18-C1 — dispatch per EEOS P1.
+NEXT: M18-C2 — dispatched 2026-10-11 per EEOS P1.
+C1-RESULTS (make bench, 16cf735, Ryzen 7 7730U/linux, on-disk WAL): P-01 P99 9.998ms MISS (<5ms);
+  P-02 P95 1.326ms PASS (gate 50ms, target 10ms); P-04 max 99.5ms PASS; P-05 multi-instance
+  max 2.15ms PASS, single-instance (100K events in one instance) max 568.7ms MISS (<500ms);
+  P-06 max 466.6ms PASS; P-07 max 101.6ms PASS.
+CE-RULINGS (Opus CE, 2026-10-11, on C1 UNRESOLVED a/b):
+  (a) NFR-P-01 is a genuine MISS, not a measurement artifact: CE re-ran with the same SQLite
+      engine on ":memory:" (zero disk I/O) → P99 6.70/6.69/6.82ms, still MISS. CPU profile:
+      ~37% of tick in sqlite3Prepare (GetInstance re-parses its SQL every call; no statement
+      reuse in internal/storage). Routed to C4 as a fix-only item (statement reuse inside
+      SQLiteStorage; no StoragePort interface change; no engine-semantics change). Fixture
+      (100 instances) stays as committed — not shrunk to pass.
+  (b) NFR-P-05: BOTH shapes are binding (strictest reading of "100K events"; the passing
+      shape is not selected to avoid the miss). Single-instance miss routed to C4 fix-only:
+      profile shows unbuffered per-event stdout writes + per-event JSON decode in
+      cmd/awis trace rendering.
+MODEL-DIRECTIVE (founder, 2026-10-11 session): orchestration by Opus 5.5 (CE role); ALL card
+  execution by Haiku 5.5 only — no Sonnet. This is a founder override of EEOS rule 8
+  (upward-only substitution) and of CLAUDE.md's frozen Sonnet/no-Opus allocation, recorded
+  here per ledger law; cards' DISPATCH agent identities are unchanged, only the model.
 ENTRY-GATE EVIDENCE: this A-INIT's immediate predecessor action (same session) fixed and
   verified a real, reproduced macOS CI failure on main — TestResolvePluginUser_UnknownNumericUID
   (internal/plugin/isolation_test.go), caused by a test assuming uid 4294967294 has no passwd
