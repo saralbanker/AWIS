@@ -375,11 +375,14 @@ CARDS:
   M18-C2r  DONE    awis-builder(haiku)  f895a12  (P-08 max 39.0ms PASS; P-09 max 5.7ms PASS; QG-1 linux 248ms completed)
   M18-C3   DONE    awis-builder(haiku)  e15497b  (goreleaser v2.17.0 pinned; 4 static archives + sha256 OK)
   M18-C3r  DONE    awis-builder(haiku)  99f7b13  (clone v1.0.0 release: `awis version 1.0.0`; 96-entry notes)
-  M18-C3r2 DISPATCHED awis-builder(haiku)  (security fix-only: release.yml token exposure / cache)
-  M18-C4   READY   awis-builder    (V1_BENCHMARKS final + QG-3/4/5 reconfirm + §32 re-measure + fix-only)
+  M18-C3r2 DONE    awis-builder(haiku)  34894e7  (verify/release job split; persist-credentials:false; no release cache; actionlint clean)
+  M18-C4   DISPATCHED awis-builder(haiku)  (V1_BENCHMARKS final + QG-3/4/5 reconfirm + §32 re-measure + fix-only)
   M18-V1   READY   awis-verifier   (independent re-verification; see cards/M18-V1.md)
 BLOCKERS: none
-NEXT: M18-C3r2 — dispatched 2026-10-11 per EEOS P1; then C4.
+NEXT: M18-C4 — dispatched 2026-10-11 per EEOS P1; then push + real CI, then C-VERIFY (V1).
+C3r2-REVIEW (CE): accepted. Residual (accepted, not a defect): release-job checkout receives the
+  job token as its fetch credential (first-party action, not persisted); verify-job module cache
+  shared with ci.yml (gate-only job, builds nothing published).
 C3r-REVIEW (CE): R1/R2/R3 evidenced (throwaway clone, push URL nonexistent, token unset; real
   repo `git tag -l 'v*'` empty). CE ruling during run: clone remote = real fetch URL +
   nonexistent push URL (goreleaser cannot run without a remote URL).
