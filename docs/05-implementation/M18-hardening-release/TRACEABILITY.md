@@ -82,3 +82,33 @@ marked delivered, want 0` (pre-existing M07 test race; main 4977de7 also 5/30 un
 dist/; (5) card text omits AWIS-E1 by name. PRD §32 at 4092406 per verifier: 50 SAT · 3 NOT
 (14, 37, 40) · 2 PARTIAL (41, 44) · 3 UNMEASURABLE (5, 28, 32) · 1 STOP (13).
 CE disposition: STATE.md CE-CLASSIFICATION; remediation card M18-C5 (29cb521).
+
+## M18-V1r re-verification report (awis-verifier/Haiku 5.5, clean worktree @ b78ae44)
+VERDICT: **PASS** (no FAIL; QG-2/QG-4 founder-owned STOPs; NFR-P-03 UNMEASURABLE, non-blocking).
+- Delta 4092406..b78ae44: 6 paths, only internal/storage/deliver_crash_test.go + docs/** — PASS.
+- C5 diff: only env-gated `CRASH_PAUSE_AFTER_SETUP` pause; pre-commit `del != 0` / `srCount != 0`
+  assertions identical; post-commit launch unchanged — PASS.
+- Stress (16 busy loops, count=30): CrashPreCommit 30/0, CrashPostCommit 30/0 — PASS.
+- `make verify` "ALL GATES PASSED"; `make e1` 8/8; `make contract` ok; `make release-dry` 4 archives,
+  `(cd dist && sha256sum -c checksums.txt)` OK×4, `awis version 0.0.0-SNAPSHOT-b78ae44`; `make bench`
+  8/8 RESULT PASS (P-01 P99 4.561ms; P-02 P95 1.115ms; P-04 99.635ms; P-05 multi 1.914ms / single
+  465.672ms; P-06 404.603ms; P-07 100.775ms; P-08 43.236ms; P-09 5.519ms) — PASS.
+- Real CI 38155115251 @b78ae44: success; macOS job 114516381982 Test/Race/Zero-AI gate (E1) all
+  success (`ok cmd/awis 45.541s`, `ok internal/storage 42.534s`; race 59.503s / 70.677s). Also
+  38154745869 @1043b9a success; 38152488419 @4092406 failure (historical, closed by C5).
+- V1_BENCHMARKS.md records consistent with evidence (QG-1 macOS cell; rows 13/14 called out;
+  totals 50/3/2/3/1 = 59). Row facts re-observed: `awis cancel <completed>` exit 1; `awis
+  workflow validate` prints `valid ✓`, exit 0, no step summary.
+- `git tag -l 'v*'` empty.
+- Verifier note 2 (out of scope): one SQLITE_BUSY on `PRAGMA journal_mode=WAL` for the first
+  `awis submit` right after `awis start`; retry ok, not reproduced. CE repro attempt: 0/25 with
+  header wait + 0/25 submitting 20ms after start → backlog M18-B2 (non-blocking).
+
+## D-CLOSE semantic review (Opus CE, 2026-10-11 — Fable role per founder MODEL-DIRECTIVE)
+Full non-test production diff main...b78ae44: 11 files — release tooling (.goreleaser.yaml,
+release.yml, Makefile bench/release-dry), internal/nfrbench (test-support, imported only by
+_test.go), internal/buildinfo const→var (ldflags), internal/storage stmt cache (fixed-SQL
+single-row reads GetInstance/CancellationRequested; single constructor storage.Open; closed by
+DB.Close; ad-hoc fallback), cmd/awis/trace.go (buffered writer; TDS-07 adapter/tokens suffix).
+No change to internal/core, internal/engine (non-test), sdk/, StoragePort interface,
+internal/plugin, plugins/, python/, apps/, ci.yml, go.mod. **No architectural drift.**

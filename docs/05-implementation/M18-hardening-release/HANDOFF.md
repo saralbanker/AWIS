@@ -1,5 +1,5 @@
 # M18 → v1.0.0 Handoff
-**Status: NOT STARTED.** This file is created at A-INIT (2026-10-10), per the module
+**Status: C-VERIFY PASS / D-CLOSE done (2026-10-11) — awaiting founder G4 + E-MERGE.** This file is created at A-INIT (2026-10-10), per the module
 template — module previously had no HANDOFF.md/TRACEABILITY.md (it had only a 6-line
 README.md, `Status: Partitioned — materialize at entry`). It remains a draft, with every
 "guaranteed output" below unconfirmed, until B-BUILD/C-VERIFY run and D-CLOSE records actuals.
@@ -44,5 +44,20 @@ README.md, `Status: Partitioned — materialize at entry`). It remains a draft, 
   been applied to the macOS leg specifically.
 
 ## Actuals (filled as cards complete)
-- Not yet dispatched. A-INIT (this session) performed: branch creation, six-file module
-  compilation, STATE.md M18 entry. No card has run.
+- Cards: C1 16cf735 · C2r f895a12 (C2 withdrawn) · C3 e15497b · C3r 99f7b13 · C3r2 34894e7 ·
+  C4 54fcf15 · C4r 3addeb9 · C5 29cb521 · V1 FAIL @4092406 → V1r PASS @b78ae44.
+- `make bench`: all eight benchmarks PASS (NFR-P-01..09 except P-03 UNMEASURABLE); numbers in
+  docs/V1_BENCHMARKS.md, independently reproduced by V1/V1r. Two C1 misses fixed fix-only in C4.
+- `make release-dry`: goreleaser v2.17.0 snapshot, 4 static archives + sha256 checksums;
+  release notes + `awis version 1.0.0` proven offline in a throwaway clone. release.yml runs on
+  `v*` tags only: `make verify` (read-only job) → goreleaser (write job, no persisted token,
+  no cache).
+- QG-1 PASS (linux + real macOS CI), QG-3 PASS (E1 both CI legs), QG-5 PASS; QG-2 and QG-4
+  founder-owned; NFR-P-03 UNMEASURABLE.
+- Real CI green: run 38155115251 @b78ae44 (ubuntu, macos, docs-lint).
+- Founder decisions open for G4: QG-2 measurement; QG-4 confirmation; PRD §32 rows 13 and 14
+  (PRD text vs TDS-07) and row 41 (trace "outputs"; CLI_CONTRACT internal inconsistency);
+  NFR-P-03 acceptance as UNMEASURABLE; non-blocking backlog M18-B1 (release-note bookkeeping
+  noise), M18-B2 (unreproduced SQLITE_BUSY on first submit).
+- Not performed (human-only): G4 verdict, `v1.0.0` tag push, E-MERGE. OIP dogfood week:
+  advisory, not started by this module.
