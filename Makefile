@@ -63,7 +63,7 @@ integration:
 # reported here and fixed, if at all, only by a targeted C4 card (IMP §27.M18).
 # Test binaries run one after another (-p 1), so one package's fixture I/O can
 # never overlap another package's timed sections.
-BENCH_EXPECT := BenchmarkNFRP01 BenchmarkNFRP02 BenchmarkNFRP04 BenchmarkNFRP05 BenchmarkNFRP06 BenchmarkNFRP07
+BENCH_EXPECT := BenchmarkNFRP01 BenchmarkNFRP02 BenchmarkNFRP04 BenchmarkNFRP05 BenchmarkNFRP06 BenchmarkNFRP07 BenchmarkNFRP08 BenchmarkNFRP09
 bench:
 	@out=$$(mktemp) || exit 1; \
 	if ! go test -p 1 -run '^$$' -bench 'BenchmarkNFRP' -benchtime=1x -count=1 -timeout 30m ./internal/engine/ ./cmd/awis/ > "$$out" 2>&1; then \
@@ -74,7 +74,7 @@ bench:
 		if ! grep -q "^$$b" "$$out"; then rm -f "$$out"; echo "bench: FAILED: expected benchmark $$b produced no result"; exit 1; fi; \
 	done; \
 	rm -f "$$out"; \
-	echo "bench: all six NFR benchmarks ran to completion"
+	echo "bench: all eight NFR benchmarks ran to completion"
 
 release-dry:
 	@echo "NOT-YET (wired at M02/M06/M18): release-dry"
