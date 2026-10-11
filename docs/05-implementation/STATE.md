@@ -371,12 +371,18 @@ PHASE: B-BUILD
 GATE: G4 — Release (fires at D-CLOSE/E-MERGE; no card tags v1.0.0 or renders ship/no-ship)
 CARDS:
   M18-C1   DONE    awis-builder(haiku)  16cf735  (P2 salvage re-dispatch after rate-limit death of run 1)
-  M18-C2   DISPATCHED awis-builder(haiku)  (NFR-P-08/09 + formal QG-1 rehearsal + V1_BENCHMARKS skeleton)
+  M18-C2   WITHDRAWN awis-builder(haiku) (STOPPED E1: stale QG-1 premise — superseded by C2r)
+  M18-C2r  DISPATCHED awis-builder(haiku)  (C2 revision: QG-1 on shipped binary; P-09 method pinned)
   M18-C3   READY   awis-builder    (.goreleaser.yaml, 4 platforms + `make release-dry` wiring)
   M18-C4   READY   awis-builder    (V1_BENCHMARKS final + QG-3/4/5 reconfirm + §32 re-measure + fix-only)
   M18-V1   READY   awis-verifier   (independent re-verification; see cards/M18-V1.md)
 BLOCKERS: none
-NEXT: M18-C2 — dispatched 2026-10-11 per EEOS P1.
+NEXT: M18-C2r — dispatched 2026-10-11 per EEOS P1.
+CE-RULING C2-E1 (2026-10-11): C2 STOP verified — shipped `awis` registers examples.hello.*
+  (B-9, cmd/awis/start.go:179); M17 TRACEABILITY 'ends failed' claim is stale. QG-1 runs on the
+  shipped binary (option A; acceptance unchanged: completed, ≤5min). NFR-P-09 binding method =
+  successful git.diff.fetch on tiny repo (conservative upper bound); immediate-reject path
+  informational. Revision card cards/M18-C2r.md.
 C1-RESULTS (make bench, 16cf735, Ryzen 7 7730U/linux, on-disk WAL): P-01 P99 9.998ms MISS (<5ms);
   P-02 P95 1.326ms PASS (gate 50ms, target 10ms); P-04 max 99.5ms PASS; P-05 multi-instance
   max 2.15ms PASS, single-instance (100K events in one instance) max 568.7ms MISS (<500ms);
