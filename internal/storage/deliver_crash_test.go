@@ -43,6 +43,10 @@ import (
 // crash test. It is activated only when GO_TEST_HELPER_PROCESS=1 AND
 // CRASH_TEST_TYPE=signal are set (the parent sets both).
 //
+// When CRASH_PAUSE_AFTER_SETUP=1 is also set (the pre-commit test does this),
+// iteration 1 blocks forever right after printing "SETUP 1", before
+// DeliverSignal is called: the crash point is then deterministic.
+//
 // For each iteration n=1,2,...:
 //   - Inserts a waiting workflow_instances row "sig-crash-<n>"
 //   - Inserts an undelivered signal_inbox entry
@@ -111,6 +115,13 @@ func TestHelperProcess_Signal(t *testing.T) {
 		// A kill here leaves delivered_at=NULL and no SignalReceived event (pre-commit).
 		fmt.Printf("SETUP %d\n", n)
 
+		// Deterministic crash point (M18-C5, CI flake fix): with
+		// CRASH_PAUSE_AFTER_SETUP=1 the child stops here on iteration 1, so the
+		// parent's SIGKILL always lands before DeliverSignal is called.
+		if n == 1 && os.Getenv("CRASH_PAUSE_AFTER_SETUP") == "1" {
+			select {}
+		}
+
 		payload, _ := json.Marshal(map[string]any{
 			"signal_name": "crash-go",
 			"payload":     map[string]any{"n": n},
@@ -137,8 +148,10 @@ func TestHelperProcess_Signal(t *testing.T) {
 }
 
 // launchSignalCrashChild spawns the TestHelperProcess_Signal subprocess against
-// dbPath and returns the command and a line scanner over its stdout.
-func launchSignalCrashChild(t *testing.T, dbPath string) (*exec.Cmd, *bufio.Scanner) {
+// dbPath and returns the command and a line scanner over its stdout. Optional
+// extraEnv entries ("KEY=value") are appended to the child environment; the
+// post-commit test passes none, so its child is unchanged.
+func launchSignalCrashChild(t *testing.T, dbPath string, extraEnv ...string) (*exec.Cmd, *bufio.Scanner) {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcess_Signal", "-test.v")
 	cmd.Env = append(os.Environ(),
@@ -146,6 +159,7 @@ func launchSignalCrashChild(t *testing.T, dbPath string) (*exec.Cmd, *bufio.Scan
 		"CRASH_TEST_TYPE=signal",
 		"CRASH_DB_PATH="+dbPath,
 	)
+	cmd.Env = append(cmd.Env, extraEnv...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatalf("StdoutPipe: %v", err)
@@ -213,12 +227,22 @@ func instanceStatus(t *testing.T, rawDB *sql.DB, iid string) string {
 // ── TestDeliverSignal_CrashPreCommit ────────────────────────────────────────
 
 // TestDeliverSignal_CrashPreCommit kills the subprocess after "SETUP 1" —
-// the crash occurs before or during the B3 transaction (before the commit
-// can persist all three writes). After reopening the DB, every signal must
-// have delivered_at=NULL and no SignalReceived event may exist.
+// the crash point is deterministic: setup is complete and DeliverSignal has
+// not been called. The child is launched with CRASH_PAUSE_AFTER_SETUP=1, so it
+// blocks after printing "SETUP 1" and never reaches the B3 transaction. After
+// reopening the DB, every signal must have delivered_at=NULL and no
+// SignalReceived event may exist.
 //
-// This simulates crash-injection between each of the three B3 write pairs:
-// because the writes are atomic, all outcomes are equivalent (rollback).
+// Why the crash point is pinned (CI flake, M18-V1 X-1): the child previously
+// looped on (SETUP n → DeliverSignal → DELIVERED n), and the parent's kill after
+// "SETUP 1" had no barrier, so several deliveries could commit before the kill
+// landed (macOS CI: "13 signal(s) marked delivered, want 0"). The atomicity
+// invariant was never in question; only the timing assumption was. The
+// assertions below are unchanged.
+//
+// Because the three B3 writes are one atomic transaction, a crash at any point
+// before COMMIT rolls back to the same state; this test pins the crash to the
+// state before DeliverSignal is called.
 func TestDeliverSignal_CrashPreCommit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("-short: skip crash pre-commit test")
@@ -231,7 +255,7 @@ func TestDeliverSignal_CrashPreCommit(t *testing.T) {
 	}
 	_ = initDB.Close()
 
-	cmd, scanner := launchSignalCrashChild(t, dbPath)
+	cmd, scanner := launchSignalCrashChild(t, dbPath, "CRASH_PAUSE_AFTER_SETUP=1")
 	scanCh := make(chan string, 32)
 	done := make(chan struct{})
 	go func() {
