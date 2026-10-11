@@ -13,12 +13,16 @@
 # go.mod pin (go 1.26, toolchain go1.26.4). CI installs "1.26.x"
 # (.github/workflows/ci.yml), so both use the same Go line.
 #
-# Version: internal/buildinfo.Version is a const ("0.1.0-dev"), which -X ldflags
-# cannot override, so no version is injected at link time.
+# Version: internal/buildinfo.Version is a package-level var whose development default is
+# "0.1.0-dev". The -X ldflags below set it at link time, so `awis version` reports the
+# tag (v1.0.0 -> 1.0.0) or the snapshot version.
 #
-# Run only through `make release-dry`, which always passes --snapshot: nothing is
-# tagged, published, or sent to a remote, and no GitHub API is called. The
-# changelog uses the offline `git` source (commit subjects), never `github`.
+# Two entry points; both take the changelog from the offline `git` source (commit
+# subjects), never `github`:
+#   - `make release-dry` always passes --snapshot: nothing is tagged, published, or sent
+#     to a remote, and no GitHub API is called.
+#   - .github/workflows/release.yml runs `release --clean` for a pushed v* tag, only after
+#     `make verify` has passed on that commit. It is the only path that publishes.
 version: 2
 
 project_name: awis
@@ -39,6 +43,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
+      - "-X github.com/awis/awis/internal/buildinfo.Version={{.Version}}"
 
 archives:
   - id: awis

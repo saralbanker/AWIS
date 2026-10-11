@@ -6,6 +6,8 @@
 // different package main.
 package buildinfo
 
-// Version is the AWIS release string.
-// Freeze: update alongside go.mod module tag at release time.
-const Version = "0.1.0-dev"
+// Version is the AWIS release string. "0.1.0-dev" is the development default.
+// Release binaries set it at link time (.goreleaser.yaml passes
+// -X github.com/awis/awis/internal/buildinfo.Version={{.Version}}), which only a
+// package-level string variable accepts, so it must stay a var, not a const.
+var Version = "0.1.0-dev"
