@@ -257,7 +257,14 @@ func formatTraceEvent(ev core.ExecutionEvent, full bool) string {
 			stepID = ev.StepID
 		}
 		durSec := float64(durMs) / 1000.0
-		return fmt.Sprintf("%-20s %-20s  %.1fs", "StepCompleted", stepID, durSec)
+		line := fmt.Sprintf("%-20s %-20s  %.1fs", "StepCompleted", stepID, durSec)
+		// ADJ-8 usage triple (intelligence steps only): TDS-07 §4 suffix. Native
+		// steps carry no adapter key, so their line is unchanged.
+		if _, ok := payload["adapter"]; ok {
+			line += fmt.Sprintf("   adapter: %s, tokens: %d",
+				strFromMap(payload, "adapter"), intFromMap(payload, "tokens_used"))
+		}
+		return line
 
 	case core.EventTypeStepFailed:
 		stepID := strFromMap(payload, "step_id")

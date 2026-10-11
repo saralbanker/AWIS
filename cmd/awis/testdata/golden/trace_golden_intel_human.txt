@@ -1,0 +1,12 @@
+Trace:  / nfr-i-000000
+Status: completed ✓  Duration: 7s
+
+Timeline:
+  00:00  ● WorkflowStarted
+  00:01  ► StepStarted          step-a (attempt 1)
+  00:02  ✓ StepCompleted        step-a                1.5s   adapter: null, tokens: 0
+  00:03  ► StepStarted          step-b (attempt 1)
+  00:04  ✓ StepCompleted        step-b                13.1s   adapter: anthropic, tokens: 847
+  00:05  ► StepStarted          step-c (attempt 1)
+  00:06  ✓ StepCompleted        step-c                0.2s
+  00:07  ✓ WorkflowCompleted     total: 7s
