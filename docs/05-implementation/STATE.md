@@ -374,11 +374,22 @@ CARDS:
   M18-C2   WITHDRAWN awis-builder(haiku) (STOPPED E1: stale QG-1 premise — superseded by C2r)
   M18-C2r  DONE    awis-builder(haiku)  f895a12  (P-08 max 39.0ms PASS; P-09 max 5.7ms PASS; QG-1 linux 248ms completed)
   M18-C3   DONE    awis-builder(haiku)  e15497b  (goreleaser v2.17.0 pinned; 4 static archives + sha256 OK)
-  M18-C3r  DISPATCHED awis-builder(haiku)  (fix-only: version ldflags, v* release workflow, release-notes proof)
+  M18-C3r  DONE    awis-builder(haiku)  99f7b13  (clone v1.0.0 release: `awis version 1.0.0`; 96-entry notes)
+  M18-C3r2 DISPATCHED awis-builder(haiku)  (security fix-only: release.yml token exposure / cache)
   M18-C4   READY   awis-builder    (V1_BENCHMARKS final + QG-3/4/5 reconfirm + §32 re-measure + fix-only)
   M18-V1   READY   awis-verifier   (independent re-verification; see cards/M18-V1.md)
 BLOCKERS: none
-NEXT: M18-C3r — dispatched 2026-10-11 per EEOS P1; then C4.
+NEXT: M18-C3r2 — dispatched 2026-10-11 per EEOS P1; then C4.
+C3r-REVIEW (CE): R1/R2/R3 evidenced (throwaway clone, push URL nonexistent, token unset; real
+  repo `git tag -l 'v*'` empty). CE ruling during run: clone remote = real fetch URL +
+  nonexistent push URL (goreleaser cannot run without a remote URL).
+  SECURITY (background commit review of 99f7b13, CE-confirmed): release.yml checkout persists
+  the contents:write GITHUB_TOKEN into .git/config, readable by `make verify`; setup-go cache in
+  publishing job → C3r2 (blocks any v* tag push until fixed).
+BACKLOG (non-blocking, M18-B1): release notes include 49/96 milestone-prefixed bookkeeping
+  subjects (HANDOFF actuals/ledger/D-CLOSE); RE2 has no lookahead so `^M[0-9]{2}` cannot exclude
+  them. Still "generated from milestone titles" (IMP §21); founder may curate the GitHub release
+  text at publication. Not a gate failure.
 CI-EVIDENCE: run 38146475809 @ bbdcfa5 (C1+C2r on branch) — ubuntu-latest ✓, macos-latest ✓,
   docs-lint ✓. cmd/awis ok on macOS (36.9s) incl. TestQG1RehearsalCompletesHelloWorld (no
   skip/GOOS gate) → QG-1 macOS leg real-CI (completed + ≤5min asserted).
