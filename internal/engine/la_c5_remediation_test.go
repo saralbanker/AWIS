@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -455,10 +454,9 @@ func c5RunWait(t *testing.T, restart bool, ft *laFault) c5Outcome {
 
 // c5AckRow is one ack-lost scenario: run executes it (ft == nil is the no-fault oracle).
 type c5AckRow struct {
-	lead     string
-	run      func(t *testing.T, restart bool, ft *laFault) c5Outcome
-	ft       laFault // the ack-lost fault (model is set by c5AckRows)
-	deferred string  // non-empty: a known finding, gated behind LA_DEFERRED
+	lead string
+	run  func(t *testing.T, restart bool, ft *laFault) c5Outcome
+	ft   laFault // the ack-lost fault (model is set by c5AckRows)
 }
 
 func c5AckRows() []c5AckRow {
@@ -516,17 +514,17 @@ func c5AckRows() []c5AckRow {
 				out.undos = u.calls()
 				return out
 			}},
-		// N2 (StepFailed, extra probe): b1's StepFailed{retrying:false} is durable, but its error is
-		// returned. The settle loop treats that as non-terminal, so the sibling b2 is still settled
-		// after b1's committed terminal decision. This is the N2 class under ack-lost: NOT fixed here.
+		// N2b (StepFailed, ack-lost): b1's StepFailed{retrying:false} is durable, but its append
+		// returned an error. Before LA-C5 N2b the settle loop read that error as non-terminal and
+		// settled the sibling b2 after b1's committed decision. The settle loop's log check now
+		// recognises the committed route (3) decision, so the faulted run equals the no-fault run.
 		{lead: "N2-StepFailed", ft: ack(laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeStepFailed, stepID: "b1"}),
 			run: func(t *testing.T, restart bool, ft *laFault) c5Outcome {
 				var u c5Undo
 				out := c5Run(t, c5DefFanOutComp(), 2, ft, restart, c5FanOutHandlers(&u, true)...)
 				out.undos = u.calls()
 				return out
-			},
-			deferred: "ack-lost StepFailed{retrying:false}(b1) is durable but returned as non-terminal, so sibling b2 is settled after b1's committed decision (N2 under ack-lost)"},
+			}},
 	}
 }
 
@@ -540,9 +538,6 @@ func TestLA_C5_Q3_AckLostScenarios(t *testing.T) {
 				mode = "after-restart"
 			}
 			t.Run(row.lead+"/"+mode, func(t *testing.T) {
-				if row.deferred != "" && os.Getenv("LA_DEFERRED") != "1" {
-					t.Skip("LA-C5 ack-lost finding (run with LA_DEFERRED=1): " + row.deferred)
-				}
 				base := row.run(t, false, nil)
 				if base.errs != 0 {
 					t.Fatalf("no-fault baseline returned %d tick errors", base.errs)
@@ -600,4 +595,96 @@ func TestLA_C5_Q3_AckLostRejectedForUnmodelledOps(t *testing.T) {
 
 func c5HasEventType(evs []core.ExecutionEvent, et core.EventType, stepID string) bool {
 	return c4bCount(evs, et, stepID) > 0
+}
+
+// ── N2b (LA-C5): ack-lost-aware terminal check after a settle error ───────────────────
+//
+// committedRouteThree is the pure classification behind durableTerminal's second case. The
+// end-to-end ack-lost runs are TestLA_C5_Q3_AckLostScenarios/N2-StepFailed (fail: a durable
+// route-(3) StepFailed(b1) with its error returned; the sibling must not settle) and
+// TestLA_C4b_SettleFailureDoesNotAbandonDispatchedSibling (a non-terminal error still settles
+// the sibling). Each case below is one row of the static and log rule.
+
+func c5RouteDV() *defView {
+	return &defView{def: core.WorkflowDefinition{
+		SchemaVersion: 1, ID: "la.c5.route", Version: "1.0.0", Namespace: "la", Name: "route",
+		Steps:       []core.Step{nativeStep("s", "h"), nativeStep("se", "h"), nativeStep("oe", "h")},
+		Transitions: []core.Transition{{From: "se", To: "oe", OnError: true}},
+		InitialStep: "s", FinalSteps: []string{"oe"}, Metadata: map[string]any{},
+	}}
+}
+
+// c5Ev builds one event for committedRouteThree. A StepFailed payload is marshalled from
+// stepFailedPayload; a non-empty raw overrides the payload (malformed-payload case).
+func c5Ev(seq int, et core.EventType, stepID string, retrying bool, code string, raw string) core.ExecutionEvent {
+	ev := core.ExecutionEvent{InstanceID: "iid", SequenceNum: seq, EventType: et, StepID: stepID}
+	switch {
+	case raw != "":
+		ev.Payload = []byte(raw)
+	case et == core.EventTypeStepFailed:
+		p, err := marshalPayload(stepFailedPayload{StepID: stepID, Attempt: 1, Retrying: retrying, Error: core.StepError{Code: code}})
+		if err != nil {
+			panic(err)
+		}
+		ev.Payload = p
+	}
+	return ev
+}
+
+func TestLA_C5_N2b_CommittedRouteThree(t *testing.T) {
+	dv := c5RouteDV()
+	s := nativeStep("s", "h")
+	fallbackStep := s
+	fallbackStep.Fallback = "fb"
+	ss := func(seq int, id string) core.ExecutionEvent {
+		return c5Ev(seq, core.EventTypeStepStarted, id, false, "", "")
+	}
+	sf := func(seq int, id string, retrying bool, code string) core.ExecutionEvent {
+		return c5Ev(seq, core.EventTypeStepFailed, id, retrying, code, "")
+	}
+	cases := []struct {
+		name    string
+		step    core.Step
+		evs     []core.ExecutionEvent
+		want    bool
+		wantErr bool
+	}{
+		{"route3 StepFailed after its StepStarted is committed", s,
+			[]core.ExecutionEvent{ss(2, "s"), sf(3, "s", false, "handler_error")}, true, false},
+		{"StepFailed before the latest StepStarted is not this attempt's", s,
+			[]core.ExecutionEvent{sf(2, "s", false, "handler_error"), ss(3, "s")}, false, false},
+		{"retrying:true is not a terminal decision", s,
+			[]core.ExecutionEvent{ss(2, "s"), sf(3, "s", true, "handler_error")}, false, false},
+		{"code cancelled carries no routing decision", s,
+			[]core.ExecutionEvent{ss(2, "s"), sf(3, "s", false, "cancelled")}, false, false},
+		{"code signal_timeout carries no routing decision", s,
+			[]core.ExecutionEvent{ss(2, "s"), sf(3, "s", false, "signal_timeout")}, false, false},
+		{"route 1 (Fallback set) is not route 3", fallbackStep,
+			[]core.ExecutionEvent{ss(2, "s"), sf(3, "s", false, "handler_error")}, false, false},
+		{"route 2 (on_error transition) is not route 3", nativeStep("se", "h"),
+			[]core.ExecutionEvent{ss(2, "se"), sf(3, "se", false, "handler_error")}, false, false},
+		{"no StepFailed in the log", s,
+			[]core.ExecutionEvent{ss(2, "s")}, false, false},
+		{"a StepFailed for another step is ignored", s,
+			[]core.ExecutionEvent{ss(2, "s"), sf(3, "other", false, "handler_error")}, false, false},
+		{"a later StepStarted supersedes an earlier committed StepFailed", s,
+			[]core.ExecutionEvent{ss(2, "s"), sf(3, "s", false, "handler_error"), ss(4, "s")}, false, false},
+		{"a retry attempt that commits route 3 after its own StepStarted", s,
+			[]core.ExecutionEvent{ss(2, "s"), sf(3, "s", true, "handler_error"), ss(4, "s"), sf(5, "s", false, "handler_error")}, true, false},
+		{"no StepStarted (template_error item): a StepFailed counts from the start of the log", s,
+			[]core.ExecutionEvent{sf(3, "s", false, "template_error")}, true, false},
+		{"malformed StepFailed payload after its StepStarted is an error", s,
+			[]core.ExecutionEvent{ss(2, "s"), c5Ev(3, core.EventTypeStepFailed, "s", false, "", "not json")}, false, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := committedRouteThree(dv, c.step, c.evs)
+			if (err != nil) != c.wantErr {
+				t.Fatalf("error=%v; want error=%t", err, c.wantErr)
+			}
+			if got != c.want {
+				t.Errorf("committedRouteThree=%t; want %t", got, c.want)
+			}
+		})
+	}
 }

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -334,12 +335,15 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 	// terminal. routeTerminalFailure reports terminal=true for every outcome once its
 	// StepFailed{retrying:false} is durable (route 3), so a failed WorkflowFailed
 	// append, a projection fault or a failed compensation stops the loop WITH its
-	// error. Or (b) a settle error occurred and the EventLog already holds a terminal
-	// workflow event (durableTerminal): a defence-in-depth guard for a non-terminal
-	// return. No settle path appends a workflow-terminal event and then reports
-	// terminal=false. Items after the stop keep their StepStarted and are not settled
-	// in this tick. The next tick's hydrate completes the committed route (LA-C3
-	// completeCommittedRoutes), and the LA-C4a fence covers the post-terminal side.
+	// error. Or (b) a settle error occurred and the EventLog holds a committed terminal
+	// decision for this item (durableTerminal, LA-C5 N2b): a workflow-terminal event, or
+	// the item's own durable route-(3) StepFailed. The second case is an ack-lost append:
+	// the StepFailed committed, but its append returned an error, so routeTerminalFailure
+	// never reached its own terminal return. No other settle path appends a
+	// workflow-terminal event and then reports terminal=false. Items after the stop keep
+	// their StepStarted and are not settled in this tick. The next tick's hydrate completes
+	// the committed route (LA-C3 completeCommittedRoutes), and the LA-C4a fence covers the
+	// post-terminal side.
 	var settleErrs []error
 	stopped := false
 	for i := range items {
@@ -357,7 +361,7 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 		if err != nil {
 			settleErrs = append(settleErrs, err)
 			if !terminal {
-				durable, derr := e.durableTerminal(ctx, inst.InstanceID)
+				durable, derr := e.durableTerminal(ctx, dv, it.step, inst.InstanceID)
 				if derr != nil {
 					settleErrs = append(settleErrs, derr)
 				}
@@ -556,15 +560,18 @@ func (e *Engine) settleSuccess(ctx context.Context, inst core.WorkflowInstance, 
 	return nil
 }
 
-// durableTerminal reports whether iid's EventLog already holds a terminal workflow
-// event (WorkflowCompleted, WorkflowFailed or WorkflowCancelled). It reads the log,
-// not the projection: emit appends the event before it projects, so a projection
-// failure can leave the terminal event durable while the instance still reads as
-// running. LA-C4b F-S: used only on a NON-terminal settle error, to decide whether
-// settling may continue; a read error is returned so the caller can stop (see
-// processInstance). LA-C5 N2: a route-3 error after a durable StepFailed already
-// reports terminal=true, so this check guards non-terminal returns only.
-func (e *Engine) durableTerminal(ctx context.Context, iid core.InstanceID) (bool, error) {
+// durableTerminal reports whether iid's EventLog holds a committed terminal decision
+// for the item whose settle returned an error (step). It is consulted only on a
+// NON-terminal settle error (LA-C4b F-S), and a read or decode error is returned so
+// the caller stops (conservative). Two durable facts count:
+//
+//   - a workflow-terminal event (WorkflowCompleted, WorkflowFailed or WorkflowCancelled).
+//     The log is read, not the projection: emit appends before it projects, so a
+//     projection failure leaves the terminal event durable while the instance still
+//     reads as running.
+//   - the item's own route-(3) StepFailed{retrying:false}, committed by an append
+//     whose error was returned (LA-C5 N2b; see committedRouteThree).
+func (e *Engine) durableTerminal(ctx context.Context, dv *defView, step core.Step, iid core.InstanceID) (bool, error) {
 	evs, err := e.storage.ReadEvents(ctx, iid, 0)
 	if err != nil {
 		return false, fmt.Errorf("engine: settle terminal check %s: %w", iid, err)
@@ -574,6 +581,47 @@ func (e *Engine) durableTerminal(ctx context.Context, iid core.InstanceID) (bool
 		case core.EventTypeWorkflowCompleted, core.EventTypeWorkflowFailed, core.EventTypeWorkflowCancelled:
 			return true, nil
 		}
+	}
+	committed, err := committedRouteThree(dv, step, evs)
+	if err != nil {
+		return false, fmt.Errorf("engine: settle terminal check %s: %w", iid, err)
+	}
+	return committed, nil
+}
+
+// committedRouteThree reports whether step's own route-(3) terminal decision is durable
+// in evs (LA-C5 N2b, the ack-lost case of LA-C3 completeCommittedRoutes). The decision is
+// a StepFailed{retrying:false} for step appended after the step's latest StepStarted
+// (this tick's attempt; a step with no StepStarted counts from the start of the log,
+// which is the template_error item that never emitted one). Its static route must be
+// (3): no Fallback and no on_error transition at all (hasOnErrorTransition, static
+// structure only, as in LA-C3). Codes "cancelled" and "signal_timeout" carry no routing
+// decision (LA-C3 guards (b) and (c)). A payload that cannot be decoded is an error.
+//
+// Route (1) and route (2) decisions return false, so their siblings keep settling
+// (LA-C4b behaviour, unchanged).
+func committedRouteThree(dv *defView, step core.Step, evs []core.ExecutionEvent) (bool, error) {
+	if step.Fallback != "" || hasOnErrorTransition(dv, step.ID) {
+		return false, nil
+	}
+	startedSeq := 0
+	for _, ev := range evs {
+		if ev.EventType == core.EventTypeStepStarted && ev.StepID == step.ID && ev.SequenceNum > startedSeq {
+			startedSeq = ev.SequenceNum
+		}
+	}
+	for _, ev := range evs {
+		if ev.EventType != core.EventTypeStepFailed || ev.StepID != step.ID || ev.SequenceNum <= startedSeq {
+			continue
+		}
+		var p stepFailedPayload
+		if err := json.Unmarshal(ev.Payload, &p); err != nil {
+			return false, fmt.Errorf("decode StepFailed %s/%s seq=%d: %w", ev.InstanceID, step.ID, ev.SequenceNum, err)
+		}
+		if p.Retrying || p.Error.Code == "cancelled" || p.Error.Code == "signal_timeout" {
+			continue
+		}
+		return true, nil
 	}
 	return false, nil
 }

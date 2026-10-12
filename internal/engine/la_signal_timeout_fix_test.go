@@ -449,13 +449,14 @@ func TestLA_C4c_DurableRouting_NotRestored(t *testing.T) {
 	// The test must not pass while the instance is `waiting` with no wait_record: nothing
 	// ever resumes such an instance (ListInstances scans running only).
 	//
-	// LA-C5 FINDING (deferred, not fixed by this card): this end state is the wedge
+	// LA-D1 (CE ruling LA-C5, founder decision): this end state is the non-running-instance
+	// recovery gap, recorded as LA-D1 and NOT fixed by LA-C5. This end state is the wedge
 	// described above. A durable StepFailed(signal_timeout) followed by a lost
 	// WorkflowFailed leaves status=waiting, no wait_record, and no processor. The N3 reset
 	// (signal_timeout.go processTimeout) cannot reach it, because it is not running. Gated so
 	// the default run stays green; LA_DEFERRED=1 runs the assertion and it fails.
 	if os.Getenv("LA_DEFERRED") != "1" {
-		t.Skip("LA-C5 deferred finding: timeout fail routing leaves a durable StepFailed with status=waiting and no wait_record (run with LA_DEFERRED=1)")
+		t.Skip("LA-D1 (CE ruling LA-C5): non-running-instance recovery; timeout fail routing leaves a durable StepFailed with status=waiting and no wait_record (run with LA_DEFERRED=1)")
 	}
 	ctl := laC4cDrive(laC4cPark(t, "fail"), nil)
 	n, errs := laTickUntil(t, h.e, h.s, h.iid, laK, laIsTerminal)
