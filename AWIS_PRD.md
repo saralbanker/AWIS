@@ -2540,7 +2540,7 @@ When the platform serves external developers beyond the solo-founder's portfolio
 |---|---|---|---|
 | 1.0 | 2026-07-02 | Initial canonical PRD — post-architecture freeze | PRD Process |
 | 1.0 | 2026-09-18/19 | §32 rows 8/15 and §18 corrected to TDS-07 (DEC-13, 49987fe); §32 rows 38/53 restated as conditional (DEC-14, 3f22284) | Founder ruling |
-| 1.0 | 2026-10-12 | §32 rows 13/14, §15, AD-1, §18 corrected to TDS-07 (M18 G4, c56d53e) | CE, under the TDS-07 precedence rule above; pending founder G4 verdict |
+| 1.0 | 2026-10-12 | §32 rows 13/14, §15, AD-1, §18 corrected to TDS-07 (M18 G4, c56d53e) | CE, under the TDS-07 precedence rule above; ratified by founder G4 verdict 2026-10-12 |
 
 ### Cross-References
 

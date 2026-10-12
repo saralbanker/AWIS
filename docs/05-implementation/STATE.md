@@ -367,7 +367,7 @@ DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07 M08 M09 M10 M11 M12 M13 M14 M15
 # ── M18 A-INIT (2026-10-10) ─────────────────────────────────────────────────────
 MILESTONE: M18-hardening-release
 BRANCH: m18-hardening-release (branched from main at 4977de7)
-PHASE: E-MERGE (G4 rulings CE-recorded 2026-10-12; blocked on founder: G4 verdict line + squash-merge + v1.0.0 tag)
+PHASE: E-MERGE (founder G4 verdict SHIP 2026-10-12; push + squash-merge + v1.0.0 tag executed by the CE at founder instruction)
 GATE: G4 — Release (fires at D-CLOSE/E-MERGE; no card tags v1.0.0 or renders ship/no-ship)
 CARDS:
   M18-C1   DONE    awis-builder(haiku)  16cf735  (P2 salvage re-dispatch after rate-limit death of run 1)
@@ -382,25 +382,39 @@ CARDS:
   M18-C5   DONE    awis-builder(haiku)  29cb521  (crash test deterministic: loaded 30/30 vs control 26/30; records fixed)
   M18-V1r  DONE(PASS) awis-verifier(haiku)  @b78ae44 (report in TRACEABILITY.md; checklist ticked by CE)
 BLOCKERS: none
-NEXT: FOUNDER — sign the G4 VERDICT line (M18 TRACEABILITY.md), then squash-merge PR #1 (EEOS rule 6), then push tag `v1.0.0` at the merge commit
-  (release.yml publishes). Loop A (bounded engine confidence) starts only after the merge.
-G4-PROPOSED-RULINGS (CE-recorded 2026-10-12; pending founder G4 VERDICT in M18 TRACEABILITY.md):
+NEXT: CE (founder-instructed 2026-10-12): push; squash-merge PR #1 after PR CI green; tag `v1.0.0` at the merge commit after main CI green; verify release; then a ledger commit on main records M18 CLOSED. Loop A starts only after that.
+G4-RULINGS (CE-recorded 2026-10-12; ratified by founder G4 verdict SHIP 2026-10-12; M18 TRACEABILITY.md):
   QG-2 WAIVED for v1.0.0 (unmeasured; risk accepted; NOT PASS). QG-4 ACCEPTED, not literal PASS (G4 extends G3 Q1's
   P0/P1/P2 seams to the disclosed `--namespace` CLI seam in cmd/awis/{main,errors,submit}.go). PRD §32
   rows 13/14: TDS-07 governs; PRD wording corrected (AWIS_PRD.md), implementation unchanged →
   SATISFIED BY AMENDMENT. Row 41: PARTIAL accepted (outputs via --json --full). NFR-P-03 stays UNMEASURABLE. Prior
-  exceptions (37/40/44; 5/28/32) carried forward. §32: 52 SAT (2 by amendment) / 2 NOT / 2 PARTIAL / 3 UNMEAS — proposed as an
+  exceptions (37/40/44; 5/28/32) carried forward. §32: 52 SAT (2 by amendment) / 2 NOT / 2 PARTIAL / 3 UNMEAS — founder
   exception to PRD §32 "all Must Have criteria must pass".
   Pre-ruling CI at PR head 883925a green: push 38156031710 + pull_request 38156060642.
 D-CLOSE (Opus CE in Fable's role per MODEL-DIRECTIVE, 2026-10-11): semantic review PASS, no
   architectural drift (TRACEABILITY.md). V1r PASS @b78ae44; CI 38155115251 green both legs.
 BACKLOG (non-blocking): M18-B1 release-note bookkeeping noise; M18-B2 one unreproduced
   SQLITE_BUSY on first `awis submit` after `awis start` (CE repro 0/50); M18-B3 QG-2
-  human-subject measurement post-release (proposed G4 waiver, pending founder verdict); M18-B4 `awis trace`
+  human-subject measurement post-release (G4 waiver, founder verdict 2026-10-12); M18-B4 `awis trace`
   human view lacks step outputs + CLI_CONTRACT `--full` inconsistency (row 41 PARTIAL accepted;
   clarify/fix post-release); M18-B5 `TestDeliverSignal_CrashPreCommit` (C5) no longer crashes
   inside the B3 transaction — add mid-transaction fault injection (Loop A); M18-B6 global
   `--namespace` ignored by signal/cancel/status/trace despite TDS-07 §4 (CLI_CONTRACT.md:157-162).
+FOLLOW-UP ACCEPTANCE (M18, post-v1.0.0; IDs as in BACKLOG above):
+  M18-B3 QG-2 — one developer who has not read AWIS docs reads `awis trace` for a completed and a
+    failed instance and correctly states step order, per-step status and the failing step;
+    result recorded as the QG-2 measurement (PASS/FAIL) in this ledger. Until then QG-2 = WAIVED, NOT PASS.
+  M18-B4 row 41 — founder picks the human-view format for step outputs; CLI_CONTRACT.md `--full`
+    text, the TDS-07 §4 sample and cmd/awis/trace.go agree; a golden test covers outputs in the
+    human view; PRD §32 row 41 re-measured.
+  M18-B5 crash coverage — a test kills the process while the DeliverSignal (B3) transaction is open,
+    between its writes, and asserts after reopen: delivered_at=NULL and no SignalReceived event;
+    the test is shown to FAIL against a deliberately non-atomic variant.
+  M18-B6 `--namespace` — signal/cancel/status/trace honour the global flag with one test per
+    command, OR TDS-07 §4 is amended through CONTRA (founder); until then the flag is not
+    TDS-07-compliant for those four commands.
+  NFR-P-03 — stays UNMEASURABLE (DEC-8/U-9: no Anthropic credential); measure when one exists.
+  PRD §32 rows 37/44 (D-13, DEC-11), 40 (D-14, DEC-11), 5/28/32 (DEC-4/DEC-8): unchanged exceptions.
 CI-EVIDENCE-2: run 38154745869 @1043b9a (contains C5 29cb521) — ubuntu ✓, macos ✓, docs-lint ✓.
 V1-RESULT (2026-10-11, @4092406): FAIL. Reproduced independently: all 9 NFR rows (3 runs, verdicts
   MATCH), QG-1 (linux 249ms completed; macOS real-CI cmd/awis ok 42.292s), QG-5, make verify/
