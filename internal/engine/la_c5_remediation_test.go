@@ -48,6 +48,10 @@ type c5Outcome struct {
 	calls  map[string]int32 // step handler id → Execute count
 	undos  string           // undo invocations, in order (filled by the caller)
 	errs   int              // tick errors observed (trip ticks and drive ticks)
+	// atTrip is the event stream and projected Variables right after the faulted tick,
+	// before any restart or drive tick (nil when the run had no fault).
+	atTrip   []core.ExecutionEvent
+	tripVars map[string]any
 }
 
 // c5Run drives def to a terminal status like laDrive, with maxPar parallel steps. A
@@ -66,6 +70,12 @@ func c5Run(t *testing.T, def core.WorkflowDefinition, maxPar int, ft *laFault, r
 		fs.arm(*ft)
 		errs = laTickUntilTripped(t, e, fs)
 		laWantInjected(t, errs)
+	}
+	var atTrip []core.ExecutionEvent
+	var tripVars map[string]any
+	if ft != nil {
+		atTrip = laEvents(t, s, iid)
+		tripVars = laInstance(t, s, iid).Variables
 		if restart {
 			e = laEngine(fs, clk, ids, maxPar, handlers...)
 		}
@@ -73,12 +83,14 @@ func c5Run(t *testing.T, def core.WorkflowDefinition, maxPar int, ft *laFault, r
 	_, more := laTickUntil(t, e, s, iid, laK, laIsTerminal)
 	errs = append(errs, more...)
 	out := c5Outcome{
-		s:      s,
-		iid:    iid,
-		status: laInstance(t, s, iid).Status,
-		evs:    laEvents(t, s, iid),
-		calls:  map[string]int32{},
-		errs:   len(errs),
+		s:        s,
+		iid:      iid,
+		status:   laInstance(t, s, iid).Status,
+		evs:      laEvents(t, s, iid),
+		calls:    map[string]int32{},
+		errs:     len(errs),
+		atTrip:   atTrip,
+		tripVars: tripVars,
 	}
 	out.pairs, _ = eventPairs(t, s, iid)
 	for _, h := range handlers {
@@ -194,3 +206,137 @@ func TestLA_C5_N1_StalledWorkflowFailedProjectionFailure_NoCompensation(t *testi
 func TestLA_C5_N1_StalledWorkflowFailedProjectionFailure_NoCompensation_AfterRestart(t *testing.T) {
 	c5N1(t, true)
 }
+
+// ── N2 (P2): a committed route-(3) decision stops settling (first terminal decision wins) ──
+//
+// b1 and b2 are dispatched in one tick (MaxParallelSteps=2). b1 fails terminally, so its
+// StepFailed{retrying:false} is durable; then its WorkflowFailed append fails once. The
+// no-fault path (tick.go settle loop; failure.go route 3) stops at b1: b2 is never settled
+// and b1's decision is the only terminal one. Before this fix the settle loop went on to b2
+// after the lost WorkflowFailed, so b2 was settled inside the window: it became the
+// workflow's failure, or it entered Variables and was undone by compensation.
+
+// c5DefFanOutComp is laDefFanOut with a compensation plan over [root, b1, b2].
+func c5DefFanOutComp() core.WorkflowDefinition {
+	def := laDefFanOut()
+	def.Compensation = &core.CompensationPlan{Steps: []core.CompensationStep{
+		{StepID: "root", UndoHandler: "undo-root"},
+		{StepID: "b1", UndoHandler: "undo-b1"},
+		{StepID: "b2", UndoHandler: "undo-b2"},
+	}}
+	return def
+}
+
+// c5FanOutHandlers: b1 always fails (errLAHandler, code handler_error); b2 fails only when
+// b2Fails, and otherwise succeeds. Undo invocations are recorded in u.
+func c5FanOutHandlers(u *c5Undo, b2Fails bool) []core.StepHandler {
+	b2 := &stepHandler{id: "la_b2", outputs: map[string]any{"who": "b2"}}
+	if b2Fails {
+		b2.err = errLAHandler
+	}
+	return []core.StepHandler{
+		&stepHandler{id: "la_root", outputs: map[string]any{}},
+		&stepHandler{id: "la_b1", err: errLAHandler},
+		b2,
+		u.handler("undo-root"), u.handler("undo-b1"), u.handler("undo-b2"),
+	}
+}
+
+// c5RoutingCount counts StepFailed and StepCompleted events for stepID.
+func c5RoutingCount(evs []core.ExecutionEvent, stepID string) int {
+	n := 0
+	for _, ev := range evs {
+		if ev.StepID == stepID && (ev.EventType == core.EventTypeStepFailed || ev.EventType == core.EventTypeStepCompleted) {
+			n++
+		}
+	}
+	return n
+}
+
+// c5CompensatingFrom returns the from_step of every WorkflowCompensating in evs, in order.
+func c5CompensatingFrom(t *testing.T, evs []core.ExecutionEvent) []string {
+	t.Helper()
+	var out []string
+	for _, ev := range evs {
+		if ev.EventType != core.EventTypeWorkflowCompensating {
+			continue
+		}
+		var p workflowCompensatingPayload
+		decodePayload(t, ev, &p)
+		out = append(out, p.FromStep)
+	}
+	return out
+}
+
+func c5N2(t *testing.T, restart, b2Fails bool) {
+	t.Helper()
+	label := laLabel(fmt.Sprintf("LA-C5 N2 route-3 WorkflowFailed append fails (b2_fails=%t)", b2Fails), restart)
+
+	var bu c5Undo
+	base := c5Run(t, c5DefFanOutComp(), 2, nil, false, c5FanOutHandlers(&bu, b2Fails)...)
+	base.undos = bu.calls()
+	if base.errs != 0 {
+		t.Fatalf("%s: no-fault baseline returned %d tick errors", label, base.errs)
+	}
+	// Oracle sanity: the no-fault run ends at b1's decision, with b2 never settled.
+	if got := c5RoutingCount(base.evs, "b2"); got != 0 {
+		t.Fatalf("%s: no-fault baseline settled b2 (%d routing events); the oracle is broken", label, got)
+	}
+
+	var fu c5Undo
+	ft := laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeWorkflowFailed}
+	got := c5Run(t, c5DefFanOutComp(), 2, &ft, restart, c5FanOutHandlers(&fu, b2Fails)...)
+	got.undos = fu.calls()
+
+	// Window: the trip tick (b1's WorkflowFailed append failed). b2 must not be settled, and
+	// the successful-sibling case must not put b2 into the completed set (Variables).
+	if n := c5RoutingCount(got.atTrip, "b2"); n != 0 {
+		t.Errorf("%s: %d StepFailed/StepCompleted event(s) for b2 in the trip tick; b1's committed route-3 decision must stop settling", label, n)
+	}
+	if _, ok := got.tripVars["b2"]; ok {
+		t.Errorf("%s: b2 entered Variables during the window (its StepCompleted was settled after b1's terminal decision)", label)
+	}
+
+	// Final: exactly one WorkflowFailed, attributed to b1 with b1's error code.
+	wfs := laWorkflowFailedPayloads(t, got.evs)
+	if len(wfs) != 1 || wfs[0].StepID != "b1" || wfs[0].Error.Code != "handler_error" {
+		t.Errorf("%s: WorkflowFailed payloads=%+v; want exactly one {step_id:b1, code:handler_error}", label, wfs)
+	}
+	if from := c5CompensatingFrom(t, got.evs); fmt.Sprint(from) != "[b1]" {
+		t.Errorf("%s: WorkflowCompensating from_step=%v; want [b1]", label, from)
+	}
+	if n := c5RoutingCount(got.evs, "b2"); n != c5RoutingCount(base.evs, "b2") {
+		t.Errorf("%s: b2 routing events=%d; the no-fault run has %d", label, n, c5RoutingCount(base.evs, "b2"))
+	}
+	if got.status != base.status {
+		t.Errorf("%s: status=%s; the no-fault run ends %s", label, got.status, base.status)
+	}
+	laDiffPairs(t, label, base.pairs, got.pairs)
+	c5DiffCalls(t, label, base.calls, got.calls)
+	if got.undos != base.undos {
+		t.Errorf("%s: undo invocations=%q; the no-fault run undoes %q", label, got.undos, base.undos)
+	}
+}
+
+// (a) The reported sequence: b1 and b2 both fail; the WorkflowFailed(b1) append fails once.
+func TestLA_C5_N2_Route3WorkflowFailedAppendFails_StopsSettling(t *testing.T) {
+	c5N2(t, false, true)
+}
+
+func TestLA_C5_N2_Route3WorkflowFailedAppendFails_StopsSettling_AfterRestart(t *testing.T) {
+	c5N2(t, true, true)
+}
+
+// (b) Hypothesis (review item): a SUCCESSFUL sibling b2 in the same batch must not enter the
+// completed set during the window and must not be undone during compensation.
+func TestLA_C5_N2b_SuccessfulSiblingNotCompletedInWindow(t *testing.T) {
+	c5N2(t, false, false)
+}
+
+func TestLA_C5_N2b_SuccessfulSiblingNotCompletedInWindow_AfterRestart(t *testing.T) {
+	c5N2(t, true, false)
+}
+
+// (c) A NON-terminal settle error still settles the sibling: pinned by
+// TestLA_C4b_SettleFailureDoesNotAbandonDispatchedSibling (la_settle_serial_test.go), which
+// runs in the same package and must stay green after this fix.

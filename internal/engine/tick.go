@@ -328,15 +328,18 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 	// recorded and the loop CONTINUES with i+1..n; the errors are joined and returned
 	// after the loop, so Tick still resets recovery (F1).
 	//
-	// Terminal stop: once the workflow has a durable terminal event, no further item
-	// is settled and no event is appended after it. The stop is taken when (a)
-	// settleFailure reports terminal, or (b) a settle error occurred and the EventLog
-	// already holds a terminal workflow event (durableTerminal). Case (b) is needed
-	// because emit appends before it projects, and routeTerminalFailure can fail
-	// after WorkflowFailed is durable (projection or maybeCompensate), so an error
-	// does not by itself prove the workflow is still running. Items after the stop
-	// keep their StepStarted and are not settled in this tick; settling after a
-	// terminal event is not permitted (LA-C4a hydrate fence covers the recovery side).
+	// Terminal stop (LA-C5 N2: the first committed terminal decision wins). Once the
+	// workflow has a committed terminal decision, no further item is settled and no
+	// event is appended after it. The stop is taken when (a) settleFailure reports
+	// terminal. routeTerminalFailure reports terminal=true for every outcome once its
+	// StepFailed{retrying:false} is durable (route 3), so a failed WorkflowFailed
+	// append, a projection fault or a failed compensation stops the loop WITH its
+	// error. Or (b) a settle error occurred and the EventLog already holds a terminal
+	// workflow event (durableTerminal): a defence-in-depth guard for a non-terminal
+	// return. No settle path appends a workflow-terminal event and then reports
+	// terminal=false. Items after the stop keep their StepStarted and are not settled
+	// in this tick. The next tick's hydrate completes the committed route (LA-C3
+	// completeCommittedRoutes), and the LA-C4a fence covers the post-terminal side.
 	var settleErrs []error
 	stopped := false
 	for i := range items {
@@ -557,8 +560,10 @@ func (e *Engine) settleSuccess(ctx context.Context, inst core.WorkflowInstance, 
 // event (WorkflowCompleted, WorkflowFailed or WorkflowCancelled). It reads the log,
 // not the projection: emit appends the event before it projects, so a projection
 // failure can leave the terminal event durable while the instance still reads as
-// running. LA-C4b F-S: used only on a settle error, to decide whether settling may
-// continue; a read error is returned so the caller can stop (see processInstance).
+// running. LA-C4b F-S: used only on a NON-terminal settle error, to decide whether
+// settling may continue; a read error is returned so the caller can stop (see
+// processInstance). LA-C5 N2: a route-3 error after a durable StepFailed already
+// reports terminal=true, so this check guards non-terminal returns only.
 func (e *Engine) durableTerminal(ctx context.Context, iid core.InstanceID) (bool, error) {
 	evs, err := e.storage.ReadEvents(ctx, iid, 0)
 	if err != nil {

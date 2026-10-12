@@ -329,8 +329,10 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 
 	// LA-C3, EDR-011 §8: complete the terminal routes already made durable by
 	// StepFailed{retrying:false}, BEFORE RC-1. A committed terminal decision precedes
-	// in-flight recovery: in the live path a route-(3) failure stops the serial
-	// settle, so a stranded StepStarted in the same tick is never settled after it.
+	// in-flight recovery: in the live path a route-(3) failure stops the serial settle
+	// as soon as its StepFailed{retrying:false} is durable (LA-C5 N2; failure.go
+	// routeTerminalFailure, tick.go settle loop), so a stranded StepStarted in the same
+	// tick is never settled after it.
 	cands := make([]committedFailure, 0, len(failedSteps))
 	for stepID := range failedSteps {
 		lf := last[stepID]

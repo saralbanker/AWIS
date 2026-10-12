@@ -213,9 +213,16 @@ func (e *Engine) routeTerminalFailure(ctx context.Context, dv *defView, inst cor
 	if err := e.emitStepFailed(ctx, inst, step.ID, attempt, stepErr, false); err != nil {
 		return false, err
 	}
+	// LA-C5 N2: once StepFailed{retrying:false} is durable the terminal decision is committed
+	// (first terminal decision wins, EDR-011 §8; hydrate.go completeCommittedRoutes). Every error
+	// from here on is returned WITH terminal=true, so the settle loop (tick.go) stops and no
+	// sibling is settled after this step's decision. A lost WorkflowFailed append is completed by
+	// the next tick's hydrate (LA-C3 route completion); a lost WorkflowCompensating append is
+	// completed by the owed-compensation rule (LA-C4a). A failure after a durable
+	// WorkflowCompensating is LA-D1 (open) and is not decided here.
 	e.markFailed(inst.InstanceID, step.ID) // B-4: never re-activate step.ID.
 	if err := e.emitWorkflowFailed(ctx, inst, step.ID, stepErr); err != nil {
-		return false, err
+		return true, err
 	}
 	e.log().Info("settle", "instance_id", string(inst.InstanceID), "step_id", step.ID, "outcome", "failed")
 	if err := e.maybeCompensate(ctx, dv, inst, step.ID); err != nil {
