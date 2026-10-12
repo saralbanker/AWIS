@@ -136,14 +136,18 @@ func (e *Engine) enterWait(ctx context.Context, inst core.WorkflowInstance, step
 		TimeoutAt:     timeoutAt, // absolute RFC3339; NULL when no Timeout (Blueprint §9 L1410)
 		TimeoutAction: wc.TimeoutAction,
 	}
+	// LA-C1 F3 (L4b): a duplicate wait_record does not prove the projection reached
+	// `waiting`. The wait_record is written BEFORE the running→waiting UpsertInstance
+	// below, so a failed Upsert leaves a durable wait_record while the instance is
+	// still `running`; B3 step 3's status='waiting' guard would then reject every
+	// later delivery forever. Such a re-entry completes the transition (below); only
+	// an instance already `waiting` keeps the idempotent no-op.
+	duplicate := false
 	if err := store.CreateWaitRecord(ctx, wr); err != nil {
-		if errors.Is(err, storage.ErrDuplicateWaitRecord) {
-			// Already waiting on this step (idempotent re-entry): re-record the
-			// in-memory wait and return without re-transitioning the projection.
-			e.rememberWait(inst.InstanceID, wc.SignalName, step.ID)
-			return nil
+		if !errors.Is(err, storage.ErrDuplicateWaitRecord) {
+			return fmt.Errorf("engine: enterWait create wait_record %s/%s: %w", inst.InstanceID, step.ID, err)
 		}
-		return fmt.Errorf("engine: enterWait create wait_record %s/%s: %w", inst.InstanceID, step.ID, err)
+		duplicate = true
 	}
 
 	// Transition the projection running→waiting. This is a non-evented projection
@@ -157,6 +161,12 @@ func (e *Engine) enterWait(ctx context.Context, inst core.WorkflowInstance, step
 	cur, found, err := e.getInstance(ctx, inst.InstanceID)
 	if err != nil {
 		return err
+	}
+	if duplicate && (!found || cur.Status != core.InstanceStatusRunning) {
+		// Already waiting on this step (idempotent re-entry): re-record the
+		// in-memory wait and return without re-transitioning the projection.
+		e.rememberWait(inst.InstanceID, wc.SignalName, step.ID)
+		return nil
 	}
 	if !found {
 		return fmt.Errorf("engine: enterWait: instance %s vanished", inst.InstanceID)
@@ -290,11 +300,22 @@ func (e *Engine) clearWait(iid core.InstanceID, signalName string) {
 // semantics-bearing: wait_record deleted on step completion (OUTPUT 0); an
 // open wait_record after delivery would misfire the timeout scan. attempt=1
 // always: a signal step enters wait on its first (only) activation.
-func (e *Engine) CompleteStep(ctx context.Context, iid core.InstanceID, stepID string, payload map[string]any) error {
+func (e *Engine) CompleteStep(ctx context.Context, iid core.InstanceID, stepID string, payload map[string]any) (err error) {
+	// LA-C1 F1 (L5): CompleteStep runs from SIGNAL_SCAN, outside processInstance, so
+	// Tick's reset does not cover a failure here. On any error, reset this instance's
+	// recovery bookkeeping so the next tick re-hydrates it and RC-1 completes the
+	// already-delivered step from its SignalReceived event (F3a). No dispatch for iid
+	// is in flight: SIGNAL_SCAN runs serially in Tick after the SCAN_RUNNABLE loop has
+	// joined its dispatch goroutines.
+	defer func() {
+		if err != nil {
+			e.resetInstanceRecovery(iid)
+		}
+	}()
 	// Delete wait_record first: the step is done; the timeout scan must not re-fire.
 	if ds, ok := e.storage.(signalWaitDeleteStore); ok {
-		if err := ds.DeleteWaitRecord(ctx, iid, stepID); err != nil {
-			return fmt.Errorf("engine: CompleteStep delete wait_record %s/%s: %w", iid, stepID, err)
+		if derr := ds.DeleteWaitRecord(ctx, iid, stepID); derr != nil {
+			return fmt.Errorf("engine: CompleteStep delete wait_record %s/%s: %w", iid, stepID, derr)
 		}
 	}
 	// Read the current instance state (after B3 resume: status=running).

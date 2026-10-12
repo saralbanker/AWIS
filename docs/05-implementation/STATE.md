@@ -522,3 +522,88 @@ SOURCES COMPILED: IMP §27.M18, §20-21, §23 (G4), §25 (CONTRA-2, F-6), §26, 
   DEC-4 disposition, open non-blocking defects D-13/D-16/D-18/D-19, NFR-P-03 credential gap).
 NEXT (after B-BUILD/C-VERIFY): D-CLOSE semantic review (Fable) → G4 human verdict → `v1.0.0`
   tag → E-MERGE.
+
+# ── LOOP A — Engine correctness under failure (opened 2026-10-12) ─────────────────
+LOOP: A (bounded engine confidence; founder-authorized 2026-10-12 after v1.0.0)
+BRANCH: loop-a-engine-confidence (from tag v1.0.0 = d6fe341; v1.0.0 tag untouched)
+PHASE: FOUNDER REVIEW (PR open; NOT merged; one founder decision open — LA-D1 below)
+MODEL: Opus 5.5 CE (orchestration, rulings, review) + Haiku 5.5 executors (all code/tests), per the
+  founder MODEL-DIRECTIVE recorded in the M18 section.
+CARDS (sha on loop-a-engine-confidence):
+  LA-B5        a98e010  mid-transaction crash injection for DeliverSignal (M18-B5)
+  LA-P1-REPRO  bd6f58a  failing reproducers L1-L6 (stranded StepStarted)
+  LA-P2-REPRO  8ea1bdd  failing reproducers S1-S4 (shutdown / cancel with in-flight work)
+  LA-C1        417a6a2  fix L1-L6 (in-process RC-1 re-arm; partial-dispatch; signal-step recovery)
+  LA-P3-BUSY   271325c  env-gated SQLITE_BUSY experiment (M18-B2), LA_BUSY_EXPERIMENT=1
+  LA-C2        8f2ce15  fix shutdown drain (FR-RM-04)
+  LA-C3        78c02ca  fix L7/L8 (committed terminal routing completed on recovery); L9 gated reproducers
+REPAIRED (each: deterministic reproducer FAILED pre-fix, PASSES post-fix; adjacent suites green):
+  L1/L3/L6 P1 — one transient AppendEvent failure (StepCompleted / StepFailed / RC-1's own StepFailed)
+    left the instance `running` with a StepStarted no in-process path settled, until restart
+    (RC-1 ran once per process: hydrate.go e.hydrated). Contract: Run "a transient storage error must
+    not kill the engine" (tick.go); RC-1/B-0 restart semantics (7231199). Fix LA-C1 F1: on a failed
+    processInstance/CompleteStep the instance's recovery bookkeeping is reset so RC-1 re-runs next tick
+    (in-process recovery == restart recovery, worker_crash for non-signal steps).
+  L2 P1 — a later item's claim/StepStarted/enterWait failure stranded earlier StepStarted items (never
+    dispatched; after restart failed worker_crash though never run). Fix LA-C1 F2: already-started items
+    are dispatched and settled, then the error is returned.
+  L4a/L4b/L5 P1 — signal steps: a failed CreateWaitRecord / running→waiting write / post-delivery
+    StepCompleted wedged the instance; after restart RC-1 failed the step worker_crash even when its
+    signal was durably delivered (B3: SignalReceived ⇔ delivered; M07-C3r OUTPUT 0). Fix LA-C1 F3:
+    RC-1 completes a signal step from a SignalReceived after its StepStarted, else re-enters the wait
+    (duplicate wait_record no longer skips the running→waiting transition).
+  SHUTDOWN P1 — SIGTERM/ctx cancel aborted the in-flight step (native runner returned timeout) and every
+    settle write failed "context canceled"; after restart the step failed worker_crash. Contract:
+    PRD FR-RM-04; TDS-07 §SIGTERM ("engine tick completes in-flight step → graceful drain"). Fix LA-C2:
+    Run executes ticks on context.WithoutCancel; once stop is requested no trigger scan, no new
+    claim/StepStarted/retry, no signal scans; public Engine.Tick semantics unchanged (S7 pins them).
+  L7 P1 — StepFallbackActivated append failure after a committed StepFailed{retrying:false}: fallback
+    never activated; instance failed "stalled". L8 P1 — WorkflowFailed append failure: instance failed
+    "stalled" with NO compensation. Contract: EDR-011 §8 routing. Fix LA-C3: recovery completes the
+    durably committed route; route decided from static structure only (Fallback → (1); no on_error
+    transition at all → (3)); skipped when cancellation requested, code "cancelled" (cancel.go:94,191)
+    or "signal_timeout" (signal_timeout.go:103).
+M18-B5: acceptance criteria MET on this branch (LA-B5): SQLite triggers + app-defined crash_point()
+  SIGKILL the child inside the B3 tx (after_guard, after_append, before_commit; child proves the point
+  via "AT <stage>"); after reopen delivered_at NULL + 0 SignalReceived + status waiting; recovery
+  delivers once, redelivery no-op; post-commit control; non-atomic variant detected at after_append /
+  before_commit (meta-test in CI; temporary deliver.go mutation FAILED at test line 659). No production
+  change. Closes on founder merge.
+M18-B2: NOT REPRODUCED on the reported path (E5 CLI init→start→submit 0/100; existing-DB holder /
+  checkpoint contention 0 failures). Adjacent finding LA-B2a (P3): concurrent first open of a
+  NON-EXISTENT DB file → SQLITE_BUSY on `PRAGMA journal_mode=WAL` (124/400 child runs) and migration
+  races (14/400); loser exits with a clean error; per-migration tx (migrate.go:102-122) keeps the
+  schema consistent. No retry machinery added (no contract violation evidenced).
+PRIORITY 4 (cross-instance progress): serial tick / per-instance wg.Wait is the specified design
+  (Blueprint §Concurrency Model "single goroutine dispatcher"; FR-SE-15 max_parallel is a ceiling);
+  bounded per step by its timeout (native default 30s). Accepted limitation, no change.
+RELEASE EXCEPTIONS: unchanged. PRD §32 row 5 stays UNMEASURABLE at the CLI level (no `awis stop`
+  system test); LA-C2 adds engine-level evidence only (TestLA_Shutdown_S1-S3, S6).
+FOUNDER DECISIONS OPEN:
+  LA-D1 (L9, confirmed, P1 wedge class) — compensation-bracket append failure. L9a: WorkflowCompensating
+    append fails → instance `failed`, undo never runs, nothing recovers (Tick scans only running).
+    L9b: WorkflowCompensated append fails after all undos ran → stuck `compensating` forever, also after
+    restart. Undo actions emit no events (EDR-011 §5, 12 frozen event types), so the EventLog cannot say
+    which undos ran: any recovery must either re-run undos (at-least-once undo) or assume completion —
+    new semantics / frozen-format gap (E3-grade). Reproducers committed, gated (LA_DEFERRED=1, FAIL).
+    Acceptance: founder picks the semantics (or CONTRA on the event set); then a recovery stage for
+    failed/compensating instances with tests that FAIL today under LA_DEFERRED=1.
+  LA-Q1 — a successful handler whose StepCompleted append failed is recovered as worker_crash (RC-1);
+    recovering it from the idempotency cache would be new semantics. Acceptance: founder ruling; if
+    adopted, L1 tests flipped to assert StepCompleted with the cached outputs.
+BACKLOG (non-blocking, with acceptance):
+  LA-R1 (P2, pre-existing) hydrate re-evaluates on_error conditions against the recovery-time env for
+    pending targets; a condition whose truth changed since settle can activate/skip a different target.
+    Acceptance: a test with a condition flipped between settle and recovery documents the chosen rule.
+  LA-R2 (P2, pre-existing) subprocess runner has no default timeout (subprocess.go:77 applies only
+    step.timeout): a hung subprocess freezes the serial tick and, since LA-C2, defers shutdown past
+    `awis stop`'s 10s (kill -9 = crash path). Acceptance: founder picks a default (as native's 30s) or
+    documents unbounded; test asserting the bound.
+  LA-R3 (P3) LA-C2 residual window: a stop arriving between the processInstance stop check and the first
+    claim still dispatches that tick's gathered items; they are drained and settled, never stranded.
+  LA-B2a (P3) see M18-B2 above. Acceptance: decide whether first-open concurrency must succeed; if so a
+    deterministic two-opener test passes 200/200.
+EVIDENCE (local, at 78c02ca): `make verify` ALL GATES PASSED; all TestLA_* -count=20 PASS; storage
+  MidTx|DeliverSignal -count=20 PASS; -race engine+storage -count=2 PASS. Real CI: recorded on the PR.
+NEXT: independent review + real CI on the PR → founder review; founder rules LA-D1 / LA-Q1; merge is
+  founder-only (EEOS rule 6). No further loop started.

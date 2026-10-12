@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/awis/awis/internal/core"
@@ -28,6 +29,8 @@ import (
 // durable event stream. It is called from processInstance right after
 // defViewFor succeeds and before the cancellation gate. The warm path
 // (already hydrated) is a single locked map lookup and an immediate return.
+// LA-C1 F1: resetInstanceRecovery re-arms hydration for an instance after a failed
+// processInstance or CompleteStep, so RC-1 runs again in this same process.
 func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowInstance) error {
 	e.mu.Lock()
 	already := e.hydrated[inst.InstanceID]
@@ -55,20 +58,48 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 		retrying  bool
 		attempt   int
 		emittedAt time.Time
+		seq       int            // LA-C3: sequence_num of this StepFailed (commit order)
+		err       core.StepError // LA-C3: this StepFailed's payload error
 	}
 	last := make(map[string]lastFailure)
 	relevant := make(map[string]core.EventType)
 	startedAttempts := make(map[string]int)
+	// startedSeq is the sequence_num of each step's LATEST StepStarted (LA-C1 F3:
+	// a delivery counts only if it is later than the activation it resumes).
+	startedSeq := make(map[string]int)
 	var fallbackTargets []string
+	// LA-C3: fallbackAfter[step] is true when a StepFallbackActivated for step follows
+	// that step's latest StepFailed; workflowFailed is true when any WorkflowFailed is
+	// durable (the instance is then terminal, whatever its projected status says).
+	fallbackAfter := make(map[string]bool)
+	workflowFailed := false
+	// LA-C4a F-P: the latest StepStarted/StepCompleted/StepFailed event per step, kept
+	// whole so a projection catch-up re-applies it verbatim.
+	latest := make(map[string]core.ExecutionEvent)
+	// LA-C4a F-T: the last workflow-lifecycle event of the terminal class (see
+	// workflowTerminalClass); nil when the log has none.
+	var lastTerm *core.ExecutionEvent
+	// LA-C4a F-T: whether the log holds any WorkflowCompensating (the compensation bracket
+	// was opened). An owed compensation needs none (see the terminal fence below).
+	sawCompensating := false
 
 	for _, ev := range evs {
+		if workflowTerminalClass(ev.EventType) {
+			evCopy := ev
+			lastTerm = &evCopy
+		}
+		if ev.EventType == core.EventTypeWorkflowCompensating {
+			sawCompensating = true
+		}
 		switch ev.EventType {
 		case core.EventTypeStepStarted:
 			if ev.StepID == "" {
 				continue
 			}
 			relevant[ev.StepID] = ev.EventType
+			latest[ev.StepID] = ev
 			delete(last, ev.StepID)
+			startedSeq[ev.StepID] = ev.SequenceNum
 			var p stepStartedPayload
 			if err := json.Unmarshal(ev.Payload, &p); err == nil {
 				startedAttempts[ev.StepID] = p.Attempt
@@ -79,6 +110,7 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 				continue
 			}
 			relevant[ev.StepID] = ev.EventType
+			latest[ev.StepID] = ev
 			delete(last, ev.StepID)
 			delete(startedAttempts, ev.StepID)
 
@@ -91,8 +123,13 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 				return fmt.Errorf("engine: hydrate decode StepFailed %s/%s: %w", inst.InstanceID, ev.StepID, err)
 			}
 			relevant[ev.StepID] = ev.EventType
-			last[ev.StepID] = lastFailure{retrying: p.Retrying, attempt: p.Attempt, emittedAt: ev.EmittedAt}
+			latest[ev.StepID] = ev
+			last[ev.StepID] = lastFailure{retrying: p.Retrying, attempt: p.Attempt, emittedAt: ev.EmittedAt, seq: ev.SequenceNum, err: p.Error}
 			delete(startedAttempts, ev.StepID)
+			delete(fallbackAfter, ev.StepID) // LA-C3: a newer failure supersedes an older fallback.
+
+		case core.EventTypeWorkflowFailed: // LA-C3
+			workflowFailed = true
 
 		case core.EventTypeStepFallbackActivated:
 			var p stepFallbackActivatedPayload
@@ -102,6 +139,93 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 			if p.FallbackStepID != "" {
 				fallbackTargets = append(fallbackTargets, p.FallbackStepID)
 			}
+			if p.StepID != "" { // LA-C3
+				fallbackAfter[p.StepID] = true
+			}
+		}
+	}
+
+	// ── LA-C4a F-T: terminal fence (EventLog is append-only; P2 / #1, and the
+	// terminal case of #6). A durable workflow-terminal event is the last word for
+	// this instance: nothing may be appended after it. Its projection write may have
+	// failed (the LA-C1 reset re-runs this hydrate), so the projection is re-applied
+	// from the log and hydrate returns WITHOUT RC-1 and WITHOUT committed-route
+	// completion, both of which append. processInstance's re-read right after hydrate
+	// (`if !found || isTerminalStatus(cur.Status) { return nil }`, tick.go) then stops
+	// this instance before any gather.
+	//
+	// Successor rule (compensation.go runCompensation, EDR-011 §6): the only lifecycle
+	// event that may follow WorkflowFailed is the compensation bracket opener
+	// WorkflowCompensating, and only when the definition has a plan and ≥1 step
+	// completed. Compensation-in-progress recovery is LA-D1 (deferred): when the last
+	// terminal-class event is WorkflowCompensating the bracket is open, so nothing new is
+	// done here (the code below continues exactly as before).
+	if lastTerm != nil && lastTerm.EventType != core.EventTypeWorkflowCompensating {
+		if err := e.reprojectTerminal(ctx, inst, *lastTerm); err != nil {
+			return err
+		}
+		// LA-C4a: completes the committed route (3) — compensation owed by a durable
+		// WorkflowFailed (EDR-011 §6). Route (3) is failure.go's emitWorkflowFailed followed by
+		// maybeCompensate; a crash or projection fault between the two leaves the bracket
+		// owed. Only the case with no WorkflowCompensating in the log is owed; maybeCompensate
+		// applies the plan and ≥1-completed-step rule itself.
+		if lastTerm.EventType == core.EventTypeWorkflowFailed && !sawCompensating && dv.def.Compensation != nil {
+			var wf workflowFailedPayload
+			if err := json.Unmarshal(lastTerm.Payload, &wf); err != nil {
+				return fmt.Errorf("engine: hydrate decode WorkflowFailed %s: %w", inst.InstanceID, err)
+			}
+			cur, found, err := e.getInstance(ctx, inst.InstanceID)
+			if err != nil {
+				return err
+			}
+			if found {
+				if err := e.maybeCompensate(ctx, dv, cur, wf.StepID); err != nil {
+					return fmt.Errorf("engine: hydrate owed compensation %s: %w", inst.InstanceID, err)
+				}
+			}
+		}
+		e.mu.Lock()
+		e.hydrated[inst.InstanceID] = true
+		e.mu.Unlock()
+		return nil
+	}
+
+	// ── LA-C4a F-P: settled-step projection catch-up (#6, non-terminal case) ─────
+	// A step still in the projected current_steps whose LATEST relevant event is
+	// StepCompleted, or StepFailed{retrying:false}, has a durable event the projection
+	// did not absorb (its UpsertInstance failed; the LA-C1 reset re-runs this hydrate).
+	// Re-apply exactly that event, in sequence order, before RC-1 and before anything
+	// below reads the projection (completedSet, the committed-route completion).
+	// StepFailed{retrying:true} keeps the step in current_steps by design (project());
+	// a latest StepStarted is RC-1's to settle.
+	var catchUp []core.ExecutionEvent
+	for _, stepID := range inst.CurrentSteps {
+		lev, ok := latest[stepID]
+		if !ok {
+			continue
+		}
+		switch lev.EventType {
+		case core.EventTypeStepCompleted:
+			catchUp = append(catchUp, lev)
+		case core.EventTypeStepFailed:
+			if lf, ok := last[stepID]; ok && !lf.retrying {
+				catchUp = append(catchUp, lev)
+			}
+		}
+	}
+	if len(catchUp) > 0 {
+		sort.Slice(catchUp, func(i, j int) bool { return catchUp[i].SequenceNum < catchUp[j].SequenceNum })
+		for _, ev := range catchUp {
+			if err := e.project(ctx, ev, inst.DefinitionID, inst.DefinitionVersion); err != nil {
+				return fmt.Errorf("engine: hydrate catch up %s %s/%s: %w", ev.EventType, inst.InstanceID, ev.StepID, err)
+			}
+		}
+		cur, found, err := e.getInstance(ctx, inst.InstanceID)
+		if err != nil {
+			return err
+		}
+		if found {
+			inst = cur
 		}
 	}
 
@@ -197,6 +321,67 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 	e.hydrated[inst.InstanceID] = true
 	e.mu.Unlock()
 
+	// LA-C3, EDR-011 §8: complete the terminal routes already made durable by
+	// StepFailed{retrying:false}, BEFORE RC-1. A committed terminal decision precedes
+	// in-flight recovery: in the live path a route-(3) failure stops the serial
+	// settle, so a stranded StepStarted in the same tick is never settled after it.
+	cands := make([]committedFailure, 0, len(failedSteps))
+	for stepID := range failedSteps {
+		lf := last[stepID]
+		cands = append(cands, committedFailure{stepID: stepID, seq: lf.seq, err: lf.err, fallbackDone: fallbackAfter[stepID]})
+	}
+	sort.Slice(cands, func(i, j int) bool { return cands[i].seq < cands[j].seq })
+	// LA-C4a F-C: the cancellation flag is read ONCE here, before RC-1. It gates the
+	// committed-route completion (guard (a)) and selects the stranded-step branch below.
+	flagged, err := e.cancellationRequested(ctx, inst.InstanceID)
+	if err != nil {
+		return err
+	}
+	if err := e.completeCommittedRoutes(ctx, dv, inst, cands, workflowFailed, flagged); err != nil {
+		return fmt.Errorf("engine: hydrate complete committed route %s: %w", inst.InstanceID, err)
+	}
+	if len(cands) > 0 {
+		cur, found, err := e.getInstance(ctx, inst.InstanceID)
+		if err != nil {
+			return err
+		}
+		if found {
+			if isTerminalStatus(cur.Status) {
+				return nil // a completed route ended the workflow; RC-1 must not run.
+			}
+			inst = cur
+		}
+	}
+
+	// LA-C4a F-C (Finalization B4 step 3): once cancellation is requested no step
+	// activates, so RC-1 must neither re-enter a wait (P3) nor route a failure (P7). Each
+	// stranded step (latest StepStarted, still in current_steps) is settled with no routing
+	// by settleStrandedCancelled; the cancellation gate in processInstance (tick.go) then
+	// finalizes once current_steps drains. The RC-1 loop below is reached only when the
+	// flag is clear.
+	if flagged {
+		for _, stepID := range inst.CurrentSteps {
+			if relevant[stepID] != core.EventTypeStepStarted {
+				continue
+			}
+			step, ok := dv.steps[stepID]
+			if !ok {
+				continue
+			}
+			if err := e.settleStrandedCancelled(ctx, inst, step, evs, startedSeq[stepID], startedAttempts[stepID]); err != nil {
+				return fmt.Errorf("engine: hydrate cancel stranded step %s: %w", stepID, err)
+			}
+			cur, found, err := e.getInstance(ctx, inst.InstanceID)
+			if err != nil {
+				return err
+			}
+			if found {
+				inst = cur
+			}
+		}
+		return nil
+	}
+
 	// In-flight crash recovery (RC-1): any step in current_steps whose latest
 	// event is StepStarted was running in a previous worker process that crashed
 	// or was killed before settling. Settle it with worker_crash so it can either
@@ -205,6 +390,22 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 		if relevant[stepID] == core.EventTypeStepStarted {
 			step, ok := dv.steps[stepID]
 			if !ok {
+				continue
+			}
+			// LA-C1 F3: a signal step is never worker_crash. Its only completion path
+			// is the wait, so RC-1 either completes it from a durable delivery or
+			// re-enters the wait (recoverSignalStep). Non-signal steps are unchanged.
+			if step.Type == core.StepTypeSignal {
+				if err := e.recoverSignalStep(ctx, inst, step, evs, startedSeq[stepID]); err != nil {
+					return fmt.Errorf("engine: hydrate recover signal step %s: %w", stepID, err)
+				}
+				cur, found, err := e.getInstance(ctx, inst.InstanceID)
+				if err != nil {
+					return err
+				}
+				if found {
+					inst = cur
+				}
 				continue
 			}
 			attempt := startedAttempts[stepID]
@@ -229,4 +430,308 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 	}
 
 	return nil
+}
+
+// workflowTerminalClass reports whether et is a workflow-lifecycle event that ends the
+// instance (the five terminal statuses) or opens the compensation bracket
+// (WorkflowCompensating; compensation.go runCompensation). LA-C4a F-T consults only the
+// last such event in the log.
+func workflowTerminalClass(et core.EventType) bool {
+	switch et {
+	case core.EventTypeWorkflowCompleted, core.EventTypeWorkflowFailed,
+		core.EventTypeWorkflowCancelled, core.EventTypeWorkflowCompensating,
+		core.EventTypeWorkflowCompensated, core.EventTypeWorkflowCompensationFailed:
+		return true
+	}
+	return false
+}
+
+// reprojectTerminal re-applies the durable workflow-terminal event ev to the projection
+// when the projection still reads non-terminal (LA-C4a F-T; P2 / #1, #6-terminal). Its
+// failure is returned, so the LA-C1 reset retries it on the next tick; it is never
+// swallowed and RC-1 never runs in its place. No-op when the projection is already
+// terminal or the row is absent.
+func (e *Engine) reprojectTerminal(ctx context.Context, inst core.WorkflowInstance, ev core.ExecutionEvent) error {
+	cur, found, err := e.getInstance(ctx, inst.InstanceID)
+	if err != nil {
+		return err
+	}
+	if !found || isTerminalStatus(cur.Status) {
+		return nil
+	}
+	if err := e.project(ctx, ev, inst.DefinitionID, inst.DefinitionVersion); err != nil {
+		return fmt.Errorf("engine: hydrate re-project %s %s: %w", ev.EventType, inst.InstanceID, err)
+	}
+	return nil
+}
+
+// settleStrandedCancelled settles one stranded StepStarted while cancellation is
+// requested (LA-C4a F-C; Finalization B4 step 3). It never re-enters a wait and never
+// routes: no fallback, no on_error, no WorkflowFailed.
+//
+//   - signal step: a SignalReceived after its latest StepStarted completes it through
+//     CompleteStep (completing an in-flight step is not an activation). Otherwise its
+//     wait_record is deleted and StepFailed{code:"cancelled", retrying:false} is emitted
+//     with cancel.go's waiting-step message (cancel.go:92).
+//   - non-signal step: StepFailed{code:"worker_crash", retrying:false} with RC-1's message,
+//     and nothing else (no routeTerminalFailure).
+//
+// Both failure paths markFailed the step so it is never re-activated (B-4).
+func (e *Engine) settleStrandedCancelled(ctx context.Context, inst core.WorkflowInstance, step core.Step, evs []core.ExecutionEvent, startedSeq, startedAttempt int) error {
+	iid := inst.InstanceID
+	if step.Type == core.StepTypeSignal {
+		if step.WaitSignal != nil {
+			payload, delivered, err := signalDeliveredAfter(evs, step.WaitSignal.SignalName, startedSeq)
+			if err != nil {
+				return err
+			}
+			if delivered {
+				return e.CompleteStep(ctx, iid, step.ID, payload)
+			}
+		}
+		if ds, ok := e.storage.(signalWaitDeleteStore); ok {
+			if err := ds.DeleteWaitRecord(ctx, iid, step.ID); err != nil {
+				return fmt.Errorf("engine: cancel stranded wait_record %s/%s: %w", iid, step.ID, err)
+			}
+		}
+		serr := core.StepError{Code: "cancelled", Message: "step cancelled while waiting for signal"}
+		if err := e.emitStepFailed(ctx, inst, step.ID, 1, serr, false); err != nil {
+			return err
+		}
+		e.markFailed(iid, step.ID)
+		e.log().Info("settle", "instance_id", string(iid), "step_id", step.ID, "outcome", "cancelled")
+		return nil
+	}
+	attempt := startedAttempt
+	if attempt <= 0 {
+		attempt = 1
+	}
+	serr := core.StepError{Code: "worker_crash", Message: "worker process crashed while step was in-flight"}
+	if err := e.emitStepFailed(ctx, inst, step.ID, attempt, serr, false); err != nil {
+		return err
+	}
+	e.markFailed(iid, step.ID)
+	e.log().Info("settle", "instance_id", string(iid), "step_id", step.ID, "outcome", "cancelled")
+	return nil
+}
+
+// committedFailure is one terminally-failed step, as hydrate reconstructs it for
+// LA-C3 route completion: StepFailed{retrying:false} is its latest relevant event.
+type committedFailure struct {
+	stepID       string
+	seq          int            // sequence_num of the latest StepFailed (commit order)
+	err          core.StepError // the latest StepFailed payload's error
+	fallbackDone bool           // a StepFallbackActivated(stepID) follows that StepFailed
+}
+
+// completeCommittedRoutes completes, after a transient append failure, the terminal
+// routing that StepFailed{retrying:false} already made durable (LA-C3, L7/L8).
+// routeTerminalFailure emits the follow-on event right after StepFailed; when that
+// append failed, the route was lost and the instance stalled into SEC-08. cands is in
+// commit order, so the earliest committed decision is completed first.
+//
+//   - route (1), Fallback set: when no StepFallbackActivated follows the StepFailed,
+//     emit it (same helper and payload as routeTerminalFailure) and mark the fallback
+//     pending.
+//   - route (2), or any step with an on_error transition: never completed here (static
+//     classification, below); the pending block in hydrate re-derives those targets.
+//   - route (3): WorkflowFailed carrying the step's id and error, then maybeCompensate,
+//     exactly as routeTerminalFailure does. The instance is terminal afterwards, so no
+//     later candidate is applied.
+//
+// Route classification uses ONLY static definition structure (CE ruling LA-C3 round 2):
+// route (1) iff step.Fallback != ""; route (3) only for a step with no Fallback and NO
+// on_error transition at all, conditional or not. A condition-dependent route is never
+// decided here. LA-C3: route decided from static structure only; a condition-dependent
+// route is not reconstructable from the EventLog (residual R-1, pre-existing).
+//
+// Guards (CE ruling LA-C3, binding; all applied, belt and braces). None of these
+// StepFailed rows carries a routing decision, so no route is completed for them:
+//   - (a) cancellationRequested: the instance is cancel-requested; the B4 cancellation
+//     gate owns it (Finalization B4 step 3; cancel.go:92,190).
+//   - (b) the step's latest StepFailed code is "cancelled": cancel.go:92,190 emit it
+//     with no routing decision (Finalization B4 step 3).
+//   - (c) the step's latest StepFailed code is "signal_timeout": signal_timeout.go:58-60
+//     deletes the wait_record before routing, and the compensate action (lines 95-114)
+//     skips fallback and on_error. The timeout action is not durable after expiry, so
+//     recovery cannot reconstruct which route was decided.
+//
+// Also: no WorkflowFailed may be durable. A WorkflowFailed event is checked directly,
+// not only through the projected status, because emit appends before it projects.
+//
+// flagged is the instance's cancellation flag, read once by hydrate (LA-C4a F-C).
+func (e *Engine) completeCommittedRoutes(ctx context.Context, dv *defView, inst core.WorkflowInstance, cands []committedFailure, workflowFailed, flagged bool) error {
+	if len(cands) == 0 || workflowFailed {
+		return nil
+	}
+	if flagged {
+		return nil // guard (a): B4 cancellation gate owns a cancel-requested instance.
+	}
+	cur, found, err := e.getInstance(ctx, inst.InstanceID)
+	if err != nil {
+		return err
+	}
+	if !found || isTerminalStatus(cur.Status) {
+		return nil
+	}
+	for _, c := range cands {
+		if c.err.Code == "cancelled" {
+			continue // guard (b): cancel.go:92,190 emit this code with no routing decision.
+		}
+		if c.err.Code == "signal_timeout" {
+			continue // guard (c): signal_timeout.go:58-60,95-114; the action is not durable.
+		}
+		step, ok := dv.steps[c.stepID]
+		if !ok {
+			continue
+		}
+		switch {
+		case step.Fallback != "": // route (1)
+			if c.fallbackDone {
+				continue
+			}
+			if err := e.emitStepFallbackActivated(ctx, cur, c.stepID, step.Fallback, c.err.Code); err != nil {
+				return err
+			}
+			e.addPending(cur.InstanceID, step.Fallback)
+			e.log().Info("settle", "instance_id", string(cur.InstanceID), "step_id", c.stepID, "outcome", "fallback")
+		case hasOnErrorTransition(dv, c.stepID):
+			// LA-C3: route decided from static structure only; a condition-dependent route
+			// is not reconstructable from the EventLog (residual R-1, pre-existing).
+			continue
+		default: // route (3): no Fallback and no on_error transition at all.
+			if err := e.emitWorkflowFailed(ctx, cur, c.stepID, c.err); err != nil {
+				return err
+			}
+			e.log().Info("settle", "instance_id", string(cur.InstanceID), "step_id", c.stepID, "outcome", "failed")
+			return e.maybeCompensate(ctx, dv, cur, c.stepID)
+		}
+	}
+	return nil
+}
+
+// hasOnErrorTransition reports whether stepID has ANY on_error transition in the
+// definition, conditional or not. It reads static structure only (LA-C3 round 2):
+// buildEnv-dependent conditions are never consulted by route completion.
+func hasOnErrorTransition(dv *defView, stepID string) bool {
+	for _, t := range dv.def.Transitions {
+		if t.From == stepID && t.OnError {
+			return true
+		}
+	}
+	return false
+}
+
+// resetInstanceRecovery discards this process's recovery bookkeeping for iid, so
+// the next processInstance re-hydrates iid purely from the durable EventLog, exactly
+// as a freshly started process would (LA-C1 F1).
+//
+// Why: RC-1 (in-flight recovery, above) runs once per instance per process, guarded
+// by e.hydrated, which is set BEFORE RC-1 runs. A transient storage failure during
+// RC-1, or in a settle/wait write that follows a StepStarted, therefore left that
+// StepStarted unsettled for the rest of the process's life (LA-C1 leads L1-L6). The
+// restart semantics are the contract (worker_crash for non-signal steps; the F3 rules
+// for signal steps); this makes them reachable without a restart.
+//
+// Cleared, each because hydrate reconstructs it from storage: e.hydrated (re-arms
+// RC-1), e.retries (from StepFailed{retrying:true}), e.pending (from
+// StepFallbackActivated and from on_error targets of a terminal StepFailed), e.failed
+// (from a terminal StepFailed), and e.claimLostStreak (a diagnostic counter that a
+// restart also resets).
+//
+// Kept, because each is already re-read from durable storage on use or is not
+// recovery state:
+//   - e.ver: expectedVersion re-reads workflow_instances.version from storage on every
+//     projection write and every Resolve; the cache is never trusted alone.
+//   - e.seq: a monotone append cursor, not recovery state. A gap left by a failed
+//     append is harmless: ordering is all that hydrate and the projection read, and
+//     internal/storage has no sequence_num contiguity check.
+//   - e.waits: a hit is removed by OnDelivered/clearWait; a miss is re-derived from the
+//     durable wait_records by recoverWait (Resolve), exactly as after a restart.
+//   - e.cancels, e.defs: a cancel intent is not reconstructed from the EventLog and is
+//     not recovery bookkeeping; the definition cache is keyed by immutable (id, version).
+//
+// Call-site invariant (verified at each caller): no dispatch goroutine for iid is in
+// flight. processInstance joins its dispatch goroutines (wg.Wait) before SETTLE, and
+// Tick and SIGNAL_SCAN are serial, so the reset cannot race a running step.
+func (e *Engine) resetInstanceRecovery(iid core.InstanceID) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	delete(e.hydrated, iid)
+	delete(e.pending, iid)
+	delete(e.failed, iid)
+	for key := range e.retries {
+		if key.iid == iid {
+			delete(e.retries, key)
+		}
+	}
+	for key := range e.claimLostStreak {
+		if key.iid == iid {
+			delete(e.claimLostStreak, key)
+		}
+	}
+}
+
+// recoverSignalStep settles a signal step whose latest event is StepStarted (LA-C1
+// F3). A signal step's only completion path is its wait, so RC-1 must never fail it
+// as worker_crash:
+//
+//	(a) the awaited signal was delivered AFTER this activation's StepStarted: the
+//	    delivery is durable (SignalReceived is appended in the same B3 transaction
+//	    that flips the instance to running, Finalization B3), so the step completes
+//	    with that payload via CompleteStep. CompleteStep tolerates an already-deleted
+//	    wait_record (DeleteWaitRecord is a benign no-op when the row is absent);
+//	(b) otherwise the wait was never durably completed, so it is re-entered via
+//	    enterWait, which is idempotent over an existing wait_record (L4b).
+//
+// validate.Validate rejects a signal step without wait_signal; enterWait returns a
+// typed error should one ever reach this path.
+func (e *Engine) recoverSignalStep(ctx context.Context, inst core.WorkflowInstance, step core.Step, evs []core.ExecutionEvent, startedSeq int) error {
+	if step.WaitSignal != nil {
+		payload, delivered, err := signalDeliveredAfter(evs, step.WaitSignal.SignalName, startedSeq)
+		if err != nil {
+			return err
+		}
+		if delivered {
+			return e.CompleteStep(ctx, inst.InstanceID, step.ID, payload)
+		}
+	}
+	return e.enterWait(ctx, inst, step)
+}
+
+// signalReceivedRecord decodes a SignalReceived payload: {signal_name, payload}
+// (EVENTLOG_FORMAT §6; field names verbatim). It mirrors signal.signalReceivedPayload,
+// which is unexported and therefore not importable from the engine.
+type signalReceivedRecord struct {
+	SignalName string         `json:"signal_name"`
+	Payload    map[string]any `json:"payload"`
+}
+
+// signalDeliveredAfter returns the payload of the EARLIEST SignalReceived for
+// signalName whose sequence_num is greater than afterSeq (the awaited step's latest
+// StepStarted). Earliest, not latest: while this step waits, the first same-name
+// delivery is the one that resumed it, and the wait is cleared on delivery
+// (OnDelivered), so a later same-name delivery belongs to a later wait.
+func signalDeliveredAfter(evs []core.ExecutionEvent, signalName string, afterSeq int) (map[string]any, bool, error) {
+	var best map[string]any
+	bestSeq := 0
+	found := false
+	for _, ev := range evs {
+		if ev.EventType != core.EventTypeSignalReceived || ev.SequenceNum <= afterSeq {
+			continue
+		}
+		var rec signalReceivedRecord
+		if err := json.Unmarshal(ev.Payload, &rec); err != nil {
+			return nil, false, fmt.Errorf("engine: hydrate decode SignalReceived seq=%d: %w", ev.SequenceNum, err)
+		}
+		if rec.SignalName != signalName {
+			continue
+		}
+		if !found || ev.SequenceNum < bestSeq {
+			found = true
+			bestSeq = ev.SequenceNum
+			best = rec.Payload
+		}
+	}
+	return best, found, nil
 }
