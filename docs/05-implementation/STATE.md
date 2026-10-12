@@ -357,7 +357,7 @@ LAST-PRIOR: 2026-07-10 ledger-repo reconciliation (Fable): STATE said M09 E-MERG
       Sonnet/Haiku subagents only (no Opus; Opus-designated work is done inline by Fable,
       upward substitution per EEOS rule 8); milestones stack branches, E-MERGE stays human.
 
-DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07 M08 M09 M10 M11 M12 M13 M14 M15 M16 M17   # history: git log + module HANDOFFs
+DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07 M08 M09 M10 M11 M12 M13 M14 M15 M16 M17 M18   # history: git log + module HANDOFFs
 # M09 merge sha 03d5045 (founder squash-merge, verified against main log at reconciliation)
 # M10-M17 all reached main by branch stacking, not a discrete founder squash-merge; no
 # commit represents a merge or gate decision for any of these eight. M15's two founder
@@ -367,7 +367,7 @@ DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07 M08 M09 M10 M11 M12 M13 M14 M15
 # ── M18 A-INIT (2026-10-10) ─────────────────────────────────────────────────────
 MILESTONE: M18-hardening-release
 BRANCH: m18-hardening-release (branched from main at 4977de7)
-PHASE: E-MERGE (founder G4 verdict SHIP 2026-10-12; push + squash-merge + v1.0.0 tag executed by the CE at founder instruction)
+PHASE: CLOSED (2026-10-12) — v1.0.0 released
 GATE: G4 — Release (fires at D-CLOSE/E-MERGE; no card tags v1.0.0 or renders ship/no-ship)
 CARDS:
   M18-C1   DONE    awis-builder(haiku)  16cf735  (P2 salvage re-dispatch after rate-limit death of run 1)
@@ -382,7 +382,14 @@ CARDS:
   M18-C5   DONE    awis-builder(haiku)  29cb521  (crash test deterministic: loaded 30/30 vs control 26/30; records fixed)
   M18-V1r  DONE(PASS) awis-verifier(haiku)  @b78ae44 (report in TRACEABILITY.md; checklist ticked by CE)
 BLOCKERS: none
-NEXT: CE (founder-instructed 2026-10-12): push; squash-merge PR #1 after PR CI green; tag `v1.0.0` at the merge commit after main CI green; verify release; then a ledger commit on main records M18 CLOSED. Loop A starts only after that.
+NEXT: FOUNDER — Loop A (bounded engine confidence) may start from tag v1.0.0; M18-B5 is an explicit Loop A input. Not started.
+RELEASE-EVIDENCE (E-MERGE executed by the CE at the founder's explicit instruction, 2026-10-12):
+  Founder G4 verdict "SHIP v1.0.0 with the exceptions above" recorded at dc503ff (M18 TRACEABILITY.md "G4 rulings").
+  PR #1 squash-merged -> main d6fe341 (tree identical to dc503ff); PR CI at dc503ff green: runs 38221217034 (push), 38221224265 (pull_request).
+  main CI at d6fe341: run 38221778716 success (Verify ubuntu, Verify macos, EEOS docs-lint).
+  Tag v1.0.0 (annotated, object 9f92841) -> d6fe341. Release workflow run 38222249998 success (make verify; goreleaser v2.17.0).
+  Release https://github.com/saralbanker/AWIS/releases/tag/v1.0.0 (not draft): 4 archives (darwin/linux x amd64/arm64) + checksums.txt; sha256sum -c OK x4; linux_amd64 `awis version` -> "awis version 1.0.0  go go1.26.8".
+  Release notes disclose the G4 exceptions (QG-2 waived/NOT PASS; QG-4 limited + M18-B6; row 41 PARTIAL, --json --full; NFR-P-03 and rows 5/28/32 UNMEASURABLE; rows 37/40 NOT SATISFIED, 44 PARTIAL; M18-B5; rows 13/14 by amendment).
 G4-RULINGS (CE-recorded 2026-10-12; ratified by founder G4 verdict SHIP 2026-10-12; M18 TRACEABILITY.md):
   QG-2 WAIVED for v1.0.0 (unmeasured; risk accepted; NOT PASS). QG-4 ACCEPTED, not literal PASS (G4 extends G3 Q1's
   P0/P1/P2 seams to the disclosed `--namespace` CLI seam in cmd/awis/{main,errors,submit}.go). PRD §32
