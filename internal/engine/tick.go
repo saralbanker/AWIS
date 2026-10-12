@@ -29,6 +29,18 @@ import (
 // different goroutine's write to it is stuck. The original logger is
 // restored when Run returns, so Tick() called directly (no Run() active —
 // e.g. by tests) logs synchronously, exactly as before D-18.
+//
+// LA-C2 (PRD FR-RM-04: "`awis stop` gracefully stops the runtime (in-flight steps
+// complete; no new steps dispatched)"; docs/CLI_CONTRACT.md §SIGTERM Handling:
+// "Context cancel → engine tick completes in-flight step → graceful drain → exit 0"):
+// ctx cancellation is a stop request, not an abort. Every tick runs on
+// context.WithoutCancel(ctx), so a step already dispatched keeps a live ctx and
+// its StepCompleted/StepFailed is appended normally (Blueprint: "In-flight steps
+// (already dispatched) run to completion."). ctx.Done() is handed to tick as the
+// stop signal, which withholds every NEW dispatch (see tick). The drain is bounded
+// only by each in-flight step's own timeout (native: the step's timeout, else the
+// runner default, 30s in production) — there is deliberately no separate drain
+// deadline. Run returns ctx.Err() once the in-flight tick returns.
 func (e *Engine) Run(ctx context.Context) error {
 	orig := e.log()
 	relay := newNonBlockingHandler(orig.Handler())
@@ -58,12 +70,15 @@ func (e *Engine) Run(ctx context.Context) error {
 
 	ticker := time.NewTicker(e.cfg.TickInterval)
 	defer ticker.Stop()
+	// LA-C2: the tick runs on work (never cancelled, so in-flight steps settle);
+	// ctx.Done() is the stop signal. See the Run doc above.
+	work := context.WithoutCancel(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if err := e.Tick(ctx); err != nil {
+			if err := e.tick(work, ctx.Done()); err != nil {
 				e.log().Error("tick failed", "error", err.Error())
 			}
 		}
@@ -90,6 +105,35 @@ func (e *Engine) Run(ctx context.Context) error {
 // aborts processing of anything else this tick. A nil return means every
 // instance this tick, and the ListInstances call, succeeded.
 func (e *Engine) Tick(ctx context.Context) error {
+	return e.tick(ctx, nil)
+}
+
+// tick is Tick with a stop signal (LA-C2). A nil stop never fires, so Tick(ctx)
+// is exactly the pre-LA-C2 pass. Once stop is closed, the tick dispatches nothing
+// new (PRD FR-RM-04: "no new steps dispatched"; docs/CLI_CONTRACT.md §SIGTERM
+// Handling: "graceful drain"):
+//
+//	(a) no SCAN_TRIGGERABLE and no SCAN_RUNNABLE at all;
+//	(b) no processInstance for the instances not yet reached (loop break);
+//	(c) inside processInstance, no gatherDispatch — no claim, no StepStarted,
+//	    no retry re-dispatch;
+//	(d) no SIGNAL_SCAN and no SIGNAL_TIMEOUT_SCAN.
+//
+// Work already dispatched is NOT interrupted: its DISPATCH and SETTLE run on ctx,
+// which Run supplies as context.WithoutCancel, so its StepCompleted/StepFailed is
+// persisted (Blueprint: "In-flight steps (already dispatched) run to completion.").
+// stop is threaded as a parameter and is never stored in engine state.
+//
+// The check at (c) is a check-then-act window, not a lock: a stop that fires after
+// the check but during gatherDispatch can leave items already claimed. Each such
+// item holds a durable StepStarted, so it is dispatched and settled like any
+// gathered item (LA-C1 F2) and is never stranded.
+func (e *Engine) tick(ctx context.Context, stop <-chan struct{}) error {
+	// LA-C2 (a): a stopped tick does nothing — not even the read-only ListInstances.
+	if stopRequested(stop) {
+		return nil
+	}
+
 	// SCAN_TRIGGERABLE (T5/F-2) — trigger.go.
 	e.scanTriggerable(ctx)
 
@@ -100,7 +144,11 @@ func (e *Engine) Tick(ctx context.Context) error {
 		errs = append(errs, fmt.Errorf("engine: Tick list running instances: %w", err))
 	} else {
 		for _, inst := range instances {
-			if err := e.processInstance(ctx, inst); err != nil {
+			// LA-C2 (b): once stop is closed, no further instance is processed.
+			if stopRequested(stop) {
+				break
+			}
+			if err := e.processInstance(ctx, inst, stop); err != nil {
 				// LA-C1 F1: a failed processInstance may leave a StepStarted that no
 				// in-process path settles (L1/L2/L3/L6). Reset this instance's recovery
 				// bookkeeping so the next tick re-hydrates it from the EventLog and RC-1
@@ -116,14 +164,31 @@ func (e *Engine) Tick(ctx context.Context) error {
 	}
 
 	// SIGNAL_SCAN — deliver undelivered inbox signals (M07-C2). Runs
-	// regardless of any error above (D-17 point 2).
-	e.signalScan(ctx)
+	// regardless of any error above (D-17 point 2). LA-C2 (d): skipped once
+	// stop is closed; an undelivered signal stays in the inbox for a later scan.
+	if !stopRequested(stop) {
+		e.signalScan(ctx)
+	}
 
 	// SIGNAL_TIMEOUT_SCAN — expire timed-out wait_records (M07-C3r). Runs
-	// regardless of any error above (D-17 point 2).
-	e.signalTimeoutScan(ctx)
+	// regardless of any error above (D-17 point 2). LA-C2 (d): skipped once
+	// stop is closed, checked separately from SIGNAL_SCAN above.
+	if !stopRequested(stop) {
+		e.signalTimeoutScan(ctx)
+	}
 
 	return errors.Join(errs...)
+}
+
+// stopRequested reports whether stop has been closed (LA-C2). A nil stop never
+// fires: a receive from a nil channel is never ready, so the default branch runs.
+func stopRequested(stop <-chan struct{}) bool {
+	select {
+	case <-stop:
+		return true
+	default:
+		return false
+	}
 }
 
 // signalScan is the SIGNAL_SCAN stage: it drives the delivery scan (internal/
@@ -162,7 +227,7 @@ type dispatchResult struct {
 // generalized (C2) with retry re-dispatch, failure routing, and the cancellation
 // gate. The stages remain those C1 established; the failure branch and the
 // activation sources are what C2 broadened.
-func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance) error {
+func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance, stop <-chan struct{}) error {
 	dv, err := e.defViewFor(ctx, inst)
 	if err != nil {
 		return err
@@ -195,6 +260,18 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 	}
 	if flagged {
 		return e.handleCancellation(ctx, dv, inst)
+	}
+
+	// ── LA-C2 (c): stop gate before any claim ─────────────────────────────────
+	// Once stop is closed nothing is gathered: no claim, no StepStarted, no retry
+	// re-dispatch (PRD FR-RM-04). The return is nil, not an error — a withheld
+	// dispatch is not a failure and must not reset recovery bookkeeping in tick.
+	// No dispatch of THIS call exists yet: DISPATCH and SETTLE of a gathered
+	// batch both finish inside one processInstance call (wg.Wait), so nothing is
+	// abandoned here. The completion check below is also deferred by this return;
+	// it runs on the first tick that is not stopped (see M07-C3r note below).
+	if stopRequested(stop) {
+		return nil
 	}
 
 	// ── Gather dispatch items ─────────────────────────────────────────────────
