@@ -60,6 +60,19 @@ const (
 	laOpDeleteWaitRecord laOp = "DeleteWaitRecord"
 )
 
+// laFaultModel selects what an injected fault does to the call it hits (LA-C5 Q3).
+type laFaultModel int
+
+const (
+	// laModelFailBeforeWrite (zero value; the LA-P1-REPRO model): the matching call returns
+	// errLAInjected WITHOUT reaching the real store, so nothing commits.
+	laModelFailBeforeWrite laFaultModel = iota
+	// laModelAckLost: the matching call reaches the REAL store, so the write commits, and then
+	// the caller receives errLAInjected. The caller sees a failure for a durable write. Honored
+	// by AppendEvent and UpsertInstance only; arm rejects it for any other op.
+	laModelAckLost
+)
+
 // laFault is ONE transient injected failure. The nth call to op whose arguments
 // satisfy the filter fails once; every other call is forwarded. Zero-valued
 // filter fields are wildcards. The fault disarms itself after its single failure.
@@ -69,13 +82,22 @@ type laFault struct {
 	eventType core.EventType      // AppendEvent filter ("" = any)
 	stepID    string              // step-id filter ("" = any)
 	status    core.InstanceStatus // UpsertInstance filter ("" = any)
+	model     laFaultModel        // what the injected call does (zero = laModelFailBeforeWrite)
 }
+
+// laAckLostOps lists the ops that honor laModelAckLost.
+var laAckLostOps = map[laOp]bool{laOpAppendEvent: true, laOpUpsertInstance: true}
 
 // laFaultStorage wraps *storage.SQLiteStorage (test-only; no production hook).
 // It embeds the real store, so every StoragePort method and every additive
 // interface the engine reaches by type assertion (claimReleaseStore, signal.Store,
 // signalWaitStore, ...) is forwarded untouched. Only the five methods below are
 // overridden.
+//
+// Fault models per method (LA-C5 Q3): AppendEvent and UpsertInstance inject either
+// laModelFailBeforeWrite (default) or laModelAckLost (the write commits, then the error).
+// ClaimStep, CreateWaitRecord and DeleteWaitRecord inject laModelFailBeforeWrite only;
+// arm panics for any other model on them, so an ack-lost fault cannot silently degrade.
 type laFaultStorage struct {
 	*storage.SQLiteStorage
 
@@ -92,6 +114,9 @@ func newLAFaultStorage(s *storage.SQLiteStorage) *laFaultStorage {
 
 // arm installs ft as the pending fault, replacing any previous one.
 func (f *laFaultStorage) arm(ft laFault) {
+	if ft.model == laModelAckLost && !laAckLostOps[ft.op] {
+		panic(fmt.Sprintf("laFaultStorage: model ack-lost is not modelled for op %s", ft.op))
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.armed = true
@@ -106,69 +131,89 @@ func (f *laFaultStorage) trippedCount() int {
 }
 
 // fire decides whether the current call fails. It is the only place where the
-// nth-match and the transient disarm are decided.
-func (f *laFaultStorage) fire(op laOp, matches func(laFault) bool) bool {
+// nth-match and the transient disarm are decided. On a hit it returns the fault's model.
+func (f *laFaultStorage) fire(op laOp, matches func(laFault) bool) (laFaultModel, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.armed || f.fault.op != op || !matches(f.fault) {
-		return false
+		return laModelFailBeforeWrite, false
 	}
 	f.matched++
 	if f.matched != f.fault.nth {
-		return false
+		return laModelFailBeforeWrite, false
 	}
 	f.armed = false // transient: exactly one failure, then forward again
 	f.tripped++
-	return true
+	return f.fault.model, true
 }
 
 func laInjected(op laOp) error {
 	return fmt.Errorf("%w (op=%s)", errLAInjected, op)
 }
 
+// laInjectWrite completes an injected write fault. Under laModelFailBeforeWrite nothing
+// reaches the store. Under laModelAckLost the real write runs first (a real error from it
+// is returned as is); the injected error is returned in both cases.
+func laInjectWrite(model laFaultModel, op laOp, realWrite func() error) error {
+	if model == laModelAckLost {
+		if err := realWrite(); err != nil {
+			return err
+		}
+	}
+	return laInjected(op)
+}
+
+// AppendEvent: honors both models (see the fault-model note on laFaultStorage).
 func (f *laFaultStorage) AppendEvent(ctx context.Context, ev core.ExecutionEvent) error {
-	if f.fire(laOpAppendEvent, func(ft laFault) bool {
+	if model, hit := f.fire(laOpAppendEvent, func(ft laFault) bool {
 		return (ft.eventType == "" || ft.eventType == ev.EventType) &&
 			(ft.stepID == "" || ft.stepID == ev.StepID)
-	}) {
-		return laInjected(laOpAppendEvent)
+	}); hit {
+		return laInjectWrite(model, laOpAppendEvent, func() error {
+			return f.SQLiteStorage.AppendEvent(ctx, ev)
+		})
 	}
 	return f.SQLiteStorage.AppendEvent(ctx, ev)
 }
 
+// ClaimStep: laModelFailBeforeWrite only.
 func (f *laFaultStorage) ClaimStep(ctx context.Context, instanceID core.InstanceID, stepID string, workerID string) (bool, error) {
-	if f.fire(laOpClaimStep, func(ft laFault) bool {
+	if _, hit := f.fire(laOpClaimStep, func(ft laFault) bool {
 		return ft.stepID == "" || ft.stepID == stepID
-	}) {
+	}); hit {
 		return false, laInjected(laOpClaimStep)
 	}
 	return f.SQLiteStorage.ClaimStep(ctx, instanceID, stepID, workerID)
 }
 
+// CreateWaitRecord: laModelFailBeforeWrite only.
 func (f *laFaultStorage) CreateWaitRecord(ctx context.Context, wr storage.WaitRecord) error {
-	if f.fire(laOpCreateWaitRecord, func(ft laFault) bool {
+	if _, hit := f.fire(laOpCreateWaitRecord, func(ft laFault) bool {
 		return ft.stepID == "" || ft.stepID == wr.StepID
-	}) {
+	}); hit {
 		return laInjected(laOpCreateWaitRecord)
 	}
 	return f.SQLiteStorage.CreateWaitRecord(ctx, wr)
 }
 
-// UpsertInstance: the running→waiting write is the only UpsertInstance whose
-// projected status is `waiting` (enterWait); a status filter isolates it.
+// UpsertInstance: honors both models. The running→waiting write is the only UpsertInstance
+// whose projected status is `waiting` (enterWait); a status filter isolates it.
 func (f *laFaultStorage) UpsertInstance(ctx context.Context, inst core.WorkflowInstance, expectedVersion int) error {
-	if f.fire(laOpUpsertInstance, func(ft laFault) bool {
+	if model, hit := f.fire(laOpUpsertInstance, func(ft laFault) bool {
 		return ft.status == "" || ft.status == inst.Status
-	}) {
-		return laInjected(laOpUpsertInstance)
+	}); hit {
+		return laInjectWrite(model, laOpUpsertInstance, func() error {
+			return f.SQLiteStorage.UpsertInstance(ctx, inst, expectedVersion)
+		})
 	}
 	return f.SQLiteStorage.UpsertInstance(ctx, inst, expectedVersion)
 }
 
+// DeleteWaitRecord: laModelFailBeforeWrite only.
 func (f *laFaultStorage) DeleteWaitRecord(ctx context.Context, instanceID core.InstanceID, stepID string) error {
-	if f.fire(laOpDeleteWaitRecord, func(ft laFault) bool {
+	if _, hit := f.fire(laOpDeleteWaitRecord, func(ft laFault) bool {
 		return ft.stepID == "" || ft.stepID == stepID
-	}) {
+	}); hit {
 		return laInjected(laOpDeleteWaitRecord)
 	}
 	return f.SQLiteStorage.DeleteWaitRecord(ctx, instanceID, stepID)

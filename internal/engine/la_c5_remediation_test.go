@@ -12,7 +12,10 @@ package engine
 //   - laModelAckLost: the nth matching call commits for real, then the caller sees an error.
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -340,3 +343,261 @@ func TestLA_C5_N2b_SuccessfulSiblingNotCompletedInWindow_AfterRestart(t *testing
 // (c) A NON-terminal settle error still settles the sibling: pinned by
 // TestLA_C4b_SettleFailureDoesNotAbandonDispatchedSibling (la_settle_serial_test.go), which
 // runs in the same package and must stay green after this fix.
+
+// ── N3 (P1): a signal-timeout routing error resets this instance's recovery ──────────
+//
+// timeout_action=continue: resumeTimedOutInstance writes status=running, then
+// emitStepCompleted(w) appends StepCompleted durably, and its projection write fails once.
+// The timeout scan logged the error and returned, so nothing re-hydrated the instance: w stayed
+// in current_steps while the instance sat in running, wedged until a process restart. The fix
+// (signal_timeout.go processTimeout) resets this instance's recovery bookkeeping on any routing
+// error, so the next tick re-hydrates it and the catch-up re-applies the durable StepCompleted.
+//
+// Fault model: laModelFailBeforeWrite on the projection UpsertInstance(running). nth=2, because
+// nth=1 is resumeTimedOutInstance's own running write in the same tick.
+
+func c5N3Continue(t *testing.T, restart bool) {
+	t.Helper()
+	label := laLabel("LA-C5 N3 continue-timeout StepCompleted projection fails", restart)
+	h := laC4cPark(t, "continue")
+
+	h.st.arm(laFault{op: laOpUpsertInstance, nth: 2, status: core.InstanceStatusRunning})
+	h.clk.advance(6 * time.Second)
+	trip := laTickUntilTripped(h.t, h.e, h.st.laFaultStorage)
+	if len(trip) != 0 {
+		t.Errorf("%s: timeout failures must be logged, not returned: tick errors=%v", label, trip)
+	}
+	// Precondition: StepCompleted(w) is durable, and its projection was the write that failed.
+	if r := h.result(); r.routing != 1 {
+		t.Fatalf("%s: precondition: routing events for w = %d after the trip; want 1", label, r.routing)
+	}
+	if inst := laInstance(t, h.s, h.iid); inst.Status != core.InstanceStatusRunning || len(inst.CurrentSteps) != 1 {
+		t.Fatalf("%s: precondition: status=%s current_steps=%v after the trip; want running with w still projected",
+			label, inst.Status, inst.CurrentSteps)
+	}
+
+	if restart {
+		h.restart()
+	}
+	n, errs := laTickUntil(h.t, h.e, h.s, h.iid, laK, laIsTerminal)
+	h.t.Logf("%s: ticks=%d tick_errors=%d", label, n, len(errs))
+	laCheck(t, h.s, h.iid, label, core.InstanceStatusCompleted,
+		laExpect{"w", "StepCompleted"}, laExpect{"z", "StepCompleted"})
+	if got := h.result().routing; got != 1 {
+		t.Errorf("%s: routing events for w = %d; want exactly 1", label, got)
+	}
+}
+
+// Same process: the instance must progress within K ticks in the engine that hit the fault.
+func TestLA_C5_N3_ContinueProjectionFailure_SameProcessProgresses(t *testing.T) {
+	c5N3Continue(t, false)
+}
+
+// Restart control (passes before the fix: a fresh process re-hydrates the instance anyway).
+func TestLA_C5_N3_ContinueProjectionFailure_AfterRestart(t *testing.T) {
+	c5N3Continue(t, true)
+}
+
+// ── Q3: the ack-lost fault model over the named Loop A scenarios ──────────────────────
+//
+// Each row runs its scenario twice, same-process and after-restart: once with NO fault (the
+// oracle) and once with its fault in laModelAckLost (the write commits, then the caller sees
+// an error). The faulted run must equal the no-fault run on final status, the (event_type,
+// step_id) sequence, handler invocations and undo invocations. The oracle is the no-fault run,
+// not the fail-before expectations of the original L-tests: under ack-lost the write is durable,
+// so the correct outcome is the one that durable event implies.
+//
+// A row that fails is a finding of this card, NOT a fix: it is gated behind LA_DEFERRED=1
+// (its failure message is reported), so the default run stays green.
+
+// c5RunWait is L5's fixture (laDefWait: a → w → z). The fault hits StepCompleted(w), which
+// fires inside SIGNAL_SCAN after the delivery commits. ft == nil is the no-fault run.
+func c5RunWait(t *testing.T, restart bool, ft *laFault) c5Outcome {
+	t.Helper()
+	def := laDefWait()
+	s, fs := laSetup(t, def)
+	ha := &stepHandler{id: "la_a", outputs: map[string]any{}}
+	hz := &stepHandler{id: "la_z", outputs: map[string]any{}}
+	clk := newFakeClock(engineStart, 10*time.Millisecond)
+	ids := laIDs()
+	e := laEngine(fs, clk, ids, 1, ha, hz)
+	iid := laSubmit(t, e, def.ID)
+	laTickUntil(t, e, s, iid, laSetupTicks, func(i core.WorkflowInstance) bool {
+		return i.Status == core.InstanceStatusWaiting
+	})
+	if got := laInstance(t, s, iid).Status; got != core.InstanceStatusWaiting {
+		t.Fatalf("setup: status=%s; want waiting (parked before the signal)", got)
+	}
+	if ft != nil {
+		fs.arm(*ft)
+	}
+	if err := e.Signal(context.Background(), iid, "go", map[string]any{"by": "alice"}); err != nil {
+		t.Fatalf("Signal: %v", err)
+	}
+	if ft != nil {
+		laTickUntilTripped(t, e, fs) // the fault fires inside SIGNAL_SCAN; it is logged, not returned
+		if restart {
+			e = laEngine(fs, clk, ids, 1, ha, hz)
+		}
+	}
+	_, errs := laTickUntil(t, e, s, iid, laK, laIsTerminal)
+	out := c5Outcome{
+		s:      s,
+		iid:    iid,
+		status: laInstance(t, s, iid).Status,
+		evs:    laEvents(t, s, iid),
+		calls:  map[string]int32{"la_a": laCalls(ha), "la_z": laCalls(hz)},
+		errs:   len(errs),
+	}
+	out.pairs, _ = eventPairs(t, s, iid)
+	return out
+}
+
+// c5AckRow is one ack-lost scenario: run executes it (ft == nil is the no-fault oracle).
+type c5AckRow struct {
+	lead     string
+	run      func(t *testing.T, restart bool, ft *laFault) c5Outcome
+	ft       laFault // the ack-lost fault (model is set by c5AckRows)
+	deferred string  // non-empty: a known finding, gated behind LA_DEFERRED
+}
+
+func c5AckRows() []c5AckRow {
+	ack := func(ft laFault) laFault { ft.model = laModelAckLost; return ft }
+	return []c5AckRow{
+		{lead: "L1", ft: ack(laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeStepCompleted, stepID: "a"}),
+			run: func(t *testing.T, restart bool, ft *laFault) c5Outcome {
+				return c5Run(t, laDefSingle(), 1, ft, restart,
+					&stepHandler{id: "la_a", outputs: map[string]any{"msg": "done"}})
+			}},
+		{lead: "L3", ft: ack(laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeStepFailed, stepID: "a"}),
+			run: func(t *testing.T, restart bool, ft *laFault) c5Outcome {
+				return c5Run(t, laDefSingle(), 1, ft, restart, &stepHandler{id: "la_a", err: errLAHandler})
+			}},
+		{lead: "L5", ft: ack(laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeStepCompleted, stepID: "w"}),
+			run: c5RunWait},
+		{lead: "L7", ft: ack(laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeStepFallbackActivated, stepID: "a"}),
+			run: func(t *testing.T, restart bool, ft *laFault) c5Outcome {
+				ha, hfb := laFallbackHandlers()
+				return c5Run(t, laDefRoute("la.fallback", nil, true), 1, ft, restart, ha, hfb)
+			}},
+		{lead: "L8", ft: ack(laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeWorkflowFailed}),
+			run: func(t *testing.T, restart bool, ft *laFault) c5Outcome {
+				r := newLACompRun()
+				out := c5Run(t, compDef(), 1, ft, restart, r.handlers...)
+				out.undos = r.undoOrder()
+				return out
+			}},
+		// N1 (projection): the committed projection leaves `running`, so no recovery runs and the
+		// row does not reach the owed-compensation path. It checks only that the committed write
+		// is not re-applied.
+		{lead: "N1-projection", ft: ack(laFault{op: laOpUpsertInstance, nth: 1, status: core.InstanceStatusFailed}),
+			run: func(t *testing.T, restart bool, ft *laFault) c5Outcome {
+				var u c5Undo
+				out := c5Run(t, c5DefStalled(), 1, ft, restart, c5StalledHandlers(&u)...)
+				out.undos = u.calls()
+				return out
+			}},
+		// N1 (append): the stalled WorkflowFailed is durable, its error is returned, and the
+		// projection is still `running`, so recovery runs and reaches the owed-compensation path.
+		{lead: "N1-append", ft: ack(laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeWorkflowFailed}),
+			run: func(t *testing.T, restart bool, ft *laFault) c5Outcome {
+				var u c5Undo
+				out := c5Run(t, c5DefStalled(), 1, ft, restart, c5StalledHandlers(&u)...)
+				out.undos = u.calls()
+				return out
+			}},
+		// N2 (WorkflowFailed): the committed WorkflowFailed(b1) is durable, so durableTerminal stops
+		// the settle loop even before the N2 fix. This row does not discriminate N2 (it passes on the
+		// pre-N2 code too); the fail-before tests above do.
+		{lead: "N2", ft: ack(laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeWorkflowFailed}),
+			run: func(t *testing.T, restart bool, ft *laFault) c5Outcome {
+				var u c5Undo
+				out := c5Run(t, c5DefFanOutComp(), 2, ft, restart, c5FanOutHandlers(&u, true)...)
+				out.undos = u.calls()
+				return out
+			}},
+		// N2 (StepFailed, extra probe): b1's StepFailed{retrying:false} is durable, but its error is
+		// returned. The settle loop treats that as non-terminal, so the sibling b2 is still settled
+		// after b1's committed terminal decision. This is the N2 class under ack-lost: NOT fixed here.
+		{lead: "N2-StepFailed", ft: ack(laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeStepFailed, stepID: "b1"}),
+			run: func(t *testing.T, restart bool, ft *laFault) c5Outcome {
+				var u c5Undo
+				out := c5Run(t, c5DefFanOutComp(), 2, ft, restart, c5FanOutHandlers(&u, true)...)
+				out.undos = u.calls()
+				return out
+			},
+			deferred: "ack-lost StepFailed{retrying:false}(b1) is durable but returned as non-terminal, so sibling b2 is settled after b1's committed decision (N2 under ack-lost)"},
+	}
+}
+
+// TestLA_C5_Q3_AckLostScenarios runs every row in both modes; each subtest reports
+// PASS or FAIL for its scenario.
+func TestLA_C5_Q3_AckLostScenarios(t *testing.T) {
+	for _, row := range c5AckRows() {
+		for _, restart := range []bool{false, true} {
+			mode := "same-process"
+			if restart {
+				mode = "after-restart"
+			}
+			t.Run(row.lead+"/"+mode, func(t *testing.T) {
+				if row.deferred != "" && os.Getenv("LA_DEFERRED") != "1" {
+					t.Skip("LA-C5 ack-lost finding (run with LA_DEFERRED=1): " + row.deferred)
+				}
+				base := row.run(t, false, nil)
+				if base.errs != 0 {
+					t.Fatalf("no-fault baseline returned %d tick errors", base.errs)
+				}
+				ft := row.ft
+				got := row.run(t, restart, &ft)
+				label := "LA-C5 Q3 ack-lost " + row.lead + " " + mode
+				if got.status != base.status {
+					t.Errorf("%s: status=%s; the no-fault run ends %s", label, got.status, base.status)
+				}
+				laDiffPairs(t, label, base.pairs, got.pairs)
+				c5DiffCalls(t, label, base.calls, got.calls)
+				if got.undos != base.undos {
+					t.Errorf("%s: undo invocations=%q; the no-fault run undoes %q", label, got.undos, base.undos)
+				}
+			})
+		}
+	}
+}
+
+// Q3 model check: the two fault models mean what their comments say. The ack-lost write is
+// durable while the caller sees errLAInjected; the fail-before write is not durable.
+func TestLA_C5_Q3_FaultModelSemantics(t *testing.T) {
+	def := laDefSingle()
+	ctx := context.Background()
+	for _, model := range []laFaultModel{laModelFailBeforeWrite, laModelAckLost} {
+		s, fs := laSetup(t, def)
+		iid := laSubmit(t, laEngine(fs, newFakeClock(engineStart, time.Millisecond), laIDs(), 1,
+			&stepHandler{id: "la_a"}), def.ID)
+		fs.arm(laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeStepStarted, stepID: "a", model: model})
+		ev := core.ExecutionEvent{InstanceID: iid, SequenceNum: 2, EventType: core.EventTypeStepStarted, StepID: "a",
+			Payload: []byte(`{"attempt":1,"inputs":{}}`), EmittedAt: engineStart}
+		err := fs.AppendEvent(ctx, ev)
+		if !errors.Is(err, errLAInjected) {
+			t.Fatalf("model %d: AppendEvent error=%v; want the injected error", model, err)
+		}
+		durable := c5HasEventType(laEvents(t, s, iid), core.EventTypeStepStarted, "a")
+		want := model == laModelAckLost
+		if durable != want {
+			t.Errorf("model %d: write durable=%t after the injected error; want %t", model, durable, want)
+		}
+	}
+}
+
+// arm rejects ack-lost on an op whose model is not implemented, so it cannot silently degrade.
+func TestLA_C5_Q3_AckLostRejectedForUnmodelledOps(t *testing.T) {
+	_, fs := laSetup(t, laDefSingle())
+	defer func() {
+		if recover() == nil {
+			t.Fatalf("arm accepted ack-lost for ClaimStep; want a panic")
+		}
+	}()
+	fs.arm(laFault{op: laOpClaimStep, nth: 1, model: laModelAckLost})
+}
+
+func c5HasEventType(evs []core.ExecutionEvent, et core.EventType, stepID string) bool {
+	return c4bCount(evs, et, stepID) > 0
+}

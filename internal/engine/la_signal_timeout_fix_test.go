@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -33,6 +34,12 @@ var (
 )
 
 // laC4cStorage layers LA-C4c switches over the transient fault layer.
+// laC4cStorage adds the LA-C4c injections on top of laFaultStorage. Fault model (LA-C5 Q3):
+// the laFaultStorage faults (AppendEvent, UpsertInstance) keep their own models; the
+// injections below are fail-before only. conflictRun returns ErrVersionConflict without
+// writing; denyRestore returns errLARestoreDenied without writing; readFailOnce returns
+// errLAReadDenied without reading; reinsert re-creates the parked wait_record as a side effect
+// of a successful DeleteWaitRecord (a concurrent re-entry, not a fault).
 type laC4cStorage struct {
 	*laFaultStorage
 
@@ -435,5 +442,31 @@ func TestLA_C4c_DurableRouting_NotRestored(t *testing.T) {
 	}
 	if laC4cHasLine(h.logBuf.diagnostics(), "wait_record restored") {
 		t.Errorf("wait_record restored although the routing event was durable")
+	}
+
+	// LA-C5 Q1: end state, not just the single tick above. The oracle is the no-fault
+	// control of the same fixture ("fail": StepFailed(signal_timeout) then WorkflowFailed).
+	// The test must not pass while the instance is `waiting` with no wait_record: nothing
+	// ever resumes such an instance (ListInstances scans running only).
+	//
+	// LA-C5 FINDING (deferred, not fixed by this card): this end state is the wedge
+	// described above. A durable StepFailed(signal_timeout) followed by a lost
+	// WorkflowFailed leaves status=waiting, no wait_record, and no processor. The N3 reset
+	// (signal_timeout.go processTimeout) cannot reach it, because it is not running. Gated so
+	// the default run stays green; LA_DEFERRED=1 runs the assertion and it fails.
+	if os.Getenv("LA_DEFERRED") != "1" {
+		t.Skip("LA-C5 deferred finding: timeout fail routing leaves a durable StepFailed with status=waiting and no wait_record (run with LA_DEFERRED=1)")
+	}
+	ctl := laC4cDrive(laC4cPark(t, "fail"), nil)
+	n, errs := laTickUntil(t, h.e, h.s, h.iid, laK, laIsTerminal)
+	end := h.result()
+	t.Logf("end state: ticks=%d tick_errors=%d status=%s outcome=%s live_wait_records=%d",
+		n, len(errs), end.status, end.outcome, end.waits)
+	if end.status == core.InstanceStatusWaiting && end.waits == 0 {
+		t.Errorf("status=waiting with no wait_record: the instance can never resume (durable StepFailed, lost WorkflowFailed)")
+	}
+	if end.status != ctl.status || end.outcome != ctl.outcome {
+		t.Errorf("end state status=%s outcome=%s; the no-fault outcome is status=%s outcome=%s",
+			end.status, end.outcome, ctl.status, ctl.outcome)
 	}
 }
