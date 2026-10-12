@@ -166,11 +166,10 @@ func midTxCrashPoint(crashAt string) func(*sqlite.FunctionContext, []driver.Valu
 			fmt.Fprintf(os.Stderr, "crash_point: write marker: %v\n", err)
 			os.Exit(3)
 		}
-		// os.Stdout is unbuffered; Sync is requested by the protocol but fsync
-		// on a pipe returns EINVAL, which is expected and harmless here.
-		if err := os.Stdout.Sync(); err != nil && !errors.Is(err, syscall.EINVAL) {
-			return nil, fmt.Errorf("crash_point: sync stdout: %w", err)
-		}
+		// os.Stdout in Go is an unbuffered *os.File, so the Fprintf above is a
+		// completed write(2) into the pipe before SIGKILL; no sync is needed
+		// (fsync on a pipe is EINVAL on Linux and a different errno on macOS —
+		// LA-B5r).
 		midTxSelfKill()
 		return nil, nil // unreachable
 	}
