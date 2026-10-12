@@ -20,6 +20,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -61,7 +62,22 @@ func (e *Engine) signalTimeoutScan(ctx context.Context) {
 // processTimeout handles one expired wait_record. It deletes the record
 // (so the next tick does not re-process it), clears the in-memory wait,
 // then routes by timeout_action.
+//
+// LA-C4c F-W: the timeout is durably routed only once its routing event (the
+// first StepFailed / StepCompleted for the step) is appended. If any step fails
+// before that append, the expired wait_record is restored (restoreTimedOutWait)
+// so the next SIGNAL_TIMEOUT_SCAN re-fires it instead of parking the instance in
+// `waiting` with no wait_record forever. Once the routing event is durable the
+// record is never restored: a second fire would route the step twice.
 func (e *Engine) processTimeout(ctx context.Context, store signalTimeoutStore, wr storage.WaitRecord) error {
+	// LA-C4c F-W: capture the durable sequence baseline BEFORE any mutation, so the
+	// routing event can be told apart from events appended earlier. A failure here
+	// leaves the wait_record intact; the next scan re-fires it.
+	baseline, err := e.maxSeq(ctx, wr.InstanceID)
+	if err != nil {
+		return fmt.Errorf("signal timeout: read sequence baseline %s/%s: %w", wr.InstanceID, wr.StepID, err)
+	}
+
 	// Delete the expired wait_record immediately: must not re-fire on the next
 	// tick even if downstream routing fails (idempotent timeout processing).
 	if err := store.DeleteWaitRecord(ctx, wr.InstanceID, wr.StepID); err != nil {
@@ -69,6 +85,18 @@ func (e *Engine) processTimeout(ctx context.Context, store signalTimeoutStore, w
 	}
 	e.clearWait(wr.InstanceID, wr.SignalName)
 
+	if err := e.routeTimedOutWait(ctx, wr); err != nil {
+		// LA-C4c F-W: best-effort restore; the ORIGINAL routing error is returned.
+		e.restoreTimedOutWait(ctx, wr, baseline, err)
+		return err
+	}
+	return nil
+}
+
+// routeTimedOutWait routes one expired wait by its timeout_action. Every error it
+// returns happens after the wait_record was deleted, so the caller decides
+// (processTimeout) whether the record must be restored.
+func (e *Engine) routeTimedOutWait(ctx context.Context, wr storage.WaitRecord) error {
 	inst, found, err := e.getInstance(ctx, wr.InstanceID)
 	if err != nil {
 		return err
@@ -125,19 +153,12 @@ func (e *Engine) processTimeout(ctx context.Context, store signalTimeoutStore, w
 		// status=running via SignalReceived (applyEventToInstance), whereas
 		// timeout-continue sets it via a non-evented UpsertInstance (same as
 		// enterWait's non-evented transition in reverse).
-		inst.Status = core.InstanceStatusRunning
-		inst.UpdatedAt = e.now()
-		e.mu.Lock()
-		expected := e.ver[inst.InstanceID]
-		e.mu.Unlock()
-		if err := e.storage.UpsertInstance(ctx, inst, expected); err != nil {
-			return fmt.Errorf("signal timeout continue: resume instance %s: %w", inst.InstanceID, err)
+		cur, err := e.resumeTimedOutInstance(ctx, wr.InstanceID)
+		if err != nil {
+			return err
 		}
-		e.mu.Lock()
-		e.ver[inst.InstanceID] = expected + 1
-		e.mu.Unlock()
 		startedAt := e.now()
-		return e.emitStepCompleted(ctx, inst, wr.StepID, 1, map[string]any{}, startedAt)
+		return e.emitStepCompleted(ctx, cur, wr.StepID, 1, map[string]any{}, startedAt)
 
 	default:
 		e.log().Warn("signal timeout: unknown timeout_action; treating as fail",
@@ -147,4 +168,96 @@ func (e *Engine) processTimeout(ctx context.Context, store signalTimeoutStore, w
 		_, err = e.routeTerminalFailure(ctx, dv, inst, step, 1, stepErr)
 		return err
 	}
+}
+
+// resumeTimedOutInstance writes the instance back to `running` for timeout→continue.
+//
+// LA-C4c F-V: the write is guarded by the DURABLE version (expectedVersion), never
+// the cached e.ver: a restarted process's cache is empty while
+// workflow_instances.version is not (B-0). It follows project()'s order — the
+// version is read first, then the row — so a concurrent writer between the two
+// reads surfaces as ErrVersionConflict instead of a silent overwrite. One retry
+// on ErrVersionConflict re-reads both (same budget as enterWait).
+func (e *Engine) resumeTimedOutInstance(ctx context.Context, iid core.InstanceID) (core.WorkflowInstance, error) {
+	for attempt := 0; ; attempt++ {
+		expected := e.expectedVersion(ctx, iid)
+		cur, found, err := e.getInstance(ctx, iid)
+		if err != nil {
+			return core.WorkflowInstance{}, err
+		}
+		if !found {
+			return core.WorkflowInstance{}, fmt.Errorf("signal timeout continue: instance %s vanished", iid)
+		}
+		cur.Status = core.InstanceStatusRunning
+		cur.UpdatedAt = e.now()
+		err = e.storage.UpsertInstance(ctx, cur, expected)
+		if err == nil {
+			e.mu.Lock()
+			e.ver[iid] = expected + 1
+			e.mu.Unlock()
+			return cur, nil
+		}
+		if errors.Is(err, storage.ErrVersionConflict) && attempt == 0 {
+			continue // one retry: re-read the durable version and the row.
+		}
+		return core.WorkflowInstance{}, fmt.Errorf("signal timeout continue: resume instance %s: %w", iid, err)
+	}
+}
+
+// restoreTimedOutWait is the LA-C4c F-W best-effort restore. It runs only after
+// routeTimedOutWait failed and restores the ORIGINAL wait_record (same fields,
+// including its original timeout_at, so the next scan re-fires it) only when the
+// routing event is provably NOT durable. If durability cannot be confirmed the
+// record is not restored: a re-fire could route the step twice, and the failure is
+// logged at Error. This is the D-6 best-effort pattern (tick.go gatherDispatch):
+// a restore failure is logged with both errors and never masks the ORIGINAL error,
+// which the caller still returns.
+func (e *Engine) restoreTimedOutWait(ctx context.Context, wr storage.WaitRecord, baseline int, routeErr error) {
+	durable, err := e.routingEventDurable(ctx, wr, baseline)
+	if err != nil {
+		e.log().Error("signal timeout: routing failed and durability of the routing event could not be confirmed; wait_record not restored",
+			"instance_id", string(wr.InstanceID), "step_id", wr.StepID,
+			"routing_error", routeErr.Error(), "check_error", err.Error())
+		return
+	}
+	if durable {
+		// LA-C4c F-W: routing event durable — never re-fire (would route twice).
+		return
+	}
+	ws, ok := e.storage.(signalWaitStore)
+	if !ok {
+		e.log().Error("signal timeout: routing failed and storage cannot restore wait records; instance may remain waiting",
+			"instance_id", string(wr.InstanceID), "step_id", wr.StepID, "routing_error", routeErr.Error())
+		return
+	}
+	if err := ws.CreateWaitRecord(ctx, wr); err != nil && !errors.Is(err, storage.ErrDuplicateWaitRecord) {
+		e.log().Error("signal timeout: routing failed and wait_record restore failed; instance may remain waiting",
+			"instance_id", string(wr.InstanceID), "step_id", wr.StepID,
+			"routing_error", routeErr.Error(), "restore_error", err.Error())
+		return
+	}
+	e.log().Warn("signal timeout: routing failed before its routing event was durable; wait_record restored for re-fire",
+		"instance_id", string(wr.InstanceID), "step_id", wr.StepID, "routing_error", routeErr.Error())
+}
+
+// routingEventDurable reports whether this timeout's routing event is durably in
+// the log: the first StepFailed or StepCompleted for wr.StepID appended after
+// baseline. Every timeout action appends one of these first (fail/compensate:
+// StepFailed via routeTerminalFailure / emitStepFailed; continue: StepCompleted).
+// It reads the durable log, so an append that returned an error but actually
+// committed is correctly seen as durable.
+func (e *Engine) routingEventDurable(ctx context.Context, wr storage.WaitRecord, baseline int) (bool, error) {
+	evs, err := e.storage.ReadEvents(ctx, wr.InstanceID, 0)
+	if err != nil {
+		return false, fmt.Errorf("signal timeout: read events %s: %w", wr.InstanceID, err)
+	}
+	for _, ev := range evs {
+		if ev.SequenceNum <= baseline || ev.StepID != wr.StepID {
+			continue
+		}
+		if ev.EventType == core.EventTypeStepFailed || ev.EventType == core.EventTypeStepCompleted {
+			return true, nil
+		}
+	}
+	return false, nil
 }
