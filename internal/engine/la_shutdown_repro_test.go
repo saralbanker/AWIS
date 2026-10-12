@@ -172,8 +172,8 @@ func laDef(id string) core.WorkflowDefinition {
 	}
 }
 
-// laSetup opens a fresh storage (openStorage: per-test temp DB) and registers laDef.
-func laSetup(t *testing.T, id string) *storage.SQLiteStorage {
+// laShutdownSetup opens a fresh storage (openStorage: per-test temp DB) and registers laDef.
+func laShutdownSetup(t *testing.T, id string) *storage.SQLiteStorage {
 	t.Helper()
 	s := openStorage(t)
 	if err := s.RegisterWorkflow(context.Background(), laDef(id)); err != nil {
@@ -224,8 +224,8 @@ func laDriveTicks(ctx context.Context, e *Engine, s *storage.SQLiteStorage, iid 
 	return fmt.Errorf("instance %s not terminal within 200 ticks", iid)
 }
 
-// laEvents reads the full persisted stream for iid.
-func laEvents(t *testing.T, s *storage.SQLiteStorage, iid core.InstanceID) []core.ExecutionEvent {
+// laShutdownEvents reads the full persisted stream for iid.
+func laShutdownEvents(t *testing.T, s *storage.SQLiteStorage, iid core.InstanceID) []core.ExecutionEvent {
 	t.Helper()
 	evs, err := s.ReadEvents(context.Background(), iid, 0)
 	if err != nil {
@@ -291,7 +291,7 @@ type laShutdownRun struct {
 // cannot see ctx); ctxAware=true is S2 (laCtxRunner, which receives ctx).
 func laRunShutdown(t *testing.T, ctxAware bool) laShutdownRun {
 	t.Helper()
-	s := laSetup(t, "la.shutdown")
+	s := laShutdownSetup(t, "la.shutdown")
 	entered := newLASignal()
 	gate := newLAGate(t)
 
@@ -341,7 +341,7 @@ func laRunShutdown(t *testing.T, ctxAware bool) laShutdownRun {
 // Expected on current code: FAIL (see report for the persisted stream).
 func TestLA_Shutdown_S1_RunCancelHandlerIgnoresCtx(t *testing.T) {
 	r := laRunShutdown(t, false)
-	evs := laEvents(t, r.s, r.iid)
+	evs := laShutdownEvents(t, r.s, r.iid)
 
 	t.Logf("S1 persisted: %s", laSummary(t, evs))
 	t.Logf("S1 Run returned: %v", r.runErr)
@@ -374,7 +374,7 @@ func TestLA_Shutdown_S1_RunCancelHandlerIgnoresCtx(t *testing.T) {
 // current_steps stays dangling with a bare StepStarted.
 func TestLA_Shutdown_S2_RunCancelHandlerHonorsCtx(t *testing.T) {
 	r := laRunShutdown(t, true)
-	evs := laEvents(t, r.s, r.iid)
+	evs := laShutdownEvents(t, r.s, r.iid)
 
 	t.Logf("S2 persisted: %s", laSummary(t, evs))
 	t.Logf("S2 Run returned: %v", r.runErr)
@@ -430,7 +430,7 @@ func TestLA_Shutdown_S3_RestartAfterS1Shutdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetInstance: %v", err)
 	}
-	evs := laEvents(t, r.s, r.iid)
+	evs := laShutdownEvents(t, r.s, r.iid)
 	total := r.aCalls.Load() + ha2.calls.Load()
 
 	t.Logf("S3 final instance status: %s", inst.Status)
@@ -457,7 +457,7 @@ func TestLA_Shutdown_S3_RestartAfterS1Shutdown(t *testing.T) {
 // steps settle." Cancel is issued while a's handler is blocked inside Execute;
 // no ctx cancellation is involved, so this is the cancellation path proper.
 func TestLA_Cancel_S4_InFlightCancelCompletesStepThenCancels(t *testing.T) {
-	s := laSetup(t, "la.cancel")
+	s := laShutdownSetup(t, "la.cancel")
 	entered := newLASignal()
 	gate := newLAGate(t)
 
@@ -488,7 +488,7 @@ func TestLA_Cancel_S4_InFlightCancelCompletesStepThenCancels(t *testing.T) {
 		t.Fatalf("drive ticks: %v", err)
 	}
 
-	evs := laEvents(t, s, iid)
+	evs := laShutdownEvents(t, s, iid)
 	inst, err := s.GetInstance(ctx, iid)
 	if err != nil {
 		t.Fatalf("GetInstance: %v", err)

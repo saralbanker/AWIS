@@ -28,6 +28,8 @@ import (
 // durable event stream. It is called from processInstance right after
 // defViewFor succeeds and before the cancellation gate. The warm path
 // (already hydrated) is a single locked map lookup and an immediate return.
+// LA-C1 F1: resetInstanceRecovery re-arms hydration for an instance after a failed
+// processInstance or CompleteStep, so RC-1 runs again in this same process.
 func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowInstance) error {
 	e.mu.Lock()
 	already := e.hydrated[inst.InstanceID]
@@ -59,6 +61,9 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 	last := make(map[string]lastFailure)
 	relevant := make(map[string]core.EventType)
 	startedAttempts := make(map[string]int)
+	// startedSeq is the sequence_num of each step's LATEST StepStarted (LA-C1 F3:
+	// a delivery counts only if it is later than the activation it resumes).
+	startedSeq := make(map[string]int)
 	var fallbackTargets []string
 
 	for _, ev := range evs {
@@ -69,6 +74,7 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 			}
 			relevant[ev.StepID] = ev.EventType
 			delete(last, ev.StepID)
+			startedSeq[ev.StepID] = ev.SequenceNum
 			var p stepStartedPayload
 			if err := json.Unmarshal(ev.Payload, &p); err == nil {
 				startedAttempts[ev.StepID] = p.Attempt
@@ -207,6 +213,22 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 			if !ok {
 				continue
 			}
+			// LA-C1 F3: a signal step is never worker_crash. Its only completion path
+			// is the wait, so RC-1 either completes it from a durable delivery or
+			// re-enters the wait (recoverSignalStep). Non-signal steps are unchanged.
+			if step.Type == core.StepTypeSignal {
+				if err := e.recoverSignalStep(ctx, inst, step, evs, startedSeq[stepID]); err != nil {
+					return fmt.Errorf("engine: hydrate recover signal step %s: %w", stepID, err)
+				}
+				cur, found, err := e.getInstance(ctx, inst.InstanceID)
+				if err != nil {
+					return err
+				}
+				if found {
+					inst = cur
+				}
+				continue
+			}
 			attempt := startedAttempts[stepID]
 			if attempt <= 0 {
 				attempt = 1
@@ -229,4 +251,118 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 	}
 
 	return nil
+}
+
+// resetInstanceRecovery discards this process's recovery bookkeeping for iid, so
+// the next processInstance re-hydrates iid purely from the durable EventLog, exactly
+// as a freshly started process would (LA-C1 F1).
+//
+// Why: RC-1 (in-flight recovery, above) runs once per instance per process, guarded
+// by e.hydrated, which is set BEFORE RC-1 runs. A transient storage failure during
+// RC-1, or in a settle/wait write that follows a StepStarted, therefore left that
+// StepStarted unsettled for the rest of the process's life (LA-C1 leads L1-L6). The
+// restart semantics are the contract (worker_crash for non-signal steps; the F3 rules
+// for signal steps); this makes them reachable without a restart.
+//
+// Cleared, each because hydrate reconstructs it from storage: e.hydrated (re-arms
+// RC-1), e.retries (from StepFailed{retrying:true}), e.pending (from
+// StepFallbackActivated and from on_error targets of a terminal StepFailed), e.failed
+// (from a terminal StepFailed), and e.claimLostStreak (a diagnostic counter that a
+// restart also resets).
+//
+// Kept, because each is already re-read from durable storage on use or is not
+// recovery state:
+//   - e.ver: expectedVersion re-reads workflow_instances.version from storage on every
+//     projection write and every Resolve; the cache is never trusted alone.
+//   - e.seq: a monotone append cursor, not recovery state. A gap left by a failed
+//     append is harmless: ordering is all that hydrate and the projection read, and
+//     internal/storage has no sequence_num contiguity check.
+//   - e.waits: a hit is removed by OnDelivered/clearWait; a miss is re-derived from the
+//     durable wait_records by recoverWait (Resolve), exactly as after a restart.
+//   - e.cancels, e.defs: a cancel intent is not reconstructed from the EventLog and is
+//     not recovery bookkeeping; the definition cache is keyed by immutable (id, version).
+//
+// Call-site invariant (verified at each caller): no dispatch goroutine for iid is in
+// flight. processInstance joins its dispatch goroutines (wg.Wait) before SETTLE, and
+// Tick and SIGNAL_SCAN are serial, so the reset cannot race a running step.
+func (e *Engine) resetInstanceRecovery(iid core.InstanceID) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	delete(e.hydrated, iid)
+	delete(e.pending, iid)
+	delete(e.failed, iid)
+	for key := range e.retries {
+		if key.iid == iid {
+			delete(e.retries, key)
+		}
+	}
+	for key := range e.claimLostStreak {
+		if key.iid == iid {
+			delete(e.claimLostStreak, key)
+		}
+	}
+}
+
+// recoverSignalStep settles a signal step whose latest event is StepStarted (LA-C1
+// F3). A signal step's only completion path is its wait, so RC-1 must never fail it
+// as worker_crash:
+//
+//	(a) the awaited signal was delivered AFTER this activation's StepStarted: the
+//	    delivery is durable (SignalReceived is appended in the same B3 transaction
+//	    that flips the instance to running, Finalization B3), so the step completes
+//	    with that payload via CompleteStep. CompleteStep tolerates an already-deleted
+//	    wait_record (DeleteWaitRecord is a benign no-op when the row is absent);
+//	(b) otherwise the wait was never durably completed, so it is re-entered via
+//	    enterWait, which is idempotent over an existing wait_record (L4b).
+//
+// validate.Validate rejects a signal step without wait_signal; enterWait returns a
+// typed error should one ever reach this path.
+func (e *Engine) recoverSignalStep(ctx context.Context, inst core.WorkflowInstance, step core.Step, evs []core.ExecutionEvent, startedSeq int) error {
+	if step.WaitSignal != nil {
+		payload, delivered, err := signalDeliveredAfter(evs, step.WaitSignal.SignalName, startedSeq)
+		if err != nil {
+			return err
+		}
+		if delivered {
+			return e.CompleteStep(ctx, inst.InstanceID, step.ID, payload)
+		}
+	}
+	return e.enterWait(ctx, inst, step)
+}
+
+// signalReceivedRecord decodes a SignalReceived payload: {signal_name, payload}
+// (EVENTLOG_FORMAT §6; field names verbatim). It mirrors signal.signalReceivedPayload,
+// which is unexported and therefore not importable from the engine.
+type signalReceivedRecord struct {
+	SignalName string         `json:"signal_name"`
+	Payload    map[string]any `json:"payload"`
+}
+
+// signalDeliveredAfter returns the payload of the EARLIEST SignalReceived for
+// signalName whose sequence_num is greater than afterSeq (the awaited step's latest
+// StepStarted). Earliest, not latest: while this step waits, the first same-name
+// delivery is the one that resumed it, and the wait is cleared on delivery
+// (OnDelivered), so a later same-name delivery belongs to a later wait.
+func signalDeliveredAfter(evs []core.ExecutionEvent, signalName string, afterSeq int) (map[string]any, bool, error) {
+	var best map[string]any
+	bestSeq := 0
+	found := false
+	for _, ev := range evs {
+		if ev.EventType != core.EventTypeSignalReceived || ev.SequenceNum <= afterSeq {
+			continue
+		}
+		var rec signalReceivedRecord
+		if err := json.Unmarshal(ev.Payload, &rec); err != nil {
+			return nil, false, fmt.Errorf("engine: hydrate decode SignalReceived seq=%d: %w", ev.SequenceNum, err)
+		}
+		if rec.SignalName != signalName {
+			continue
+		}
+		if !found || ev.SequenceNum < bestSeq {
+			found = true
+			bestSeq = ev.SequenceNum
+			best = rec.Payload
+		}
+	}
+	return best, found, nil
 }

@@ -101,6 +101,13 @@ func (e *Engine) Tick(ctx context.Context) error {
 	} else {
 		for _, inst := range instances {
 			if err := e.processInstance(ctx, inst); err != nil {
+				// LA-C1 F1: a failed processInstance may leave a StepStarted that no
+				// in-process path settles (L1/L2/L3/L6). Reset this instance's recovery
+				// bookkeeping so the next tick re-hydrates it from the EventLog and RC-1
+				// settles the step, exactly as a restarted process would (hydrate.go).
+				// No dispatch for inst is in flight here: processInstance joins its
+				// dispatch goroutines (wg.Wait) before SETTLE, and Tick is serial.
+				e.resetInstanceRecovery(inst.InstanceID)
 				e.log().Error("process instance failed; skipping for this tick",
 					"instance_id", string(inst.InstanceID), "error", err.Error())
 				errs = append(errs, fmt.Errorf("engine: Tick process instance %s: %w", inst.InstanceID, err))
@@ -191,10 +198,12 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 	}
 
 	// ── Gather dispatch items ─────────────────────────────────────────────────
-	items, err := e.gatherDispatch(ctx, dv, inst)
-	if err != nil {
-		return err
-	}
+	// LA-C1 F2: a gather failure does NOT abandon the items gathered before it.
+	// Each of those already holds a durable StepStarted (and a won claim), so it is
+	// dispatched and settled below; only then is the gather error returned, which
+	// makes Tick reset recovery (F1). Without this, a sibling's StepStarted is
+	// stranded (L2) and, after restart, RC-1 would fail a step that never ran.
+	items, gatherErr := e.gatherDispatch(ctx, dv, inst)
 	// semantics-bearing (M07-C3r OUTPUT 0): do NOT early-return when items=0.
 	// SIGNAL_SCAN (or SIGNAL_TIMEOUT_SCAN) may have emitted StepCompleted for a
 	// signal step in this same tick, leaving the instance with current_steps=[].
@@ -231,16 +240,24 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 		if r.stepErr != nil {
 			terminal, err := e.settleFailure(ctx, dv, inst, it.step, it.sc.Attempt, *r.stepErr)
 			if err != nil {
-				return err
+				return errors.Join(gatherErr, err)
 			}
 			if terminal {
-				return nil // workflow reached a terminal state; stop settling.
+				// Workflow reached a terminal state; stop settling. LA-C1 F2: a gather
+				// error is still surfaced so that Tick resets recovery (F1).
+				return gatherErr
 			}
 			continue
 		}
 		if err := e.settleSuccess(ctx, inst, it, r); err != nil {
-			return err
+			return errors.Join(gatherErr, err)
 		}
+	}
+	// LA-C1 F2: every gathered item is now dispatched and settled; surface the
+	// gather failure so Tick resets recovery (F1). Returning here skips the
+	// post-settle gates, which the next tick's top-of-tick gates re-evaluate.
+	if gatherErr != nil {
+		return gatherErr
 	}
 
 	// ── Cancellation gate (post-settle) — Finalization B4 steps 2/3 ───────────
@@ -305,6 +322,12 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 // re-claiming (retries do not re-claim, EDR-011 §3). Both are bounded by
 // MaxParallelSteps; the sources are disjoint (retries are running, activatable
 // excludes running).
+//
+// LA-C1 F2: on a failure for item k (claim, StepStarted emission, enterWait, or a
+// retry's StepStarted emission) gathering stops — no item after k is considered —
+// and the items gathered before k are returned TOGETHER WITH the error. Each of
+// them already holds a durable StepStarted, so processInstance must still dispatch
+// and settle them; it then surfaces the error.
 func (e *Engine) gatherDispatch(ctx context.Context, dv *defView, inst core.WorkflowInstance) ([]dispatchItem, error) {
 	items := make([]dispatchItem, 0, e.cfg.MaxParallelSteps)
 
@@ -315,7 +338,7 @@ func (e *Engine) gatherDispatch(ctx context.Context, dv *defView, inst core.Work
 		}
 		won, err := e.claim(ctx, inst.InstanceID, stepID)
 		if err != nil {
-			return nil, err
+			return items, err // LA-C1 F2: items gathered so far are still dispatched.
 		}
 		if !won {
 			e.noteClaimLost(inst.InstanceID, stepID)
@@ -345,7 +368,7 @@ func (e *Engine) gatherDispatch(ctx context.Context, dv *defView, inst core.Work
 						"emit_error", err.Error(), "release_error", rerr.Error())
 				}
 			}
-			return nil, err
+			return items, err // LA-C1 F2: items gathered so far are still dispatched.
 		}
 		e.clearPending(inst.InstanceID, stepID)
 
@@ -355,7 +378,7 @@ func (e *Engine) gatherDispatch(ctx context.Context, dv *defView, inst core.Work
 		// atomically (Finalization B3) when the awaited signal arrives.
 		if step.Type == core.StepTypeSignal {
 			if err := e.enterWait(ctx, inst, step); err != nil {
-				return nil, err
+				return items, err // LA-C1 F2: items gathered so far are still dispatched.
 			}
 			continue
 		}
@@ -378,7 +401,7 @@ func (e *Engine) gatherDispatch(ctx context.Context, dv *defView, inst core.Work
 		}
 		startedAt, err := e.emitStepStarted(ctx, inst, stepID, sc.Attempt, sc.Inputs)
 		if err != nil {
-			return nil, err
+			return items, err // LA-C1 F2: items gathered so far are still dispatched.
 		}
 		e.log().Info("dispatch retry", "instance_id", string(inst.InstanceID), "step_id", stepID, "attempt", attempt)
 		items = append(items, dispatchItem{step: step, sc: sc, startedAt: startedAt})

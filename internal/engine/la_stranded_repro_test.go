@@ -399,9 +399,48 @@ func laLabel(lead string, restart bool) string {
 
 func laCalls(h *stepHandler) int32 { return atomic.LoadInt32(&h.calls) }
 
+// laHasWorkerCrash reports whether any persisted StepFailed carries code worker_crash.
+func laHasWorkerCrash(t *testing.T, evs []core.ExecutionEvent) bool {
+	t.Helper()
+	for _, ev := range evs {
+		if ev.EventType != core.EventTypeStepFailed {
+			continue
+		}
+		var p stepFailedPayload
+		decodePayload(t, ev, &p)
+		if p.Error.Code == "worker_crash" {
+			return true
+		}
+	}
+	return false
+}
+
+// laAssertNoWorkerCrash fails if any StepFailed{worker_crash} was persisted.
+// CE ruling LA-C1: for L2, L4a, L4b and L5 the RC-1 worker_crash path must not be
+// taken at all; the wait/sibling/delivery must be completed, not failed.
+func laAssertNoWorkerCrash(t *testing.T, label string, evs []core.ExecutionEvent) {
+	t.Helper()
+	if laHasWorkerCrash(t, evs) {
+		t.Errorf("%s: CE ruling LA-C1: a worker_crash StepFailed was persisted; want none", label)
+	}
+}
+
+// laHasEvent reports whether evs contains an event of type et.
+func laHasEvent(evs []core.ExecutionEvent, et core.EventType) bool {
+	for _, ev := range evs {
+		if ev.EventType == et {
+			return true
+		}
+	}
+	return false
+}
+
 // ── L1 settleSuccess: StepCompleted(a) append fails once ──────────────────────
-// Expected (card): instance completes; "a" ends StepCompleted (the handler result
-// is in the idempotency cache keyed instance/step/attempt).
+// CE ruling LA-C1: the expectation is the RC-1 restart contract, not StepCompleted.
+// The handler ran and its result is cached, but StepCompleted(a) was never
+// persisted, so RC-1 settles "a" as worker_crash, the instance fails, and the
+// handler executes exactly once in total.
+// open question LA-Q1: a successful handler result whose StepCompleted append failed is recovered as worker_crash per RC-1; recovering it from the idempotency cache would be new semantics — founder decision, not implemented.
 
 func laScenarioL1(t *testing.T, restart bool) {
 	t.Helper()
@@ -421,13 +460,19 @@ func laScenarioL1(t *testing.T, restart bool) {
 	}
 	n, errs := laTickUntil(t, e, s, iid, laK, laIsTerminal)
 	t.Logf("%s: ticks=%d tick_errors=%d handler_exec_count=%d", label, n, len(errs), laCalls(h))
-	laCheck(t, s, iid, label, core.InstanceStatusCompleted, laExpect{"a", "StepCompleted"})
+	// CE ruling LA-C1: instance failed; "a" settled as worker_crash (RC-1); handler
+	// executed exactly once. Open question LA-Q1 applies (see the L1 header).
+	laCheck(t, s, iid, label, core.InstanceStatusFailed, laExpect{"a", "StepFailed(code=worker_crash"})
+	if got := laCalls(h); got != 1 {
+		t.Errorf("%s: CE ruling LA-C1: handler executions = %d, want 1", label, got)
+	}
 }
 
 func TestLA_L1_SettleSuccess_StepCompletedAppendFails(t *testing.T) {
 	laScenarioL1(t, false)
 }
 
+// CE ruling LA-C1: regression guard, not a defect detector; pins the already-holding RC-1 restart contract and passes pre-fix.
 func TestLA_L1_SettleSuccess_StepCompletedAppendFails_AfterRestart(t *testing.T) {
 	laScenarioL1(t, true)
 }
@@ -460,6 +505,13 @@ func laScenarioL2(t *testing.T, restart bool) {
 		label, n, len(errs), laCalls(root), laCalls(b1), laCalls(b2))
 	laCheck(t, s, iid, label, core.InstanceStatusCompleted,
 		laExpect{"b1", "StepCompleted"}, laExpect{"b2", "StepCompleted"})
+	// CE ruling LA-C1: b1 and b2 each StepCompleted, each handler executed exactly
+	// once, and no worker_crash anywhere (b1 really ran; it must not be failed).
+	if laCalls(root) != 1 || laCalls(b1) != 1 || laCalls(b2) != 1 {
+		t.Errorf("%s: CE ruling LA-C1: handler executions root=%d b1=%d b2=%d; want 1 each",
+			label, laCalls(root), laCalls(b1), laCalls(b2))
+	}
+	laAssertNoWorkerCrash(t, label, laEvents(t, s, iid))
 }
 
 func TestLA_L2_GatherDispatch_SiblingClaimFails(t *testing.T) {
@@ -491,13 +543,20 @@ func laScenarioL3(t *testing.T, restart bool) {
 	}
 	n, errs := laTickUntil(t, e, s, iid, laK, laIsTerminal)
 	t.Logf("%s: ticks=%d tick_errors=%d handler_exec_count=%d", label, n, len(errs), laCalls(h))
-	laCheck(t, s, iid, label, core.InstanceStatusFailed, laExpect{"a", "StepFailed("})
+	// CE ruling LA-C1: the StepFailed(a) append for the handler error failed, so RC-1
+	// settles "a" as worker_crash (no retry policy in this fixture) and the instance
+	// fails; the handler executes exactly once in total.
+	laCheck(t, s, iid, label, core.InstanceStatusFailed, laExpect{"a", "StepFailed(code=worker_crash"})
+	if got := laCalls(h); got != 1 {
+		t.Errorf("%s: CE ruling LA-C1: handler executions = %d, want 1", label, got)
+	}
 }
 
 func TestLA_L3_SettleFailure_StepFailedAppendFails(t *testing.T) {
 	laScenarioL3(t, false)
 }
 
+// CE ruling LA-C1: regression guard, not a defect detector; pins the already-holding RC-1 restart contract and passes pre-fix.
 func TestLA_L3_SettleFailure_StepFailedAppendFails_AfterRestart(t *testing.T) {
 	laScenarioL3(t, true)
 }
@@ -525,14 +584,33 @@ func laScenarioWait(t *testing.T, restart bool, lead string, ft laFault) {
 	if restart {
 		e = laEngine(fs, clk, ids, 1, ha, hz)
 	}
+	// CE ruling LA-C1: the instance must pass through `waiting` (the wait is re-entered
+	// by RC-1, F3b, or its duplicate wait_record completes the running→waiting write,
+	// F3/L4b) BEFORE the signal is sent; it must then receive the signal and complete.
+	laTickUntil(t, e, s, iid, laK, func(i core.WorkflowInstance) bool {
+		return i.Status == core.InstanceStatusWaiting
+	})
+	if got := laInstance(t, s, iid).Status; got != core.InstanceStatusWaiting {
+		t.Fatalf("%s: CE ruling LA-C1: instance never reached waiting within %d ticks: status=%s", label, laK, got)
+	}
 	if err := e.Signal(context.Background(), iid, "go", map[string]any{"by": "alice"}); err != nil {
 		t.Fatalf("Signal: %v", err)
 	}
 	n, errs := laTickUntil(t, e, s, iid, laK, laIsTerminal)
 	t.Logf("%s: ticks=%d tick_errors=%d handler_exec_count a=%d z=%d",
 		label, n, len(errs), laCalls(ha), laCalls(hz))
+	// CE ruling LA-C1: w and z StepCompleted, z executed exactly once, the signal was
+	// delivered (SignalReceived persisted), and no worker_crash anywhere.
 	laCheck(t, s, iid, label, core.InstanceStatusCompleted,
 		laExpect{"w", "StepCompleted"}, laExpect{"z", "StepCompleted"})
+	evs := laEvents(t, s, iid)
+	if !laHasEvent(evs, core.EventTypeSignalReceived) {
+		t.Errorf("%s: CE ruling LA-C1: no SignalReceived persisted; the signal was not delivered", label)
+	}
+	if got := laCalls(hz); got != 1 {
+		t.Errorf("%s: CE ruling LA-C1: z handler executions = %d, want 1", label, got)
+	}
+	laAssertNoWorkerCrash(t, label, evs)
 }
 
 func TestLA_L4a_EnterWait_CreateWaitRecordFails(t *testing.T) {
@@ -555,6 +633,7 @@ func TestLA_L4b_EnterWait_RunningToWaitingUpsertFails_AfterRestart(t *testing.T)
 // Fault armed only after the instance is parked in `waiting`. It fires inside
 // SIGNAL_SCAN after the B3 commit (Tick itself returns nil; the scan logs it).
 // Expected (card): instance completes; "w" StepCompleted with the signal payload.
+// CE ruling LA-C1: additionally no worker_crash anywhere; z executes exactly once.
 
 func TestLA_L5_PostDelivery_StepCompletedAppendFails(t *testing.T) {
 	laScenarioL5(t, false)
@@ -613,6 +692,12 @@ func laScenarioL5(t *testing.T, restart bool) {
 		decodePayload(t, ev, &p)
 		assertJSONEqual(t, p.Outputs, map[string]any{"by": "alice"})
 	}
+	// CE ruling LA-C1: z executes exactly once and no worker_crash is persisted; the
+	// delivered signal's step "w" completes (it must not be failed by RC-1).
+	if got := laCalls(hz); got != 1 {
+		t.Errorf("%s: CE ruling LA-C1: z handler executions = %d, want 1", label, got)
+	}
+	laAssertNoWorkerCrash(t, label, evs)
 }
 
 // ── L6 hydrate RC-1: the RC-1 StepFailed(worker_crash) append fails once ──────
@@ -621,6 +706,7 @@ func laScenarioL5(t *testing.T, restart bool) {
 // Expected (card): the fresh engine still recovers (reaches a terminal status)
 // within K ticks in the same process. The AfterRestart variant ticks a third
 // engine; the card gives no outcome beyond "recovers", so it asserts terminal.
+// CE ruling LA-C1: both variants assert the RC-1 contract outcome (see the tail).
 
 func laScenarioL6(t *testing.T, restart bool) {
 	t.Helper()
@@ -647,13 +733,12 @@ func laScenarioL6(t *testing.T, restart bool) {
 	}
 	n, errs := laTickUntil(t, e, s, iid, laK, laIsTerminal)
 	t.Logf("%s: ticks=%d tick_errors=%d handler_exec_count=%d", label, n, len(errs), laCalls(h))
-	laReport(t, s, iid, label)
-	evs := laEvents(t, s, iid)
-	inst := laInstance(t, s, iid)
-	t.Logf("%s: step %q outcome=%s", label, "a", laStepOutcome(t, evs, "a"))
-	if !isTerminal(inst.Status) {
-		t.Errorf("%s: no terminal status within %d ticks after the RC-1 fault: status=%s current_steps=%v",
-			label, laK, inst.Status, inst.CurrentSteps)
+	// CE ruling LA-C1: terminal within K, and the RC-1 contract outcome: instance
+	// failed, "a" settled as worker_crash (no retry policy here), and the handler
+	// executed exactly once in total (RC-1 never re-runs the handler).
+	laCheck(t, s, iid, label, core.InstanceStatusFailed, laExpect{"a", "StepFailed(code=worker_crash"})
+	if got := laCalls(h); got != 1 {
+		t.Errorf("%s: CE ruling LA-C1: handler executions = %d, want 1", label, got)
 	}
 }
 
@@ -661,6 +746,66 @@ func TestLA_L6_HydrateRC1_StepFailedAppendFails(t *testing.T) {
 	laScenarioL6(t, false)
 }
 
+// CE ruling LA-C1: regression guard, not a defect detector; pins the already-holding RC-1 restart contract and passes pre-fix.
 func TestLA_L6_HydrateRC1_StepFailedAppendFails_AfterRestart(t *testing.T) {
 	laScenarioL6(t, true)
+}
+
+// ── F1 (LA-C1): in-process recovery ≡ restart recovery ──────────────────────────
+// TestLA_F1_RecoveryResetsBookkeeping proves that resetInstanceRecovery discards
+// every per-instance entry hydrate reconstructs, so a STALE in-memory retry cannot
+// survive the reset and resurrect a step. Setup is the L1 fault: StepStarted(a) is
+// stranded (the handler ran once; StepCompleted(a) was never persisted). Stale
+// entries are then planted for iid — a due retry for "a" at attempt 2 (the
+// resurrection vector) plus pending/failed/claim-lost markers — and an unrelated
+// retry for another instance id. After the reset, iid's entries are gone and the
+// unrelated one survives; the next tick settles "a" by RC-1 (worker_crash, instance
+// failed) and the handler is NOT executed again.
+func TestLA_F1_RecoveryResetsBookkeeping(t *testing.T) {
+	def := laDefSingle()
+	s, fs := laSetup(t, def)
+	h := &stepHandler{id: "la_a", outputs: map[string]any{"msg": "done"}}
+	clk := newFakeClock(engineStart, 10*time.Millisecond)
+	ids := laIDs()
+	e := laEngine(fs, clk, ids, 1, h)
+	iid := laSubmit(t, e, def.ID)
+
+	fs.arm(laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeStepCompleted, stepID: "a"})
+	laWantInjected(t, laTickUntilTripped(t, e, fs))
+
+	const unrelated = core.InstanceID("la-f1-unrelated")
+	stepKey := retryKey{iid: iid, step: "a"}
+	e.mu.Lock()
+	e.hydrated[iid] = true
+	e.retries[stepKey] = retrySched{nextAttempt: 2, nextAttemptAt: clk.now().Add(-time.Second)}
+	e.pending[iid] = map[string]bool{"a": true}
+	e.failed[iid] = map[string]bool{"a": true}
+	e.claimLostStreak[stepKey] = 3
+	e.retries[retryKey{iid: unrelated, step: "a"}] = retrySched{nextAttempt: 2, nextAttemptAt: clk.now()}
+	e.mu.Unlock()
+
+	e.resetInstanceRecovery(iid)
+
+	e.mu.Lock()
+	_, hydrated := e.hydrated[iid]
+	_, hasRetry := e.retries[stepKey]
+	_, hasPending := e.pending[iid]
+	_, hasFailed := e.failed[iid]
+	_, hasStreak := e.claimLostStreak[stepKey]
+	_, unrelatedRetry := e.retries[retryKey{iid: unrelated, step: "a"}]
+	e.mu.Unlock()
+	if hydrated || hasRetry || hasPending || hasFailed || hasStreak {
+		t.Errorf("F1 (LA-C1): reset left iid bookkeeping behind: hydrated=%t retry=%t pending=%t failed=%t claim_lost_streak=%t",
+			hydrated, hasRetry, hasPending, hasFailed, hasStreak)
+	}
+	if !unrelatedRetry {
+		t.Errorf("F1 (LA-C1): reset of %s also cleared an unrelated instance's retry entry", iid)
+	}
+
+	n, errs := laTickUntil(t, e, s, iid, laK, laIsTerminal)
+	t.Logf("F1: ticks=%d tick_errors=%d handler_exec_count=%d", n, len(errs), laCalls(h))
+	laCheck(t, s, iid, "F1", core.InstanceStatusFailed, laExpect{"a", "StepFailed(code=worker_crash"})
+	if got := laCalls(h); got != 1 {
+		t.Errorf("F1 (LA-C1): stale retry resurrected a step: handler executions = %d, want 1", got)
+	}
 }
