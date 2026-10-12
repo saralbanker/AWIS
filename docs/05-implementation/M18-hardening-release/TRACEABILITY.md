@@ -113,10 +113,11 @@ DB.Close; ad-hoc fallback), cmd/awis/trace.go (buffered writer; TDS-07 adapter/t
 No change to internal/core, internal/engine (non-test), sdk/, StoragePort interface,
 internal/plugin, plugins/, python/, apps/, ci.yml, go.mod. **No architectural drift.**
 
-## Proposed G4 rulings (CE-recorded 2026-10-12 — pending founder G4 VERDICT)
-**Provenance note (2026-10-12 review):** these are PROPOSED rulings, recorded by the CE; no founder-authored
-artifact for them existed at c56d53e (PR #1 has no review or comment). They take effect for G4
-only when the founder fills the G4 VERDICT line at the end of this section.
+## G4 rulings (CE-recorded 2026-10-12; ratified by founder G4 verdict SHIP, 2026-10-12)
+**Provenance note (2026-10-12 review):** these rulings were recorded by the CE; no founder-authored
+artifact for them existed at c56d53e. The founder ratified them with the verdict below, given as an
+explicit instruction in a Claude Code session on 2026-10-12 and recorded by the CE; no
+founder-authored commit or PR review exists.
 Pre-ruling gate check (CE, 2026-10-12): PR #1 head 883925a = branch HEAD, base 4977de7 = main,
 mergeable CLEAN; delta b78ae44..883925a is 4 ledger docs only (V1r PASS still covers the code);
 real CI at 883925a green both events — push 38156031710 and pull_request 38156060642: ubuntu +
@@ -125,22 +126,22 @@ empty.
 
 | Item | Ruling | Evidence | Recorded status |
 |---|---|---|---|
-| QG-2 | **WAIVER PROPOSED for v1.0.0** — unmeasured; risk accepted; measure post-release when an independent developer is available. Not PASS. | No human-subject measurement exists (VALIDATION_CHECKLIST QG-2) | WAIVER PROPOSED (unmeasured, NOT PASS) → backlog M18-B3 |
-| QG-4 | **ACCEPTANCE PROPOSED (not a literal pass)** — the G3 Q1 ruling (2026-09-18, cb07eba; G3_BRIEF.md:126-133) names seams P0 (`sdk/dsl.go`), P1 (`sdk/runtime.go`, `sdk/runtime_runner.go`) and P2 (`internal/engine/emit.go`, `internal/storage/rebuild.go`). It does not name `cmd/awis`. G4 would **extend** that acceptance to the disclosed C3r CLI seam: the global `--namespace` flag in `cmd/awis/{main,errors,submit}.go` (0e452f8; M15 BOUNDARY_EVIDENCE.md C3r section). Known gap: TDS-07 §4 (CLI_CONTRACT.md:157-162) says the global flag targets submit/signal/cancel/status/trace, but only submit (and history/metrics/export) read it → backlog M18-B6. | V1_BENCHMARKS.md QG-4 row; `TestOIPSystemE2E` + 8 `TestQG3_*` PASS | ACCEPTANCE PROPOSED (pending founder) |
-| PRD §32 rows 13, 14 | **TDS-07 governs; PRD wording corrected; implementation unchanged** (D-12 class, as rows 8/15) | CLI_CONTRACT `cancel` errors ("Exit 1: instance already in terminal state"; cmd/awis/cancel.go:69); `TestCancel_TerminalNoOpWarning` (engine no-op, nil); `workflow validate` → `<path>  valid ✓` exit 0 (CE re-observed on apps/oip/workflows/capture-decision.yaml) | SATISFIED BY AMENDMENT, proposed (as written at V1r: 13 FOUNDER DECISION, 14 NOT SATISFIED) |
-| PRD §32 row 41 | **PARTIAL acceptance proposed for v1.0.0**; outputs only via `awis trace --json --full` (default `--json` truncates payloads over 120 runes, cmd/awis/trace.go:33-38; `--full` does not change the human view); human trace-output clarification/fix scheduled post-release | V1_BENCHMARKS.md row-41 ruling; fix 3addeb9 (timing/adapter/tokens) | PARTIAL (acceptance proposed) → backlog M18-B4 |
+| QG-2 | **WAIVED for v1.0.0** — unmeasured; risk accepted; measure post-release when an independent developer is available. Not PASS. | No human-subject measurement exists (VALIDATION_CHECKLIST QG-2) | WAIVED (unmeasured, NOT PASS) → backlog M18-B3 |
+| QG-4 | **ACCEPTED, limited to the disclosed behavior — not a literal pass and not full TDS-07 compliance** — the G3 Q1 ruling (2026-09-18, cb07eba; G3_BRIEF.md:126-133) names seams P0 (`sdk/dsl.go`), P1 (`sdk/runtime.go`, `sdk/runtime_runner.go`) and P2 (`internal/engine/emit.go`, `internal/storage/rebuild.go`). It does not name `cmd/awis`. G4 **extends** that acceptance to the disclosed C3r CLI seam: the global `--namespace` flag in `cmd/awis/{main,errors,submit}.go` (0e452f8; M15 BOUNDARY_EVIDENCE.md C3r section). Known gap: TDS-07 §4 (CLI_CONTRACT.md:157-162) says the global flag targets submit/signal/cancel/status/trace, but only submit (and history/metrics/export) read it → backlog M18-B6. | V1_BENCHMARKS.md QG-4 row; `TestOIPSystemE2E` + 8 `TestQG3_*` PASS | ACCEPTED (limited to the disclosed behavior) |
+| PRD §32 rows 13, 14 | **TDS-07 governs; PRD wording corrected; implementation unchanged** (D-12 class, as rows 8/15) | CLI_CONTRACT `cancel` errors ("Exit 1: instance already in terminal state"; cmd/awis/cancel.go:69); `TestCancel_TerminalNoOpWarning` (engine no-op, nil); `workflow validate` → `<path>  valid ✓` exit 0 (CE re-observed on apps/oip/workflows/capture-decision.yaml) | SATISFIED BY AMENDMENT (as written at V1r: 13 FOUNDER DECISION, 14 NOT SATISFIED) |
+| PRD §32 row 41 | **PARTIAL accepted for v1.0.0**; outputs only via `awis trace --json --full` (default `--json` truncates payloads over 120 runes, cmd/awis/trace.go:33-38; `--full` does not change the human view); human trace-output clarification/fix scheduled post-release | V1_BENCHMARKS.md row-41 ruling; fix 3addeb9 (timing/adapter/tokens) | PARTIAL (accepted) → backlog M18-B4 |
 | NFR-P-03 | Stays **UNMEASURABLE**, not verified | No Anthropic credential (CURRENT_TRUTH_LEDGER.md §7.6) | UNMEASURABLE |
 | Prior exceptions (rows 37, 40, 44; 5, 28, 32) | Carried forward under DEC-11 / DEC-4 | V1_BENCHMARKS.md drift note | unchanged |
 | M18-B1, M18-B2 | Remain in existing backlog, non-blocking | STATE.md M18 BACKLOG | unchanged |
-| PRD §32 "All Must Have criteria must pass before V1 ships" (AWIS_PRD.md:2179) | **Proposed exception for v1.0.0:** ships with rows 37, 40 NOT SATISFIED; 41, 44 PARTIAL; 5, 28, 32 UNMEASURABLE | Totals below | EXCEPTION PROPOSED (pending founder) |
-| M18-C5 test scope (29cb521) | **Disclosed; acceptance proposed for v1.0.0:** `TestDeliverSignal_CrashPreCommit` now kills the child before `DeliverSignal` is called (CRASH_PAUSE_AFTER_SETUP), so it no longer crashes inside the B3 transaction. B3 atomicity rests on the single transaction (internal/storage/deliver.go:81-184) and the unchanged post-commit test. | internal/storage/deliver_crash_test.go | DISCLOSED → backlog M18-B5 (mid-transaction fault injection; Loop A) |
+| PRD §32 "All Must Have criteria must pass before V1 ships" (AWIS_PRD.md:2179) | **Founder exception for v1.0.0:** ships with rows 37, 40 NOT SATISFIED; 41, 44 PARTIAL; 5, 28, 32 UNMEASURABLE | Totals below | EXCEPTION (founder) |
+| M18-C5 test scope (29cb521) | **Disclosed; accepted for v1.0.0:** `TestDeliverSignal_CrashPreCommit` now kills the child before `DeliverSignal` is called (CRASH_PAUSE_AFTER_SETUP), so it no longer crashes inside the B3 transaction. B3 atomicity rests on the single transaction (internal/storage/deliver.go:81-184) and the unchanged post-commit test. | internal/storage/deliver_crash_test.go | DISCLOSED → backlog M18-B5 (mid-transaction fault injection; Loop A) |
 
 PRD correction (AWIS_PRD.md, same commit as this record): §32 rows 13 and 14 restated to the
 TDS-07 behavior; the same "step summary" claim corrected where the PRD states it elsewhere
 (§15 command table, AD-1 acceptance, §18 "Valid output" block) so the PRD does not contradict
 itself. Row 41 text unchanged (accepted PARTIAL, not reworded).
-§32 totals if the rulings are ratified: 52 SATISFIED (50 as originally written + rows 13, 14 by amendment) ·
+§32 totals after the founder's G4 verdict: 52 SATISFIED (50 as originally written + rows 13, 14 by amendment) ·
 2 NOT SATISFIED (37, 40) · 2 PARTIAL (41, 44) · 3 UNMEASURABLE (5, 28, 32) = 59.
-Not performed (human-only, EEOS rule 6): squash-merge, `v1.0.0` tag push, publication.
+Squash-merge, `v1.0.0` tag push and publication: authorised by the founder (EEOS rule 6) and executed by the CE at the founder's explicit instruction after this commit; release evidence is recorded in STATE.md on main.
 
-**G4 VERDICT (founder):** ______  ← write exactly one of: `SHIP v1.0.0 with the exceptions above` | `HOLD` — date ______ — signed by the founder's own commit.
+**G4 VERDICT (founder):** SHIP v1.0.0 with the exceptions above — 2026-10-12 — the founder's explicit decision, given in a Claude Code session and recorded by the CE (this commit is agent-authored; no founder signature exists).

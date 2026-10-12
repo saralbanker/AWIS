@@ -1,5 +1,5 @@
 # M18 → v1.0.0 Handoff
-**Status: C-VERIFY PASS / D-CLOSE done (2026-10-11); G4 rulings proposed (CE-recorded 2026-10-12) — awaiting founder G4 VERDICT, then squash-merge + `v1.0.0` tag (E-MERGE).** This file is created at A-INIT (2026-10-10), per the module
+**Status: C-VERIFY PASS / D-CLOSE done (2026-10-11); founder G4 verdict SHIP (2026-10-12) — squash-merge + `v1.0.0` tag executed by the CE at the founder's instruction (E-MERGE).** This file is created at A-INIT (2026-10-10), per the module
 template — module previously had no HANDOFF.md/TRACEABILITY.md (it had only a 6-line
 README.md, `Status: Partitioned — materialize at entry`). It remains a draft, with every
 "guaranteed output" below unconfirmed, until B-BUILD/C-VERIFY run and D-CLOSE records actuals.
@@ -55,14 +55,14 @@ README.md, `Status: Partitioned — materialize at entry`). It remains a draft, 
 - QG-1 PASS (linux + real macOS CI), QG-3 PASS (E1 both CI legs), QG-5 PASS; QG-2 and QG-4
   founder-owned; NFR-P-03 UNMEASURABLE.
 - Real CI green: run 38155115251 @b78ae44 (ubuntu, macos, docs-lint).
-- Proposed G4 rulings (CE-recorded 2026-10-12; effective only when the founder fills the G4 VERDICT line; full record TRACEABILITY.md "Proposed G4 rulings"): QG-2
+- G4 rulings (CE-recorded 2026-10-12; ratified by founder G4 verdict SHIP 2026-10-12; full record TRACEABILITY.md "G4 rulings"): QG-2
   WAIVED for v1.0.0 (unmeasured, risk accepted, not PASS → M18-B3); QG-4 ACCEPTED, not literal PASS
-  (G4 would extend G3 Q1 to the disclosed `--namespace` CLI seam → gap M18-B6); PRD §32 rows 13/14 — TDS-07
+  (G4 extends G3 Q1 to the disclosed `--namespace` CLI seam → gap M18-B6); PRD §32 rows 13/14 — TDS-07
   governs, PRD wording corrected, implementation unchanged → SATISFIED BY AMENDMENT; row 41 PARTIAL accepted
   (outputs via `--json --full`; human format post-release → M18-B4); C5 crash-test scope disclosed → M18-B5; NFR-P-03 stays UNMEASURABLE;
   prior exceptions (rows 37/40/44, 5/28/32) carried forward; M18-B1/B2 stay in backlog.
-  §32 totals: 52 SAT (2 by amendment) / 2 NOT / 2 PARTIAL / 3 UNMEASURABLE — proposed exception
+  §32 totals: 52 SAT (2 by amendment) / 2 NOT / 2 PARTIAL / 3 UNMEASURABLE — founder exception
   to PRD §32 "all Must Have criteria must pass".
 - Real CI green at PR head 883925a (pre-ruling): push 38156031710, pull_request 38156060642.
-- Not performed (human-only, EEOS rule 6): squash-merge, `v1.0.0` tag push, publication (E-MERGE). OIP dogfood week:
+- Squash-merge, `v1.0.0` tag push, publication (E-MERGE): authorised by the founder (EEOS rule 6), executed by the CE at the founder's instruction. OIP dogfood week:
   advisory, not started by this module.
