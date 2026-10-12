@@ -128,7 +128,15 @@ func (e *Engine) Tick(ctx context.Context) error {
 // the check but during gatherDispatch can leave items already claimed. Each such
 // item holds a durable StepStarted, so it is dispatched and settled like any
 // gathered item (LA-C1 F2) and is never stranded.
+//
+// LA-C4b F-M: tick holds e.tickMu for its whole body, so Run's ticks and a public
+// Tick never overlap (single dispatcher, Blueprint §Concurrency Model). The LA-C1
+// F1 reset below relies on this: a reset is only safe when no dispatch for the
+// instance is live, which holds exactly when ticks are serial.
 func (e *Engine) tick(ctx context.Context, stop <-chan struct{}) error {
+	e.tickMu.Lock()
+	defer e.tickMu.Unlock()
+
 	// LA-C2 (a): a stopped tick does nothing — not even the read-only ListInstances.
 	if stopRequested(stop) {
 		return nil
@@ -154,7 +162,8 @@ func (e *Engine) tick(ctx context.Context, stop <-chan struct{}) error {
 				// bookkeeping so the next tick re-hydrates it from the EventLog and RC-1
 				// settles the step, exactly as a restarted process would (hydrate.go).
 				// No dispatch for inst is in flight here: processInstance joins its
-				// dispatch goroutines (wg.Wait) before SETTLE, and Tick is serial.
+				// dispatch goroutines (wg.Wait) before SETTLE, and no other tick runs
+				// concurrently because tick holds e.tickMu for its whole body (LA-C4b F-M).
 				e.resetInstanceRecovery(inst.InstanceID)
 				e.log().Error("process instance failed; skipping for this tick",
 					"instance_id", string(inst.InstanceID), "error", err.Error())
@@ -311,24 +320,62 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 	wg.Wait()
 
 	// ── SETTLE (serial, dispatch order) ───────────────────────────────────────
+	// LA-C4b F-S (LA-C1 F2: "already-started items are dispatched and settled"):
+	// every dispatched item is settled, not only the items before the first
+	// failure. A dispatched handler has already run and its StepStarted is durable;
+	// abandoning it leaves its outcome unrecorded, and RC-1 (LA-C1 F1) would then
+	// record a successful sibling as worker_crash. So a settle error for item i is
+	// recorded and the loop CONTINUES with i+1..n; the errors are joined and returned
+	// after the loop, so Tick still resets recovery (F1).
+	//
+	// Terminal stop: once the workflow has a durable terminal event, no further item
+	// is settled and no event is appended after it. The stop is taken when (a)
+	// settleFailure reports terminal, or (b) a settle error occurred and the EventLog
+	// already holds a terminal workflow event (durableTerminal). Case (b) is needed
+	// because emit appends before it projects, and routeTerminalFailure can fail
+	// after WorkflowFailed is durable (projection or maybeCompensate), so an error
+	// does not by itself prove the workflow is still running. Items after the stop
+	// keep their StepStarted and are not settled in this tick; settling after a
+	// terminal event is not permitted (LA-C4a hydrate fence covers the recovery side).
+	var settleErrs []error
+	stopped := false
 	for i := range items {
 		it := items[i]
 		r := results[i]
+		var (
+			terminal bool
+			err      error
+		)
 		if r.stepErr != nil {
-			terminal, err := e.settleFailure(ctx, dv, inst, it.step, it.sc.Attempt, *r.stepErr)
-			if err != nil {
-				return errors.Join(gatherErr, err)
-			}
-			if terminal {
-				// Workflow reached a terminal state; stop settling. LA-C1 F2: a gather
-				// error is still surfaced so that Tick resets recovery (F1).
-				return gatherErr
-			}
-			continue
+			terminal, err = e.settleFailure(ctx, dv, inst, it.step, it.sc.Attempt, *r.stepErr)
+		} else {
+			err = e.settleSuccess(ctx, inst, it, r)
 		}
-		if err := e.settleSuccess(ctx, inst, it, r); err != nil {
-			return errors.Join(gatherErr, err)
+		if err != nil {
+			settleErrs = append(settleErrs, err)
+			if !terminal {
+				durable, derr := e.durableTerminal(ctx, inst.InstanceID)
+				if derr != nil {
+					settleErrs = append(settleErrs, derr)
+				}
+				// An unreadable EventLog cannot prove the workflow is still running:
+				// stop rather than append after a possible terminal event.
+				terminal = durable || derr != nil
+			}
 		}
+		if terminal {
+			stopped = true
+			break
+		}
+	}
+	if len(settleErrs) > 0 {
+		// LA-C1 F2: a gather error is still surfaced so that Tick resets recovery (F1).
+		return errors.Join(append([]error{gatherErr}, settleErrs...)...)
+	}
+	if stopped {
+		// Workflow reached a terminal state; stop settling. LA-C1 F2: a gather
+		// error is still surfaced so that Tick resets recovery (F1).
+		return gatherErr
 	}
 	// LA-C1 F2: every gathered item is now dispatched and settled; surface the
 	// gather failure so Tick resets recovery (F1). Returning here skips the
@@ -504,6 +551,26 @@ func (e *Engine) settleSuccess(ctx context.Context, inst core.WorkflowInstance, 
 	}
 	e.log().Info("settle", "instance_id", string(inst.InstanceID), "step_id", it.step.ID, "outcome", "completed")
 	return nil
+}
+
+// durableTerminal reports whether iid's EventLog already holds a terminal workflow
+// event (WorkflowCompleted, WorkflowFailed or WorkflowCancelled). It reads the log,
+// not the projection: emit appends the event before it projects, so a projection
+// failure can leave the terminal event durable while the instance still reads as
+// running. LA-C4b F-S: used only on a settle error, to decide whether settling may
+// continue; a read error is returned so the caller can stop (see processInstance).
+func (e *Engine) durableTerminal(ctx context.Context, iid core.InstanceID) (bool, error) {
+	evs, err := e.storage.ReadEvents(ctx, iid, 0)
+	if err != nil {
+		return false, fmt.Errorf("engine: settle terminal check %s: %w", iid, err)
+	}
+	for _, ev := range evs {
+		switch ev.EventType {
+		case core.EventTypeWorkflowCompleted, core.EventTypeWorkflowFailed, core.EventTypeWorkflowCancelled:
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // claim wraps ClaimStep and keeps the engine's tracked version in lock-step with

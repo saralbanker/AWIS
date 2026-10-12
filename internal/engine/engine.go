@@ -100,6 +100,17 @@ type Engine struct {
 	// clearClaimLostStreak); it is what turns a permanently-unwinnable claim
 	// (D-6) into an observable signal instead of silent per-tick noise.
 	claimLostStreak map[retryKey]int
+
+	// tickMu serializes whole ticks (LA-C4b F-M). Run's ticks and a public Tick
+	// (sdk Runtime.Tick, which may be called while Run is active) all pass through
+	// tick, which holds tickMu for its entire body. Blueprint §Concurrency Model
+	// (local mode: single goroutine dispatcher) makes one dispatcher the contract,
+	// and the LA-C1 F1 reset invariant ("no dispatch for the instance in flight when
+	// reset runs") depends on it: a tick that resets recovery while another tick's
+	// dispatch is live would let RC-1 settle a live step as worker_crash. Only tick
+	// takes tickMu; Submit, Signal and Cancel do not, and nothing reached from
+	// inside tick calls tick or Tick, so the lock cannot re-enter.
+	tickMu sync.Mutex
 }
 
 // retryKey identifies a per-instance per-step retry schedule.
