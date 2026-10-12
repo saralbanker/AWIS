@@ -367,7 +367,7 @@ DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07 M08 M09 M10 M11 M12 M13 M14 M15
 # ── M18 A-INIT (2026-10-10) ─────────────────────────────────────────────────────
 MILESTONE: M18-hardening-release
 BRANCH: m18-hardening-release (branched from main at 4977de7)
-PHASE: E-MERGE (G4 rulings recorded 2026-10-12; blocked on founder: squash-merge + v1.0.0 tag)
+PHASE: E-MERGE (G4 rulings CE-recorded 2026-10-12; blocked on founder: G4 verdict line + squash-merge + v1.0.0 tag)
 GATE: G4 — Release (fires at D-CLOSE/E-MERGE; no card tags v1.0.0 or renders ship/no-ship)
 CARDS:
   M18-C1   DONE    awis-builder(haiku)  16cf735  (P2 salvage re-dispatch after rate-limit death of run 1)
@@ -382,22 +382,25 @@ CARDS:
   M18-C5   DONE    awis-builder(haiku)  29cb521  (crash test deterministic: loaded 30/30 vs control 26/30; records fixed)
   M18-V1r  DONE(PASS) awis-verifier(haiku)  @b78ae44 (report in TRACEABILITY.md; checklist ticked by CE)
 BLOCKERS: none
-NEXT: FOUNDER — squash-merge PR #1 (EEOS rule 6), then push tag `v1.0.0` at the merge commit
+NEXT: FOUNDER — sign the G4 VERDICT line (M18 TRACEABILITY.md), then squash-merge PR #1 (EEOS rule 6), then push tag `v1.0.0` at the merge commit
   (release.yml publishes). Loop A (bounded engine confidence) starts only after the merge.
-G4-RULINGS (founder, 2026-10-12; recorded by Opus CE; full record M18 TRACEABILITY.md):
-  QG-2 WAIVED for v1.0.0 (unmeasured; risk accepted; NOT PASS). QG-4 PASS (G3 Q1 covers all
-  nine disclosed M15 paths incl. `--namespace` in cmd/awis/{main,errors,submit}.go). PRD §32
+G4-PROPOSED-RULINGS (CE-recorded 2026-10-12; pending founder G4 VERDICT in M18 TRACEABILITY.md):
+  QG-2 WAIVED for v1.0.0 (unmeasured; risk accepted; NOT PASS). QG-4 ACCEPTED, not literal PASS (G4 extends G3 Q1's
+  P0/P1/P2 seams to the disclosed `--namespace` CLI seam in cmd/awis/{main,errors,submit}.go). PRD §32
   rows 13/14: TDS-07 governs; PRD wording corrected (AWIS_PRD.md), implementation unchanged →
-  SATISFIED. Row 41: PARTIAL accepted (outputs via --json). NFR-P-03 stays UNMEASURABLE. Prior
-  exceptions (37/40/44; 5/28/32) carried forward. §32: 52 SAT / 2 NOT / 2 PARTIAL / 3 UNMEAS.
+  SATISFIED BY AMENDMENT. Row 41: PARTIAL accepted (outputs via --json --full). NFR-P-03 stays UNMEASURABLE. Prior
+  exceptions (37/40/44; 5/28/32) carried forward. §32: 52 SAT (2 by amendment) / 2 NOT / 2 PARTIAL / 3 UNMEAS — proposed as an
+  exception to PRD §32 "all Must Have criteria must pass".
   Pre-ruling CI at PR head 883925a green: push 38156031710 + pull_request 38156060642.
 D-CLOSE (Opus CE in Fable's role per MODEL-DIRECTIVE, 2026-10-11): semantic review PASS, no
   architectural drift (TRACEABILITY.md). V1r PASS @b78ae44; CI 38155115251 green both legs.
 BACKLOG (non-blocking): M18-B1 release-note bookkeeping noise; M18-B2 one unreproduced
   SQLITE_BUSY on first `awis submit` after `awis start` (CE repro 0/50); M18-B3 QG-2
-  human-subject measurement post-release (founder waiver 2026-10-12); M18-B4 `awis trace`
+  human-subject measurement post-release (proposed G4 waiver, pending founder verdict); M18-B4 `awis trace`
   human view lacks step outputs + CLI_CONTRACT `--full` inconsistency (row 41 PARTIAL accepted;
-  clarify/fix post-release).
+  clarify/fix post-release); M18-B5 `TestDeliverSignal_CrashPreCommit` (C5) no longer crashes
+  inside the B3 transaction — add mid-transaction fault injection (Loop A); M18-B6 global
+  `--namespace` ignored by signal/cancel/status/trace despite TDS-07 §4 (CLI_CONTRACT.md:157-162).
 CI-EVIDENCE-2: run 38154745869 @1043b9a (contains C5 29cb521) — ubuntu ✓, macos ✓, docs-lint ✓.
 V1-RESULT (2026-10-11, @4092406): FAIL. Reproduced independently: all 9 NFR rows (3 runs, verdicts
   MATCH), QG-1 (linux 249ms completed; macOS real-CI cmd/awis ok 42.292s), QG-5, make verify/
