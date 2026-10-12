@@ -619,7 +619,7 @@ func (s *SQLiteStorage) GetInstance(ctx context.Context, instanceID core.Instanc
 		version                          int // DB-internal; not exposed
 	)
 
-	err := s.db.db.QueryRowContext(ctx, `
+	err := s.db.queryRow(ctx, `
 		SELECT instance_id, definition_id, definition_version, namespace, status,
 		       current_steps, variables, started_at, updated_at, completed_at, version
 		FROM workflow_instances

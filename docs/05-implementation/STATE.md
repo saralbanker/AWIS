@@ -363,3 +363,155 @@ DONE-MILESTONES: M00 M01 M02 M03 M04 M05 M06 M07 M08 M09 M10 M11 M12 M13 M14 M15
 # commit represents a merge or gate decision for any of these eight. M15's two founder
 # gates were performed retroactively; the other seven carried no gate. See LAST-9
 # (2026-09-19) and each milestone's own block above.
+
+# ── M18 A-INIT (2026-10-10) ─────────────────────────────────────────────────────
+MILESTONE: M18-hardening-release
+BRANCH: m18-hardening-release (branched from main at 4977de7)
+PHASE: E-MERGE (founder G4 verdict SHIP 2026-10-12; push + squash-merge + v1.0.0 tag executed by the CE at founder instruction)
+GATE: G4 — Release (fires at D-CLOSE/E-MERGE; no card tags v1.0.0 or renders ship/no-ship)
+CARDS:
+  M18-C1   DONE    awis-builder(haiku)  16cf735  (P2 salvage re-dispatch after rate-limit death of run 1)
+  M18-C2   WITHDRAWN awis-builder(haiku) (STOPPED E1: stale QG-1 premise — superseded by C2r)
+  M18-C2r  DONE    awis-builder(haiku)  f895a12  (P-08 max 39.0ms PASS; P-09 max 5.7ms PASS; QG-1 linux 248ms completed)
+  M18-C3   DONE    awis-builder(haiku)  e15497b  (goreleaser v2.17.0 pinned; 4 static archives + sha256 OK)
+  M18-C3r  DONE    awis-builder(haiku)  99f7b13  (clone v1.0.0 release: `awis version 1.0.0`; 96-entry notes)
+  M18-C3r2 DONE    awis-builder(haiku)  34894e7  (verify/release job split; persist-credentials:false; no release cache; actionlint clean)
+  M18-C4   DONE    awis-builder(haiku)  54fcf15  (P-01 & P-05 fixed fix-only; 9/9 NFR PASS 3/3 runs; §32 53/2/1/3)
+  M18-C4r  DONE    awis-builder(haiku)  3addeb9  (trace adapter/tokens suffix; native bytes unchanged; P-05 max 469.9ms PASS)
+  M18-V1   DONE(FAIL) awis-verifier(haiku)  @4092406 (report in TRACEABILITY.md; no commit — identity forbids doc edits)
+  M18-C5   DONE    awis-builder(haiku)  29cb521  (crash test deterministic: loaded 30/30 vs control 26/30; records fixed)
+  M18-V1r  DONE(PASS) awis-verifier(haiku)  @b78ae44 (report in TRACEABILITY.md; checklist ticked by CE)
+BLOCKERS: none
+NEXT: CE (founder-instructed 2026-10-12): push; squash-merge PR #1 after PR CI green; tag `v1.0.0` at the merge commit after main CI green; verify release; then a ledger commit on main records M18 CLOSED. Loop A starts only after that.
+G4-RULINGS (CE-recorded 2026-10-12; ratified by founder G4 verdict SHIP 2026-10-12; M18 TRACEABILITY.md):
+  QG-2 WAIVED for v1.0.0 (unmeasured; risk accepted; NOT PASS). QG-4 ACCEPTED, not literal PASS (G4 extends G3 Q1's
+  P0/P1/P2 seams to the disclosed `--namespace` CLI seam in cmd/awis/{main,errors,submit}.go). PRD §32
+  rows 13/14: TDS-07 governs; PRD wording corrected (AWIS_PRD.md), implementation unchanged →
+  SATISFIED BY AMENDMENT. Row 41: PARTIAL accepted (outputs via --json --full). NFR-P-03 stays UNMEASURABLE. Prior
+  exceptions (37/40/44; 5/28/32) carried forward. §32: 52 SAT (2 by amendment) / 2 NOT / 2 PARTIAL / 3 UNMEAS — founder
+  exception to PRD §32 "all Must Have criteria must pass".
+  Pre-ruling CI at PR head 883925a green: push 38156031710 + pull_request 38156060642.
+D-CLOSE (Opus CE in Fable's role per MODEL-DIRECTIVE, 2026-10-11): semantic review PASS, no
+  architectural drift (TRACEABILITY.md). V1r PASS @b78ae44; CI 38155115251 green both legs.
+BACKLOG (non-blocking): M18-B1 release-note bookkeeping noise; M18-B2 one unreproduced
+  SQLITE_BUSY on first `awis submit` after `awis start` (CE repro 0/50); M18-B3 QG-2
+  human-subject measurement post-release (G4 waiver, founder verdict 2026-10-12); M18-B4 `awis trace`
+  human view lacks step outputs + CLI_CONTRACT `--full` inconsistency (row 41 PARTIAL accepted;
+  clarify/fix post-release); M18-B5 `TestDeliverSignal_CrashPreCommit` (C5) no longer crashes
+  inside the B3 transaction — add mid-transaction fault injection (Loop A); M18-B6 global
+  `--namespace` ignored by signal/cancel/status/trace despite TDS-07 §4 (CLI_CONTRACT.md:157-162).
+FOLLOW-UP ACCEPTANCE (M18, post-v1.0.0; IDs as in BACKLOG above):
+  M18-B3 QG-2 — one developer who has not read AWIS docs reads `awis trace` for a completed and a
+    failed instance and correctly states step order, per-step status and the failing step;
+    result recorded as the QG-2 measurement (PASS/FAIL) in this ledger. Until then QG-2 = WAIVED, NOT PASS.
+  M18-B4 row 41 — founder picks the human-view format for step outputs; CLI_CONTRACT.md `--full`
+    text, the TDS-07 §4 sample and cmd/awis/trace.go agree; a golden test covers outputs in the
+    human view; PRD §32 row 41 re-measured.
+  M18-B5 crash coverage — a test kills the process while the DeliverSignal (B3) transaction is open,
+    between its writes, and asserts after reopen: delivered_at=NULL and no SignalReceived event;
+    the test is shown to FAIL against a deliberately non-atomic variant.
+  M18-B6 `--namespace` — signal/cancel/status/trace honour the global flag with one test per
+    command, OR TDS-07 §4 is amended through CONTRA (founder); until then the flag is not
+    TDS-07-compliant for those four commands.
+  NFR-P-03 — stays UNMEASURABLE (DEC-8/U-9: no Anthropic credential); measure when one exists.
+  PRD §32 rows 37/44 (D-13, DEC-11), 40 (D-14, DEC-11), 5/28/32 (DEC-4/DEC-8): unchanged exceptions.
+CI-EVIDENCE-2: run 38154745869 @1043b9a (contains C5 29cb521) — ubuntu ✓, macos ✓, docs-lint ✓.
+V1-RESULT (2026-10-11, @4092406): FAIL. Reproduced independently: all 9 NFR rows (3 runs, verdicts
+  MATCH), QG-1 (linux 249ms completed; macOS real-CI cmd/awis ok 42.292s), QG-5, make verify/
+  contract/e1/release-dry, 4 static archives, notes→`awis version 1.0.0`, no v* tag, frozen-
+  surface diff clean (46 files, no violation). FAILs: (1) CI 38152488419 macOS red —
+  TestDeliverSignal_CrashPreCommit (pre-existing M07 test race; same 5/30 on main 4977de7 under
+  load) → E1/Race skipped on macOS (QG-3 macOS unevidenced); (3) PRD §32 row 14 + STOP row 13:
+  PRD text vs frozen TDS-07 (scored SAT at M17); (4) card's literal `sha256sum -c
+  dist/checksums.txt` must run inside dist/ (card wording defect; `cd dist && sha256sum -c` OK
+  x4); (5) card omits AWIS-E1 by name (E1 runs via make verify/e1 — card defect). STOPs: QG-2
+  (founder), QG-4 (verifier declines to adopt G3 ruling — founder confirms at G4).
+CE-CLASSIFICATION: FAIL-1/2 = release-gate failure (CI must be green) → C5 test-only fix (child
+  pauses at documented crash-point 1; assertions unchanged; not a product defect — 13⇔13
+  invariant held). FAIL-3/STOP-3 = authority conflict (PRD vs TDS-07) → FOUNDER DECISION at G4,
+  recorded via C5 doc fix. FAIL-4/5 = card text defects, product behavior verified — no action
+  beyond record. X-3 (V1 benches on tmpfs vs C4 on NVMe) — verdicts identical, recorded.
+C4r-NOTE: run 1 STOPPED on model policy (agent had not seen MODEL-DIRECTIVE; no edits) →
+  re-dispatched with directive cited → DONE 3addeb9.
+CE-RULING row 41 (2026-10-11): PARTIAL — timing/adapter/tokens satisfied; "outputs" not in the
+  human view; CLI_CONTRACT internally inconsistent (--full text says outputs truncated to 120
+  chars; TDS-07 §4 sample shows none); outputs available via --json. Picking a human format is
+  design, not fix-only → FOUNDER DECISION at G4. §32 totals now 52 SAT / 2 NOT (37,40) /
+  2 PARTIAL (41,44) / 3 UNMEASURABLE (5,28,32). Recorded in docs/V1_BENCHMARKS.md.
+C4-REVIEW (CE): diff reviewed — stmt cache (fixed SQL only, MaxOpenConns=1 pool, closed by
+  DB.Close, ad-hoc fallback) + buffered trace writer (goldens pin bytes) are fix-only; no
+  engine/core/sdk/StoragePort-interface change. CE independent P-01 re-run x5 (idle host):
+  P99 4.549/4.605/4.582/4.653/4.636ms → PASS 5/5 (margin ~7%, recorded as thin).
+CE-RULINGS on C4 UNRESOLVED: (a) QG-4 = PASS by prior founder authority — G3 Q1 PASS
+  2026-09-18 (M15 cards/G3_BRIEF.md:126) adjudicated exactly these disclosed seams P0/P1/P2
+  ("zero UNDISCLOSED changes"); M18 does not re-litigate. (b) PRD §32 "trace shows ... adapter,
+  tokens" (C4's row 41) is a contractual Must-Have mis-scored SATISFIED at M17 → fix authorized
+  → cards/M18-C4r.md. (c) macOS for C4 commits: push after C4r. (d) P-01 margin: see above.
+C3r2-REVIEW (CE): accepted. Residual (accepted, not a defect): release-job checkout receives the
+  job token as its fetch credential (first-party action, not persisted); verify-job module cache
+  shared with ci.yml (gate-only job, builds nothing published).
+C3r-REVIEW (CE): R1/R2/R3 evidenced (throwaway clone, push URL nonexistent, token unset; real
+  repo `git tag -l 'v*'` empty). CE ruling during run: clone remote = real fetch URL +
+  nonexistent push URL (goreleaser cannot run without a remote URL).
+  SECURITY (background commit review of 99f7b13, CE-confirmed): release.yml checkout persists
+  the contents:write GITHUB_TOKEN into .git/config, readable by `make verify`; setup-go cache in
+  publishing job → C3r2 (blocks any v* tag push until fixed).
+BACKLOG (non-blocking, M18-B1): release notes include 49/96 milestone-prefixed bookkeeping
+  subjects (HANDOFF actuals/ledger/D-CLOSE); RE2 has no lookahead so `^M[0-9]{2}` cannot exclude
+  them. Still "generated from milestone titles" (IMP §21); founder may curate the GitHub release
+  text at publication. Not a gate failure.
+CI-EVIDENCE: run 38146475809 @ bbdcfa5 (C1+C2r on branch) — ubuntu-latest ✓, macos-latest ✓,
+  docs-lint ✓. cmd/awis ok on macOS (36.9s) incl. TestQG1RehearsalCompletesHelloWorld (no
+  skip/GOOS gate) → QG-1 macOS leg real-CI (completed + ≤5min asserted).
+C3-REVIEW (CE): accepted; awis-server excluded (PRD: no server mode in V1) — accepted. Three
+  release blockers found → C3r: (R1) buildinfo.Version const → v1.0.0 binary would print
+  0.1.0-dev; (R2) no `v*` tag workflow (IMP §21); (R3) snapshot skips changelog, release notes
+  never produced. ENV: host /tmp quota exhausted by pre-existing /tmp/pytest-of-virus (not
+  touched; agents use TMPDIR on /mnt/data).
+C2r-REVIEW (CE): diff in scope (5 files, tests/bench/docs + Makefile BENCH_EXPECT only); CE re-ran
+  TestQG1RehearsalCompletesHelloWorld independently → PASS, 249ms, status completed. P-08 timed
+  interval (first Manager.Call on fresh Manager = spawn+handshake+reject RPC, upper bound) accepted.
+CE-RULING C2-E1 (2026-10-11): C2 STOP verified — shipped `awis` registers examples.hello.*
+  (B-9, cmd/awis/start.go:179); M17 TRACEABILITY 'ends failed' claim is stale. QG-1 runs on the
+  shipped binary (option A; acceptance unchanged: completed, ≤5min). NFR-P-09 binding method =
+  successful git.diff.fetch on tiny repo (conservative upper bound); immediate-reject path
+  informational. Revision card cards/M18-C2r.md.
+C1-RESULTS (make bench, 16cf735, Ryzen 7 7730U/linux, on-disk WAL): P-01 P99 9.998ms MISS (<5ms);
+  P-02 P95 1.326ms PASS (gate 50ms, target 10ms); P-04 max 99.5ms PASS; P-05 multi-instance
+  max 2.15ms PASS, single-instance (100K events in one instance) max 568.7ms MISS (<500ms);
+  P-06 max 466.6ms PASS; P-07 max 101.6ms PASS.
+CE-RULINGS (Opus CE, 2026-10-11, on C1 UNRESOLVED a/b):
+  (a) NFR-P-01 is a genuine MISS, not a measurement artifact: CE re-ran with the same SQLite
+      engine on ":memory:" (zero disk I/O) → P99 6.70/6.69/6.82ms, still MISS. CPU profile:
+      ~37% of tick in sqlite3Prepare (GetInstance re-parses its SQL every call; no statement
+      reuse in internal/storage). Routed to C4 as a fix-only item (statement reuse inside
+      SQLiteStorage; no StoragePort interface change; no engine-semantics change). Fixture
+      (100 instances) stays as committed — not shrunk to pass.
+  (b) NFR-P-05: BOTH shapes are binding (strictest reading of "100K events"; the passing
+      shape is not selected to avoid the miss). Single-instance miss routed to C4 fix-only:
+      profile shows unbuffered per-event stdout writes + per-event JSON decode in
+      cmd/awis trace rendering.
+MODEL-DIRECTIVE (founder, 2026-10-11 session): orchestration by Opus 5.5 (CE role); ALL card
+  execution by Haiku 5.5 only — no Sonnet. This is a founder override of EEOS rule 8
+  (upward-only substitution) and of CLAUDE.md's frozen Sonnet/no-Opus allocation, recorded
+  here per ledger law; cards' DISPATCH agent identities are unchanged, only the model.
+ENTRY-GATE EVIDENCE: this A-INIT's immediate predecessor action (same session) fixed and
+  verified a real, reproduced macOS CI failure on main — TestResolvePluginUser_UnknownNumericUID
+  (internal/plugin/isolation_test.go), caused by a test assuming uid 4294967294 has no passwd
+  entry on every platform; macOS Directory Services maps it to the built-in "nobody" account.
+  Fix: made the test probe for an actually-unassigned uid at runtime instead of hardcoding one
+  (internal/plugin/isolation.go, the production code, was untouched — correct logic, bad test
+  assumption). Committed 4977de7, pushed, confirmed GREEN on real GitHub Actions run 38041177134
+  (ubuntu-latest + macos-latest + EEOS docs-lint, all ✓) — not a local simulation. This resolves
+  CURRENT_TRUTH_LEDGER.md §7 Limitation 1 ("CI has never actually run... macos-latest has never
+  been exercised") for this specific commit.
+NOT IN SCOPE FOR THIS A-INIT: M18 exit work (B-BUILD dispatch, benchmarking, release tooling)
+  was explicitly deferred past entry per this session's task scope — cards are READY, none
+  dispatched.
+AMENDMENTS APPLIED: F-6 (week-6 schedule load) is moot — M16/M17 have been closed for months;
+  no float action needed.
+SOURCES COMPILED: IMP §27.M18, §20-21, §23 (G4), §25 (CONTRA-2, F-6), §26, §28; IKB §4 row 18;
+  PRD §31 (QG-1..5, NFR-P-01..09), §32 (Must-Have acceptance); CURRENT_TRUTH_LEDGER.md (M17
+  DEC-4 disposition, open non-blocking defects D-13/D-16/D-18/D-19, NFR-P-03 credential gap).
+NEXT (after B-BUILD/C-VERIFY): D-CLOSE semantic review (Fable) → G4 human verdict → `v1.0.0`
+  tag → E-MERGE.
