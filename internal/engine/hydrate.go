@@ -170,6 +170,12 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 		// owed. Only the case with no WorkflowCompensating in the log is owed; maybeCompensate
 		// applies the plan and ≥1-completed-step rule itself.
 		if lastTerm.EventType == core.EventTypeWorkflowFailed && !sawCompensating && dv.def.Compensation != nil {
+			// LA-C5 N1: owed only for a WorkflowFailed that NAMES a step. CE-verified emission map
+			// (grep over the tracked tree, base db9fd36): emitWorkflowFailed has four call sites.
+			// Each non-empty step_id site runs maybeCompensate on its no-fault path (failure.go:217→221
+			// route 3; hydrate.go:603→607 LA-C3 route 3; signal_timeout.go:138→142 compensate). The
+			// only empty step_id site, tick.go:434 (stalled, SEC-08), never compensates, so its
+			// recovery must not compensate either.
 			var wf workflowFailedPayload
 			if err := json.Unmarshal(lastTerm.Payload, &wf); err != nil {
 				return fmt.Errorf("engine: hydrate decode WorkflowFailed %s: %w", inst.InstanceID, err)
@@ -178,7 +184,7 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 			if err != nil {
 				return err
 			}
-			if found {
+			if found && wf.StepID != "" { // LA-C5 N1: see the emission map above.
 				if err := e.maybeCompensate(ctx, dv, cur, wf.StepID); err != nil {
 					return fmt.Errorf("engine: hydrate owed compensation %s: %w", inst.InstanceID, err)
 				}
