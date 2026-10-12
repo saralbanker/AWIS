@@ -689,5 +689,36 @@ EVIDENCE: PR #2 head aa6561f — real CI green before the founder merge (push 38
   LA-C5 (local, at f7f685d): `make verify` ALL GATES PASSED; TestLA_* -count=20 PASS; -race engine+storage
   -count=2 PASS; go test ./... and apps/oip PASS; golangci-lint 0 issues. Real CI + review-3 verdict:
   recorded on the LA-C5 PR.
-NEXT: real CI + a fresh independent review of the LA-C5 diff → owner review; owner rules LA-D1 (incl.
-  N4 and the timeout residual), LA-Q1, and supplies N5; merge is founder-only (EEOS rule 6). No Loop B.
+REVIEW ROUND 3 (fresh independent read-only reviewer, not the implementer, PR #4 head 9355ae0; real CI
+  green: push 38308985046, pull_request 38309021682) — verdict REQUEST CHANGES. N1 SOUND; N3 SOUND-WITH-
+  NOTES; N2 and N2b DEFECTIVE; test quality SOUND-WITH-NOTES. Findings (all CONFIRMED by probe/mutation):
+  R3-H1 (from N2b) committedRouteThree classifies route (3) statically (tick.go `Fallback != "" ||
+    hasOnErrorTransition`), but the live route is env-dependent (failure.go firingOnError(buildEnv(inst))):
+    with a conditional on_error edge whose condition is false and an ack-lost StepFailed, settling continues
+    and the faulted run ends `completed` (no-fault: WorkflowFailed + compensation). A settle-side fix (use the
+    settle-time env, as routeTerminalFailure does) is in scope; the RECOVERY side cannot re-derive a
+    condition-dependent route from the EventLog today (LA-R1) → owner decision LA-D2 below.
+  R3-M1 (N2 residual) SIGNAL_SCAN / SIGNAL_TIMEOUT_SCAN still run after a processInstance error in the
+    same tick (tick.go), so a parked signal sibling can be delivered and completed after a committed
+    route-(3) decision (faulted compensation includes its undo; no-fault does not).
+  R3-M2 (tests) reverting failure.go's route-(3) `return true` alone leaves TestLA_C5_N2_* green (masked by
+    the durableTerminal / committedRouteThree check); the test named N2b injects fail-before, not ack-lost;
+    the Q3 comment claims failing rows are LA_DEFERRED-gated but the test has no gate.
+  R3-L1 stale emission-map line numbers in hydrate.go and la_c5_remediation_test.go comments.
+  R3-H2 (pre-existing, outside the diff) continue-timeout sets status running while a sibling signal step
+    is still parked; B3 then rejects that sibling's delivery (status must be 'waiting') → in-process wedge
+    (restart recovers). Recorded as LA-R6.
+FOUNDER DECISION ADDED:
+  LA-D2 (from R3-H1 / LA-R1) — recovery of a terminal failure whose route depends on an on_error
+    CONDITION. The EventLog does not record which route was taken. Options: (a) recovery re-evaluates the
+    condition against the env reconstructed from the log as of the failing attempt (StepCompleted outputs
+    before that attempt's StepStarted + inputs) — faithful replay, new recovery code; (b) keep the static
+    rule (never complete a conditional route; instance ends SEC-08 `stalled`, no compensation);
+    (c) record the route decision durably (frozen event-format change → CONTRA). Acceptance: owner picks;
+    a test with a false conditional on_error + ack-lost StepFailed matches the no-fault run.
+BACKLOG ADDED:
+  LA-R6 (P1-class, pre-existing) R3-H2 parallel-wait continue-timeout wedge. Acceptance: same-process test
+    root→{w1 continue-timeout, w2 signal} completes after w2's signal without restart.
+NEXT: owner review of PR #4 with this verdict; owner rules LA-D1, LA-D2, LA-Q1 and supplies N5; if
+  authorized, a bounded round fixes R3-M1, R3-M2, R3-L1 and the settle side of R3-H1 (plus LA-R6 if in
+  scope), followed by a fresh independent review. Merge is founder-only (EEOS rule 6). No Loop B.
