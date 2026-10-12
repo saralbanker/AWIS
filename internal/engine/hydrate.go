@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/awis/awis/internal/core"
@@ -57,6 +58,8 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 		retrying  bool
 		attempt   int
 		emittedAt time.Time
+		seq       int            // LA-C3: sequence_num of this StepFailed (commit order)
+		err       core.StepError // LA-C3: this StepFailed's payload error
 	}
 	last := make(map[string]lastFailure)
 	relevant := make(map[string]core.EventType)
@@ -65,6 +68,11 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 	// a delivery counts only if it is later than the activation it resumes).
 	startedSeq := make(map[string]int)
 	var fallbackTargets []string
+	// LA-C3: fallbackAfter[step] is true when a StepFallbackActivated for step follows
+	// that step's latest StepFailed; workflowFailed is true when any WorkflowFailed is
+	// durable (the instance is then terminal, whatever its projected status says).
+	fallbackAfter := make(map[string]bool)
+	workflowFailed := false
 
 	for _, ev := range evs {
 		switch ev.EventType {
@@ -97,8 +105,12 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 				return fmt.Errorf("engine: hydrate decode StepFailed %s/%s: %w", inst.InstanceID, ev.StepID, err)
 			}
 			relevant[ev.StepID] = ev.EventType
-			last[ev.StepID] = lastFailure{retrying: p.Retrying, attempt: p.Attempt, emittedAt: ev.EmittedAt}
+			last[ev.StepID] = lastFailure{retrying: p.Retrying, attempt: p.Attempt, emittedAt: ev.EmittedAt, seq: ev.SequenceNum, err: p.Error}
 			delete(startedAttempts, ev.StepID)
+			delete(fallbackAfter, ev.StepID) // LA-C3: a newer failure supersedes an older fallback.
+
+		case core.EventTypeWorkflowFailed: // LA-C3
+			workflowFailed = true
 
 		case core.EventTypeStepFallbackActivated:
 			var p stepFallbackActivatedPayload
@@ -107,6 +119,9 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 			}
 			if p.FallbackStepID != "" {
 				fallbackTargets = append(fallbackTargets, p.FallbackStepID)
+			}
+			if p.StepID != "" { // LA-C3
+				fallbackAfter[p.StepID] = true
 			}
 		}
 	}
@@ -203,6 +218,32 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 	e.hydrated[inst.InstanceID] = true
 	e.mu.Unlock()
 
+	// LA-C3, EDR-011 §8: complete the terminal routes already made durable by
+	// StepFailed{retrying:false}, BEFORE RC-1. A committed terminal decision precedes
+	// in-flight recovery: in the live path a route-(3) failure stops the serial
+	// settle, so a stranded StepStarted in the same tick is never settled after it.
+	cands := make([]committedFailure, 0, len(failedSteps))
+	for stepID := range failedSteps {
+		lf := last[stepID]
+		cands = append(cands, committedFailure{stepID: stepID, seq: lf.seq, err: lf.err, fallbackDone: fallbackAfter[stepID]})
+	}
+	sort.Slice(cands, func(i, j int) bool { return cands[i].seq < cands[j].seq })
+	if err := e.completeCommittedRoutes(ctx, dv, inst, cands, workflowFailed); err != nil {
+		return fmt.Errorf("engine: hydrate complete committed route %s: %w", inst.InstanceID, err)
+	}
+	if len(cands) > 0 {
+		cur, found, err := e.getInstance(ctx, inst.InstanceID)
+		if err != nil {
+			return err
+		}
+		if found {
+			if isTerminalStatus(cur.Status) {
+				return nil // a completed route ended the workflow; RC-1 must not run.
+			}
+			inst = cur
+		}
+	}
+
 	// In-flight crash recovery (RC-1): any step in current_steps whose latest
 	// event is StepStarted was running in a previous worker process that crashed
 	// or was killed before settling. Settle it with worker_crash so it can either
@@ -251,6 +292,115 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 	}
 
 	return nil
+}
+
+// committedFailure is one terminally-failed step, as hydrate reconstructs it for
+// LA-C3 route completion: StepFailed{retrying:false} is its latest relevant event.
+type committedFailure struct {
+	stepID       string
+	seq          int            // sequence_num of the latest StepFailed (commit order)
+	err          core.StepError // the latest StepFailed payload's error
+	fallbackDone bool           // a StepFallbackActivated(stepID) follows that StepFailed
+}
+
+// completeCommittedRoutes completes, after a transient append failure, the terminal
+// routing that StepFailed{retrying:false} already made durable (LA-C3, L7/L8).
+// routeTerminalFailure emits the follow-on event right after StepFailed; when that
+// append failed, the route was lost and the instance stalled into SEC-08. cands is in
+// commit order, so the earliest committed decision is completed first.
+//
+//   - route (1), Fallback set: when no StepFallbackActivated follows the StepFailed,
+//     emit it (same helper and payload as routeTerminalFailure) and mark the fallback
+//     pending.
+//   - route (2), or any step with an on_error transition: never completed here (static
+//     classification, below); the pending block in hydrate re-derives those targets.
+//   - route (3): WorkflowFailed carrying the step's id and error, then maybeCompensate,
+//     exactly as routeTerminalFailure does. The instance is terminal afterwards, so no
+//     later candidate is applied.
+//
+// Route classification uses ONLY static definition structure (CE ruling LA-C3 round 2):
+// route (1) iff step.Fallback != ""; route (3) only for a step with no Fallback and NO
+// on_error transition at all, conditional or not. A condition-dependent route is never
+// decided here. LA-C3: route decided from static structure only; a condition-dependent
+// route is not reconstructable from the EventLog (residual R-1, pre-existing).
+//
+// Guards (CE ruling LA-C3, binding; all applied, belt and braces). None of these
+// StepFailed rows carries a routing decision, so no route is completed for them:
+//   - (a) cancellationRequested: the instance is cancel-requested; the B4 cancellation
+//     gate owns it (Finalization B4 step 3; cancel.go:92,190).
+//   - (b) the step's latest StepFailed code is "cancelled": cancel.go:92,190 emit it
+//     with no routing decision (Finalization B4 step 3).
+//   - (c) the step's latest StepFailed code is "signal_timeout": signal_timeout.go:58-60
+//     deletes the wait_record before routing, and the compensate action (lines 95-114)
+//     skips fallback and on_error. The timeout action is not durable after expiry, so
+//     recovery cannot reconstruct which route was decided.
+//
+// Also: no WorkflowFailed may be durable. A WorkflowFailed event is checked directly,
+// not only through the projected status, because emit appends before it projects.
+func (e *Engine) completeCommittedRoutes(ctx context.Context, dv *defView, inst core.WorkflowInstance, cands []committedFailure, workflowFailed bool) error {
+	if len(cands) == 0 || workflowFailed {
+		return nil
+	}
+	flagged, err := e.cancellationRequested(ctx, inst.InstanceID)
+	if err != nil {
+		return err
+	}
+	if flagged {
+		return nil // guard (a): B4 cancellation gate owns a cancel-requested instance.
+	}
+	cur, found, err := e.getInstance(ctx, inst.InstanceID)
+	if err != nil {
+		return err
+	}
+	if !found || isTerminalStatus(cur.Status) {
+		return nil
+	}
+	for _, c := range cands {
+		if c.err.Code == "cancelled" {
+			continue // guard (b): cancel.go:92,190 emit this code with no routing decision.
+		}
+		if c.err.Code == "signal_timeout" {
+			continue // guard (c): signal_timeout.go:58-60,95-114; the action is not durable.
+		}
+		step, ok := dv.steps[c.stepID]
+		if !ok {
+			continue
+		}
+		switch {
+		case step.Fallback != "": // route (1)
+			if c.fallbackDone {
+				continue
+			}
+			if err := e.emitStepFallbackActivated(ctx, cur, c.stepID, step.Fallback, c.err.Code); err != nil {
+				return err
+			}
+			e.addPending(cur.InstanceID, step.Fallback)
+			e.log().Info("settle", "instance_id", string(cur.InstanceID), "step_id", c.stepID, "outcome", "fallback")
+		case hasOnErrorTransition(dv, c.stepID):
+			// LA-C3: route decided from static structure only; a condition-dependent route
+			// is not reconstructable from the EventLog (residual R-1, pre-existing).
+			continue
+		default: // route (3): no Fallback and no on_error transition at all.
+			if err := e.emitWorkflowFailed(ctx, cur, c.stepID, c.err); err != nil {
+				return err
+			}
+			e.log().Info("settle", "instance_id", string(cur.InstanceID), "step_id", c.stepID, "outcome", "failed")
+			return e.maybeCompensate(ctx, dv, cur, c.stepID)
+		}
+	}
+	return nil
+}
+
+// hasOnErrorTransition reports whether stepID has ANY on_error transition in the
+// definition, conditional or not. It reads static structure only (LA-C3 round 2):
+// buildEnv-dependent conditions are never consulted by route completion.
+func hasOnErrorTransition(dv *defView, stepID string) bool {
+	for _, t := range dv.def.Transitions {
+		if t.From == stepID && t.OnError {
+			return true
+		}
+	}
+	return false
 }
 
 // resetInstanceRecovery discards this process's recovery bookkeeping for iid, so
