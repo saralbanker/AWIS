@@ -49,7 +49,8 @@ func (h c4bSlow) Execute(sc core.StepContext) (core.StepResult, error) {
 }
 
 // c4bCancelFault fails every every-th CancellationRequested read (transient and
-// repeating; 0 disables it). processInstance makes this read at its top gate (before
+// repeating; 0 disables it). Fault model (LA-C5 Q3): fail-before. The failed read
+// returns an error and writes nothing; the embedded laFaultStorage keeps its own models. processInstance makes this read at its top gate (before
 // any gather) and again post-settle, and nothing that writes an event or a projection
 // row makes it. An injected failure therefore takes exactly the LA-C1 F1 path
 // (processInstance error, then resetInstanceRecovery) and cannot strand a
@@ -160,7 +161,97 @@ func TestLA_C4b_DurableTerminalFromSettleErrorStopsSettling(t *testing.T) {
 	}
 }
 
-// TestLA_C4b_ConcurrentTicksAreSerialized (F-M). Several goroutines call Tick on the
+// c4bListProbe counts ListInstances calls. Every tick makes one, under tickMu, before it
+// reads any instance, so it is the storage call a second, overlapping tick would reach first.
+type c4bListProbe struct {
+	*laFaultStorage
+	lists atomic.Int64
+}
+
+func (p *c4bListProbe) ListInstances(ctx context.Context, f core.InstanceFilter) ([]core.WorkflowInstance, error) {
+	p.lists.Add(1)
+	return p.laFaultStorage.ListInstances(ctx, f)
+}
+
+// TestLA_C4b_ConcurrentTicksAreSerialized (F-M), DETERMINISTIC (LA-C5 Q2). Tick A is held
+// inside DISPATCH: its step handler blocks on a gate, so A's tick is live. Then tick B is
+// started. Two checks:
+//
+//   - Lock proof (cannot flake): tickMu is held by tick A for its whole body, so TryLock
+//     fails. The lock state is set by A's tick, not by scheduling. Without tickMu, a tick
+//     in DISPATCH holds no lock and TryLock succeeds, and the test fails.
+//   - Bounded probe: B must not reach storage while A is blocked. B's first storage call is
+//     ListInstances, which it can only make after acquiring tickMu. The probe window only
+//     makes an overlap visible if one happened; with the lock it never fires.
+//
+// After the gate opens, both ticks return and the workflow completes exactly once.
+func TestLA_C4b_ConcurrentTicksAreSerialized(t *testing.T) {
+	def := laDefSingle()
+	s, fs := laSetup(t, def)
+	probe := &c4bListProbe{laFaultStorage: fs}
+	entered := newLASignal()
+	gate := newLAGate(t)
+	h := &laHandler{id: "la_a", entered: entered, gate: gate, outputs: map[string]any{"msg": "done"}}
+	clk := newFakeClock(engineStart, 10*time.Millisecond)
+	e := laEngine(probe, clk, laIDs(), 1, h)
+	iid := laSubmit(t, e, def.ID)
+	ctx := context.Background()
+
+	errA := make(chan error, 1)
+	go func() { errA <- e.Tick(ctx) }()
+	entered.wait(t) // tick A is inside DISPATCH: a's handler is running and holds the gate.
+
+	if e.tickMu.TryLock() {
+		e.tickMu.Unlock()
+		t.Fatalf("tick A is in DISPATCH but tickMu is free: ticks are not serialized (LA-C4b F-M)")
+	}
+
+	before := probe.lists.Load()
+	errB := make(chan error, 1)
+	go func() { errB <- e.Tick(ctx) }()
+	select {
+	case err := <-errB:
+		t.Fatalf("tick B returned while tick A was in DISPATCH (err=%v): ticks overlapped", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if n := probe.lists.Load() - before; n != 0 {
+		t.Fatalf("tick B reached storage %d time(s) while tick A was in DISPATCH: ticks overlapped", n)
+	}
+
+	gate.open()
+	for name, ch := range map[string]chan error{"A": errA, "B": errB} {
+		select {
+		case err := <-ch:
+			if err != nil {
+				t.Errorf("tick %s: unexpected error: %v", name, err)
+			}
+		case <-time.After(laHang):
+			t.Fatalf("tick %s did not return after the gate opened", name)
+		}
+	}
+
+	inst := laInstance(t, s, iid)
+	if inst.Status != core.InstanceStatusCompleted {
+		t.Errorf("status=%s; want completed", inst.Status)
+	}
+	evs := laEvents(t, s, iid)
+	if got := c4bCount(evs, core.EventTypeStepStarted, "a"); got != 1 {
+		t.Errorf("StepStarted(a)=%d; want exactly 1 dispatch", got)
+	}
+	if got := c4bCount(evs, core.EventTypeStepCompleted, "a"); got != 1 {
+		t.Errorf("StepCompleted(a)=%d; want 1", got)
+	}
+	if got := h.calls.Load(); got != 1 {
+		t.Errorf("handler calls=%d; want 1", got)
+	}
+}
+
+// TestLA_C4b_ConcurrentTicksAreSerialized_StressRegression (F-M). STRESS / RACE-DETECTOR
+// REGRESSION, NOT A DETERMINISTIC PROOF (LA-C5 Q2). The deterministic check is
+// TestLA_C4b_ConcurrentTicksAreSerialized above: overlap here is scheduling-dependent, so a
+// pass proves nothing about a particular interleaving.
+//
+// Several goroutines call Tick on the
 // same running instance while a transient CancellationRequested fault makes some
 // ticks fail. Each failure takes the reset path while other ticks may be dispatching.
 // Without tickMu, a reset can let a later tick's RC-1 record a live step as
@@ -172,7 +263,7 @@ func TestLA_C4b_DurableTerminalFromSettleErrorStopsSettling(t *testing.T) {
 // dependent. A single-ticker run of the same workload passes on the pre-fix code,
 // so the failure is attributable to overlapping ticks (F-M), not to the injected
 // fault itself.
-func TestLA_C4b_ConcurrentTicksAreSerialized(t *testing.T) {
+func TestLA_C4b_ConcurrentTicksAreSerialized_StressRegression(t *testing.T) {
 	const (
 		iterations = 20
 		tickers    = 4
