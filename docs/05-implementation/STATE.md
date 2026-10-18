@@ -529,7 +529,7 @@ BRANCH: loop-a-engine-confidence (from tag v1.0.0, now 9574303 after the 2026-10
   v1.0.0 tag untouched by Loop A). PR #2 (head aa6561f) was squash-merged by the founder as b60a074;
   the post-merge remediation round (LA-C5) continues on the same branch after merging main (db9fd36)
   and is proposed in a NEW PR (PR #2 is closed to pushes).
-PHASE: REMEDIATION ROUND LA-C5 → FOUNDER REVIEW (not merged; LA-D1 and LA-Q1 open)
+PHASE: ROUND LA-C6 + DECISION DESIGNS (EDR-012/013/014 Proposed) → FOUNDER REVIEW (PR #4 not merged)
 MODEL: Opus 5.5 CE (orchestration, rulings, review) + Haiku 5.5 executors (all code/tests), per the
   founder MODEL-DIRECTIVE recorded in the M18 section.
 CARDS (sha on loop-a-engine-confidence; post-rewrite SHAs — pre-rewrite SHAs in older notes are stale):
@@ -719,6 +719,51 @@ FOUNDER DECISION ADDED:
 BACKLOG ADDED:
   LA-R6 (P1-class, pre-existing) R3-H2 parallel-wait continue-timeout wedge. Acceptance: same-process test
     root→{w1 continue-timeout, w2 signal} completes after w2's signal without restart.
-NEXT: owner review of PR #4 with this verdict; owner rules LA-D1, LA-D2, LA-Q1 and supplies N5; if
-  authorized, a bounded round fixes R3-M1, R3-M2, R3-L1 and the settle side of R3-H1 (plus LA-R6 if in
-  scope), followed by a fresh independent review. Merge is founder-only (EEOS rule 6). No Loop B.
+FOUNDER DECISION CHECKPOINT (2026-10-18; recorded by Opus CE):
+  LA-D2 → direction A APPROVED: recovery reconstructs the earlier workflow state and re-evaluates the
+    conditional route. LA-D1 → policy: capture crash location + maximum diagnostic evidence, retry once,
+    on retry failure stop and preserve evidence; retries must account for operations that may already
+    have succeeded. LA-Q1 → investigate independent completion verification (multiple sources +
+    fallback; local system/HAL and server); define disagreement resolution before implementation.
+  Required BEFORE implementing those decisions (acceptance tests, LA-D2 log sufficiency, LA-D1 retry +
+    evidence, LA-Q1 feasibility) → CE design drafts, status Proposed, awaiting founder approval:
+    docs/edr/edr-012-conditional-route-recovery.md (LA-D2: EventLog SUFFICIENT — inputs/outputs/status
+      derivable; boundary = the call site's snapshot, reconstructed via the "gather batch" rule; one
+      documented residual edge; acceptance D2-1..D2-7; also closes LA-R1),
+    docs/edr/edr-013-non-running-instance-recovery.md (LA-D1: cases W1-W5 incl. N4 and the timeout
+      residual; undo start/done records in step_results_cache; ambiguous undo ⇒ stop, never re-run;
+      evidence to audit log + WorkflowCompensationFailed details; startup sweep + RECOVERY stage;
+      acceptance D1-1..D1-11; one confirmation needed: fresh retry after restart — proposed NO),
+    docs/edr/edr-014-completion-verification.md (LA-Q1 feasibility: only the idempotency cache is an
+      independent durable source in V1 → Phase 1 feasible now; handler verifiers need a CONTRA; HAL is
+      handler-specific; "server" = V2 (awis-server serves static GUI only); disagreement ⇒ stop;
+      four founder decisions listed). None of these is implemented.
+ROUND LA-C6 (next-loop work per the checkpoint; Haiku executor, CE-reviewed; no attribution):
+  acd8aeb R3-H1 settle side — committedRouteThree classifies route (3) with the SAME settle-time env as
+    routeTerminalFailure (firingOnError(buildEnv(inst))). Pre-fix FAIL: sibling settled, run ended
+    `completed`. Recovery side stays static until EDR-012 is implemented: the faulted run now ends
+    WorkflowFailed attributed to the stranded sibling (RC-1 worker_crash) + compensation — logged; full
+    no-fault equivalence test gated (LA_DEFERRED=1, FAILS today) → closes with LA-D2.
+  379e96b R3-M1 — durable, restart-safe gate: Engine.Resolve (after the live-wait lookup) and the timeout
+    scan refuse to deliver / fire while the EventLog holds a STATIC route-(3) StepFailed{retrying:false}
+    with no workflow-terminal event after it (read error ⇒ refuse this tick); the instance is queued in
+    e.routeRecovery and a new tick step completes ONLY the committed route (completeCommittedRoutes;
+    never gather, never RC-1 on a non-running instance). Pre-fix: 13/13 FAIL (signal sibling delivered,
+    undo-w,undo-root; timeout sibling WorkflowFailed attributed to w). Refusal is safe: internal/signal
+    deliverOne leaves the signal undelivered on !ok.
+  41de94f R3-M2/R3-L1 — failure.go route-(3) terminal=true pinned by its own unit test (mutation FAILS
+    it); real N2b ack-lost tests (FAIL with committedRouteThree disabled); fail-before test renamed;
+    Q3 comment fixed; LA file:line citations replaced by function names.
+  2315f46 LA-R6 — gated regression test (LA_DEFERRED=1: FAILS, status=running current_steps=[w2] after
+    50 ticks); not fixed (backlog).
+  Residuals (each mapped to an approved decision, none silently closed):
+    - conditional route (3) + parked signal sibling: the R3-M1 gate is static, so the sibling is
+      delivered and the run completes → closes with LA-D2 / EDR-012.
+    - committed route + sibling signal never arrives + restart → instance stays `waiting` → LA-D1 /
+      EDR-013 (case class W5).
+  Evidence (local, at 2315f46): engine -count=1 PASS; TestLA_* -count=20 2260 PASS / 0 FAIL / 160 SKIP
+  (gated); -race engine+storage PASS; go test ./... PASS; apps/oip PASS; make verify ALL GATES PASSED;
+  golangci-lint 0. Real CI + review-4 verdict: recorded on PR #4.
+NEXT: real CI + fresh independent review of the LA-C6 diff; founder reviews EDR-012/013/014 and
+  approves (or amends) them before any LA-D1/LA-D2/LA-Q1 implementation; N5 text still outstanding.
+  PR #4 stays unmerged until remediation and review are complete; merge is founder-only. Loop B closed.
