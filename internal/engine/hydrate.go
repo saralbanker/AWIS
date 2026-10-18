@@ -624,16 +624,16 @@ func (e *Engine) completeCommittedRoutes(ctx context.Context, dv *defView, inst 
 			}
 			e.addPending(cur.InstanceID, step.Fallback)
 			e.log().Info("settle", "instance_id", string(cur.InstanceID), "step_id", c.stepID, "outcome", "fallback")
-		case hasOnErrorTransition(dv, c.stepID):
-			// LA-C3: route decided from static structure only; a condition-dependent route
-			// is not reconstructable from the EventLog (residual R-1, pre-existing).
-			continue
-		default: // route (3): no Fallback and no on_error transition at all.
+		case staticRouteThree(dv, step): // route (3): the static classification (LA-C3, LA-C7 LOW-3).
 			if err := e.emitWorkflowFailed(ctx, cur, c.stepID, c.err); err != nil {
 				return err
 			}
 			e.log().Info("settle", "instance_id", string(cur.InstanceID), "step_id", c.stepID, "outcome", "failed")
 			return e.maybeCompensate(ctx, dv, cur, c.stepID)
+		default: // route (2): an on_error transition (static). LA-C3: route decided from static
+			// structure only; a condition-dependent route is not reconstructable from the EventLog
+			// (residual R-1, pre-existing). Never completed here.
+			continue
 		}
 	}
 	return nil
@@ -649,6 +649,15 @@ func hasOnErrorTransition(dv *defView, stepID string) bool {
 		}
 	}
 	return false
+}
+
+// staticRouteThree reports whether step's terminal failure is route (3) by static definition
+// structure alone (LA-C3, CE ruling round 2): no Fallback and no on_error transition at all,
+// conditional or not. It is the ONE static route-(3) predicate: completeCommittedRoutes (above)
+// and routeThreeAwaiting (route_recovery.go) both call it. tick.go's committedRouteThree is the
+// settle-time, environment-based classification (LA-C6 R3-H1) and is deliberately NOT this predicate.
+func staticRouteThree(dv *defView, step core.Step) bool {
+	return step.Fallback == "" && !hasOnErrorTransition(dv, step.ID)
 }
 
 // resetInstanceRecovery discards this process's recovery bookkeeping for iid, so

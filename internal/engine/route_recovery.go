@@ -108,7 +108,7 @@ func hasWorkflowTerminal(evs []core.ExecutionEvent, afterSeq int) bool {
 // routeThreeAwaiting is the pure rule of committedRouteAwaitingTerminal (LA-C6 R3-M1). It returns
 // the first committed route (3) decision in commit order that has no workflow-terminal event after
 // it. A candidate counts only with LA-C3's static route (3): no Fallback and no on_error transition
-// (hasOnErrorTransition). Codes "cancelled" and "signal_timeout" carry no routing decision (LA-C3
+// (staticRouteThree). Codes "cancelled" and "signal_timeout" carry no routing decision (LA-C3
 // guards (b) and (c)). The step must be defined in dv.
 func routeThreeAwaiting(dv *defView, evs []core.ExecutionEvent) (string, bool, error) {
 	cands, err := logFailedCandidates(evs)
@@ -120,7 +120,7 @@ func routeThreeAwaiting(dv *defView, evs []core.ExecutionEvent) (string, bool, e
 			continue
 		}
 		step, ok := dv.steps[c.stepID]
-		if !ok || step.Fallback != "" || hasOnErrorTransition(dv, c.stepID) {
+		if !ok || !staticRouteThree(dv, step) {
 			continue
 		}
 		if hasWorkflowTerminal(evs, c.seq) {
