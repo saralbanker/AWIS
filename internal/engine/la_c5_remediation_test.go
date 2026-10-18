@@ -678,7 +678,7 @@ func TestLA_C5_N2b_CommittedRouteThree(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := committedRouteThree(dv, c.step, c.evs)
+			got, err := committedRouteThree(dv, core.WorkflowInstance{}, c.step, c.evs)
 			if (err != nil) != c.wantErr {
 				t.Fatalf("error=%v; want error=%t", err, c.wantErr)
 			}

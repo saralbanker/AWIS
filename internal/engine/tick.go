@@ -361,7 +361,7 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 		if err != nil {
 			settleErrs = append(settleErrs, err)
 			if !terminal {
-				durable, derr := e.durableTerminal(ctx, dv, it.step, inst.InstanceID)
+				durable, derr := e.durableTerminal(ctx, dv, inst, it.step)
 				if derr != nil {
 					settleErrs = append(settleErrs, derr)
 				}
@@ -571,7 +571,11 @@ func (e *Engine) settleSuccess(ctx context.Context, inst core.WorkflowInstance, 
 //     reads as running.
 //   - the item's own route-(3) StepFailed{retrying:false}, committed by an append
 //     whose error was returned (LA-C5 N2b; see committedRouteThree).
-func (e *Engine) durableTerminal(ctx context.Context, dv *defView, step core.Step, iid core.InstanceID) (bool, error) {
+//
+// inst is the instance value processInstance passed to settleFailure for this item
+// (LA-C6 R3-H1): committedRouteThree classifies the route on that same value.
+func (e *Engine) durableTerminal(ctx context.Context, dv *defView, inst core.WorkflowInstance, step core.Step) (bool, error) {
+	iid := inst.InstanceID
 	evs, err := e.storage.ReadEvents(ctx, iid, 0)
 	if err != nil {
 		return false, fmt.Errorf("engine: settle terminal check %s: %w", iid, err)
@@ -582,7 +586,7 @@ func (e *Engine) durableTerminal(ctx context.Context, dv *defView, step core.Ste
 			return true, nil
 		}
 	}
-	committed, err := committedRouteThree(dv, step, evs)
+	committed, err := committedRouteThree(dv, inst, step, evs)
 	if err != nil {
 		return false, fmt.Errorf("engine: settle terminal check %s: %w", iid, err)
 	}
@@ -593,15 +597,23 @@ func (e *Engine) durableTerminal(ctx context.Context, dv *defView, step core.Ste
 // in evs (LA-C5 N2b, the ack-lost case of LA-C3 completeCommittedRoutes). The decision is
 // a StepFailed{retrying:false} for step appended after the step's latest StepStarted
 // (this tick's attempt; a step with no StepStarted counts from the start of the log,
-// which is the template_error item that never emitted one). Its static route must be
-// (3): no Fallback and no on_error transition at all (hasOnErrorTransition, static
-// structure only, as in LA-C3). Codes "cancelled" and "signal_timeout" carry no routing
-// decision (LA-C3 guards (b) and (c)). A payload that cannot be decoded is an error.
+// which is the template_error item that never emitted one). Codes "cancelled" and
+// "signal_timeout" carry no routing decision (LA-C3 guards (b) and (c)). A payload that
+// cannot be decoded is an error.
+//
+// LA-C6 R3-H1: the route is classified with the SAME computation routeTerminalFailure
+// performs for this item, on the SAME inst that processInstance passed to settleFailure:
+// route (3) iff step.Fallback == "" and firingOnError(dv, step.ID, buildEnv(inst)) is
+// empty. An on_error condition is evaluated against the settle-time environment, so a
+// conditional edge whose condition is false is route (3) here, while the static rule of
+// LA-C3 (hasOnErrorTransition) would call it route (2). This is the settle side only: the
+// recovery side (hydrate.go completeCommittedRoutes) stays static, because the EventLog
+// cannot reproduce the condition environment (LA-D2 / EDR-012, pending).
 //
 // Route (1) and route (2) decisions return false, so their siblings keep settling
 // (LA-C4b behaviour, unchanged).
-func committedRouteThree(dv *defView, step core.Step, evs []core.ExecutionEvent) (bool, error) {
-	if step.Fallback != "" || hasOnErrorTransition(dv, step.ID) {
+func committedRouteThree(dv *defView, inst core.WorkflowInstance, step core.Step, evs []core.ExecutionEvent) (bool, error) {
+	if step.Fallback != "" || len(firingOnError(dv, step.ID, buildEnv(inst))) != 0 {
 		return false, nil
 	}
 	startedSeq := 0
