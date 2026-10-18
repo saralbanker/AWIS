@@ -25,11 +25,17 @@ succeeded.
 | W3 | `WorkflowCompensating`, some undos ran, process died mid-bracket | `compensating` | stuck forever | `compensation_interrupted` |
 | W4 (N4) | `WorkflowCompensating` durable, its projection write failed | `running` | a second `WorkflowCompensating` is appended | `compensating_projection_lost` |
 | W5 (LA-C5 STOP-1) | `StepFailed(signal_timeout)` with action fail/compensate, no `WorkflowFailed` after it | `waiting`, no wait_record | stuck forever | `timeout_route_lost` |
+| W6 (review 4, LOW-1/HIGH-2) | committed route-(3) `StepFailed{retrying:false}` with no terminal event, **or** a durable `WorkflowFailed` whose projection write was lost, on an instance parked by a sibling wait; **no further signal or timeout arrives** | `waiting` | in-process: handled by the LA-C6/LA-C7 committed-route stage. After a restart nothing touches the instance, so nothing triggers recovery; stuck forever | `parked_route_unfinished` |
 
 Out of scope here: LA-R6 (a `running` instance whose sibling wait cannot be delivered) is a
-projection-status issue, not a non-running recovery issue. R3-M1 (a `waiting` instance with a
-committed route-(3) decision) is handled by LA-C6's committed-route completion; the stage below
-replaces that narrow path once approved.
+projection-status issue, not a non-running recovery issue.
+
+Partly covered today: LA-C6/LA-C7 (R3-M1) gate signal delivery and timeouts on a `waiting` instance
+whose log holds a committed route-(3) decision, or a durable terminal event its projection missed.
+They complete that route in a dedicated tick step. That covers every case where a signal or timeout
+touches the instance, and the in-process error path. It does **not** cover W6 after a restart: no
+signal or timeout means nothing triggers recovery. The startup sweep below closes W6. Once this EDR
+is approved, the RECOVERY stage subsumes the narrow LA-C6/LA-C7 path.
 
 ## 3. Accounting for operations that may already have succeeded
 
@@ -122,6 +128,7 @@ Changes needed:
 | D1-8 | retry budget across restart | an instance with a recorded attempt is not retried after restart (per the §4.4 ruling) |
 | D1-9 | stop write also fails | no panic; Error log carries the evidence; no further attempts in this process |
 | D1-10 | ack-lost on every bracket write | no duplicate events, at most one run per undo |
+| D1-12 | W6: committed route-(3) (fail-before and ack-lost `WorkflowFailed`) on a parked instance, restart, no signal | the startup sweep completes the route once; outcome identical to the no-fault run |
 | D1-11 | startup sweep cost | sweep over 10K terminal instances stays within an NFR-style bound (proposed < 2s), recorded |
 
 ## 6. Failure modes and risks

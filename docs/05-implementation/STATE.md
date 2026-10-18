@@ -760,10 +760,32 @@ ROUND LA-C6 (next-loop work per the checkpoint; Haiku executor, CE-reviewed; no 
     - conditional route (3) + parked signal sibling: the R3-M1 gate is static, so the sibling is
       delivered and the run completes → closes with LA-D2 / EDR-012.
     - committed route + sibling signal never arrives + restart → instance stays `waiting` → LA-D1 /
-      EDR-013 (case class W5).
+      EDR-013 case W6 (corrected from "W5" per review 4 LOW-1; W5 is the signal-timeout case).
   Evidence (local, at 2315f46): engine -count=1 PASS; TestLA_* -count=20 2260 PASS / 0 FAIL / 160 SKIP
   (gated); -race engine+storage PASS; go test ./... PASS; apps/oip PASS; make verify ALL GATES PASSED;
   golangci-lint 0. Real CI + review-4 verdict: recorded on PR #4.
-NEXT: real CI + fresh independent review of the LA-C6 diff; founder reviews EDR-012/013/014 and
+REVIEW ROUND 4 (fresh independent reviewer, PR #4 head e8ef604; real CI green: push 39115358963,
+  pull_request 39115362583) — REQUEST CHANGES. R3-H1 SOUND; R3-M2 SOUND-WITH-NOTES; R3-L1 SOUND; LA-R6
+  test SOUND; no-fault path identical in 7 probes (248b7c2 vs 2315f46). R3-M1 DEFECTIVE:
+  R4-H1 (pre-existing) ack-lost WorkflowFailed leaves the projection `waiting`; the gate saw a terminal
+    event and let a parked sibling's signal through (undo-w ran); timeout-fail appended a SECOND
+    WorkflowFailed. R4-H2 (pre-existing) same root, no signal: `waiting` forever, no compensation; the
+    EDR-013 mapping was wrong (corrected: new case W6). R4-H3 (introduced by LA-C6) one transient read
+    error in the recovery stage dropped the candidate. R4-M1 cost: one full event read per delivery to a
+    live wait / due timeout (accepted, recorded). R4-L1 W5 label wrong (corrected to W6). R4-L2 route-(3)
+    `return true, err` after maybeCompensate unpinned. R4-L3 static route-(3) rule written three times.
+ROUND LA-C7 (Haiku executor; CE-verified after the executor's session ended before its report):
+  0e8ea47 R4-H3 — any read error in the recovery stage keeps the instance queued for the next tick.
+  5e3fee5 R4-H1/H2 — the gate treats "log has a workflow-terminal event, projection non-terminal" as
+    awaiting (refuses delivery / timeout); the stage re-applies the logged terminal via the SAME terminal
+    fence as hydrate (factored into applyTerminalFence: reprojectTerminal + owed-compensation rule);
+    WorkflowCompensating-last logs untouched (LA-D1).
+  b6b2380 R4-L2/L3 — unit test pins route (3)'s post-maybeCompensate `return true, err`; one
+    staticRouteThree helper (tick.go's env-based committedRouteThree deliberately separate, R3-H1).
+  CE verification: all 14 behavioral LA-C7 tests FAIL against e8ef604's hydrate.go/route_recovery.go
+  (signal/timeout-continue/timeout-fail siblings, no-signal, completion path; same-process + after
+  restart; stage read error) and PASS at b6b2380; the R4-L2 mutation (true→false) FAILS its test;
+  `make verify` ALL GATES PASSED; TestLA_* -count=20 PASS; -race engine+storage -count=2 PASS.
+NEXT: real CI + fresh independent review of the LA-C7 diff; founder reviews EDR-012/013/014 and
   approves (or amends) them before any LA-D1/LA-D2/LA-Q1 implementation; N5 text still outstanding.
   PR #4 stays unmerged until remediation and review are complete; merge is founder-only. Loop B closed.
