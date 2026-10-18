@@ -76,21 +76,7 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 	// LA-C4a F-P: the latest StepStarted/StepCompleted/StepFailed event per step, kept
 	// whole so a projection catch-up re-applies it verbatim.
 	latest := make(map[string]core.ExecutionEvent)
-	// LA-C4a F-T: the last workflow-lifecycle event of the terminal class (see
-	// workflowTerminalClass); nil when the log has none.
-	var lastTerm *core.ExecutionEvent
-	// LA-C4a F-T: whether the log holds any WorkflowCompensating (the compensation bracket
-	// was opened). An owed compensation needs none (see the terminal fence below).
-	sawCompensating := false
-
 	for _, ev := range evs {
-		if workflowTerminalClass(ev.EventType) {
-			evCopy := ev
-			lastTerm = &evCopy
-		}
-		if ev.EventType == core.EventTypeWorkflowCompensating {
-			sawCompensating = true
-		}
 		switch ev.EventType {
 		case core.EventTypeStepStarted:
 			if ev.StepID == "" {
@@ -145,53 +131,17 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 		}
 	}
 
-	// ── LA-C4a F-T: terminal fence (EventLog is append-only; P2 / #1, and the
-	// terminal case of #6). A durable workflow-terminal event is the last word for
-	// this instance: nothing may be appended after it. Its projection write may have
-	// failed (the LA-C1 reset re-runs this hydrate), so the projection is re-applied
-	// from the log and hydrate returns WITHOUT RC-1 and WITHOUT committed-route
-	// completion, both of which append. processInstance's re-read right after hydrate
-	// (`if !found || isTerminalStatus(cur.Status) { return nil }`, tick.go) then stops
-	// this instance before any gather.
-	//
-	// Successor rule (compensation.go runCompensation, EDR-011 §6): the only lifecycle
-	// event that may follow WorkflowFailed is the compensation bracket opener
-	// WorkflowCompensating, and only when the definition has a plan and ≥1 step
-	// completed. Compensation-in-progress recovery is LA-D1 (deferred): when the last
-	// terminal-class event is WorkflowCompensating the bracket is open, so nothing new is
-	// done here (the code below continues exactly as before).
-	if lastTerm != nil && lastTerm.EventType != core.EventTypeWorkflowCompensating {
-		if err := e.reprojectTerminal(ctx, inst, *lastTerm); err != nil {
-			return err
-		}
-		// LA-C4a: completes the committed route (3) — compensation owed by a durable
-		// WorkflowFailed (EDR-011 §6). Route (3) is failure.go's emitWorkflowFailed followed by
-		// maybeCompensate; a crash or projection fault between the two leaves the bracket
-		// owed. Only the case with no WorkflowCompensating in the log is owed; maybeCompensate
-		// applies the plan and ≥1-completed-step rule itself.
-		if lastTerm.EventType == core.EventTypeWorkflowFailed && !sawCompensating && dv.def.Compensation != nil {
-			// LA-C5 N1: owed only for a WorkflowFailed that NAMES a step. CE-verified emission map
-			// (grep over the tracked tree, base db9fd36): emitWorkflowFailed has four call sites.
-			// Each non-empty step_id site runs maybeCompensate on its no-fault path: failure.go
-			// routeTerminalFailure route (3) (also reached by the signal_timeout "fail" action);
-			// hydrate.go completeCommittedRoutes route (3) (LA-C3); signal_timeout.go
-			// routeTimedOutWait (timeout_action compensate). The only empty step_id site, the
-			// processInstance completion check in tick.go (stalled, SEC-08), never compensates, so
-			// its recovery must not compensate either.
-			var wf workflowFailedPayload
-			if err := json.Unmarshal(lastTerm.Payload, &wf); err != nil {
-				return fmt.Errorf("engine: hydrate decode WorkflowFailed %s: %w", inst.InstanceID, err)
-			}
-			cur, found, err := e.getInstance(ctx, inst.InstanceID)
-			if err != nil {
-				return err
-			}
-			if found && wf.StepID != "" { // LA-C5 N1: see the emission map above.
-				if err := e.maybeCompensate(ctx, dv, cur, wf.StepID); err != nil {
-					return fmt.Errorf("engine: hydrate owed compensation %s: %w", inst.InstanceID, err)
-				}
-			}
-		}
+	// ── LA-C4a F-T: terminal fence (applyTerminalFence, the one shared body; see its comment). A
+	// durable workflow-terminal event is the last word for this instance: when the fence applies,
+	// hydrate returns WITHOUT RC-1 and WITHOUT committed-route completion, both of which append.
+	// processInstance's re-read right after hydrate (`if !found || isTerminalStatus(cur.Status)
+	// { return nil }`, tick.go) then stops this instance before any gather. The LA-C7 route-recovery
+	// stage (route_recovery.go completeAwaitingRoutes) applies the same fence.
+	fenced, err := e.applyTerminalFence(ctx, dv, inst, evs)
+	if err != nil {
+		return err
+	}
+	if fenced {
 		e.mu.Lock()
 		e.hydrated[inst.InstanceID] = true
 		e.mu.Unlock()
@@ -473,6 +423,75 @@ func (e *Engine) reprojectTerminal(ctx context.Context, inst core.WorkflowInstan
 		return fmt.Errorf("engine: hydrate re-project %s %s: %w", ev.EventType, inst.InstanceID, err)
 	}
 	return nil
+}
+
+// terminalFenceState returns the last workflow-terminal-class event of evs (nil when the log has
+// none; see workflowTerminalClass) and whether the log holds any WorkflowCompensating (the
+// compensation bracket was opened). An owed compensation needs none (applyTerminalFence).
+func terminalFenceState(evs []core.ExecutionEvent) (*core.ExecutionEvent, bool) {
+	var last *core.ExecutionEvent
+	sawCompensating := false
+	for _, ev := range evs {
+		if workflowTerminalClass(ev.EventType) {
+			evCopy := ev
+			last = &evCopy
+		}
+		if ev.EventType == core.EventTypeWorkflowCompensating {
+			sawCompensating = true
+		}
+	}
+	return last, sawCompensating
+}
+
+// applyTerminalFence is the terminal fence (LA-C4a F-T; EDR-011 §6; LA-C5 N1). It is the ONE body that
+// re-projects a durable workflow-terminal event and completes its owed compensation: hydrate calls it on
+// first touch, and the LA-C7 route-recovery stage (route_recovery.go completeAwaitingRoutes) calls it
+// before it gates or completes a committed route (LA-C7 HIGH-1/2). Both callers apply the same rules.
+//
+// It applies when the log's last workflow-terminal-class event is not WorkflowCompensating; applied
+// reports whether it did, and the caller then stops its own recovery. Successor rule (compensation.go
+// runCompensation, EDR-011 §6): the only lifecycle event that may follow WorkflowFailed is the
+// compensation bracket opener WorkflowCompensating, and only when the definition has a plan and ≥1 step
+// completed. Compensation-in-progress recovery is LA-D1 (deferred): when the last terminal-class event is
+// WorkflowCompensating the bracket is open, so nothing is done here (applied is false). Errors are
+// returned, never swallowed.
+func (e *Engine) applyTerminalFence(ctx context.Context, dv *defView, inst core.WorkflowInstance, evs []core.ExecutionEvent) (bool, error) {
+	lastTerm, sawCompensating := terminalFenceState(evs)
+	if lastTerm == nil || lastTerm.EventType == core.EventTypeWorkflowCompensating {
+		return false, nil
+	}
+	if err := e.reprojectTerminal(ctx, inst, *lastTerm); err != nil {
+		return true, err
+	}
+	// LA-C4a: completes the committed route (3) — compensation owed by a durable
+	// WorkflowFailed (EDR-011 §6). Route (3) is failure.go's emitWorkflowFailed followed by
+	// maybeCompensate; a crash or projection fault between the two leaves the bracket
+	// owed. Only the case with no WorkflowCompensating in the log is owed; maybeCompensate
+	// applies the plan and ≥1-completed-step rule itself.
+	if lastTerm.EventType == core.EventTypeWorkflowFailed && !sawCompensating && dv.def.Compensation != nil {
+		// LA-C5 N1: owed only for a WorkflowFailed that NAMES a step. CE-verified emission map
+		// (grep over the tracked tree, base db9fd36): emitWorkflowFailed has four call sites.
+		// Each non-empty step_id site runs maybeCompensate on its no-fault path: failure.go
+		// routeTerminalFailure route (3) (also reached by the signal_timeout "fail" action);
+		// hydrate.go completeCommittedRoutes route (3) (LA-C3); signal_timeout.go
+		// routeTimedOutWait (timeout_action compensate). The only empty step_id site, the
+		// processInstance completion check in tick.go (stalled, SEC-08), never compensates, so
+		// its recovery must not compensate either.
+		var wf workflowFailedPayload
+		if err := json.Unmarshal(lastTerm.Payload, &wf); err != nil {
+			return true, fmt.Errorf("engine: hydrate decode WorkflowFailed %s: %w", inst.InstanceID, err)
+		}
+		cur, found, err := e.getInstance(ctx, inst.InstanceID)
+		if err != nil {
+			return true, err
+		}
+		if found && wf.StepID != "" { // LA-C5 N1: see the emission map above.
+			if err := e.maybeCompensate(ctx, dv, cur, wf.StepID); err != nil {
+				return true, fmt.Errorf("engine: hydrate owed compensation %s: %w", inst.InstanceID, err)
+			}
+		}
+	}
+	return true, nil
 }
 
 // settleStrandedCancelled settles one stranded StepStarted while cancellation is

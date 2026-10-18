@@ -25,6 +25,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -133,7 +134,9 @@ func routeThreeAwaiting(dv *defView, evs []core.ExecutionEvent) (string, bool, e
 // committedRouteAwaitingTerminal reports whether iid holds a committed route (3) decision with no
 // workflow-terminal event after it (LA-C6 R3-M1), and returns that step's id when it does. A
 // cancellation request is guard (a) of LA-C3: the B4 cancellation gate owns that instance, so
-// nothing is reported. A read or decode error is returned; the caller refuses the action it guards.
+// nothing is reported for the route rule. LA-C7 HIGH-1/2: a durable workflow-terminal event whose
+// projection is behind is also awaiting (step id ""), whatever the cancellation flag says
+// (projectionBehindTerminal). A read or decode error is returned; the caller refuses the action it guards.
 func (e *Engine) committedRouteAwaitingTerminal(ctx context.Context, iid core.InstanceID) (string, bool, error) {
 	cur, found, err := e.getInstance(ctx, iid)
 	if err != nil {
@@ -146,6 +149,13 @@ func (e *Engine) committedRouteAwaitingTerminal(ctx context.Context, iid core.In
 	if err != nil {
 		return "", false, err
 	}
+	evs, err := e.storage.ReadEvents(ctx, iid, 0)
+	if err != nil {
+		return "", false, fmt.Errorf("engine: committed route check %s: %w", iid, err)
+	}
+	if projectionBehindTerminal(cur, evs) {
+		return "", true, nil
+	}
 	flagged, err := e.cancellationRequested(ctx, iid)
 	if err != nil {
 		return "", false, err
@@ -153,17 +163,28 @@ func (e *Engine) committedRouteAwaitingTerminal(ctx context.Context, iid core.In
 	if flagged {
 		return "", false, nil
 	}
-	evs, err := e.storage.ReadEvents(ctx, iid, 0)
-	if err != nil {
-		return "", false, fmt.Errorf("engine: committed route check %s: %w", iid, err)
-	}
 	return routeThreeAwaiting(dv, evs)
+}
+
+// projectionBehindTerminal reports whether iid's projection is behind a durable workflow-terminal
+// event that the terminal fence (applyTerminalFence) will apply (LA-C7 HIGH-1/2): the projection
+// reads non-terminal, the log holds a workflow-terminal event (hasWorkflowTerminal), and the log's
+// last terminal-class event is not WorkflowCompensating (LA-D1: an open compensation bracket is
+// left alone, so it does not await). emit appends before it projects, so an ack-lost append (an
+// error returned for a durable event) leaves exactly this state.
+func projectionBehindTerminal(cur core.WorkflowInstance, evs []core.ExecutionEvent) bool {
+	if isTerminalStatus(cur.Status) || !hasWorkflowTerminal(evs, -1) {
+		return false
+	}
+	last, _ := terminalFenceState(evs)
+	return last != nil && last.EventType != core.EventTypeWorkflowCompensating
 }
 
 // completeAwaitingRoutes completes the committed route(s) of a non-terminal instance by the
 // LA-C3 rule (completeCommittedRoutes) and nothing else. It never gathers dispatch and never runs
 // RC-1: a waiting instance has no dispatch to settle, and RC-1 would re-enter or settle its wait.
-// A log that already holds a workflow-terminal event is left alone (the terminal fence).
+// LA-C7 HIGH-1/2: a log that already holds a workflow-terminal event is re-projected by the terminal
+// fence (applyTerminalFence, the body hydrate runs) before any committed route is completed or gated.
 func (e *Engine) completeAwaitingRoutes(ctx context.Context, iid core.InstanceID) error {
 	cur, found, err := e.getInstance(ctx, iid)
 	if err != nil {
@@ -177,7 +198,7 @@ func (e *Engine) completeAwaitingRoutes(ctx context.Context, iid core.InstanceID
 		return fmt.Errorf("engine: route recovery read events %s: %w", iid, err)
 	}
 	if hasWorkflowTerminal(evs, -1) {
-		return nil
+		return e.applyLoggedTerminal(ctx, cur, evs)
 	}
 	cands, err := logFailedCandidates(evs)
 	if err != nil {
@@ -194,11 +215,50 @@ func (e *Engine) completeAwaitingRoutes(ctx context.Context, iid core.InstanceID
 	if err != nil {
 		return err
 	}
-	return e.completeCommittedRoutes(ctx, dv, cur, cands, false, flagged)
+	if err := e.completeCommittedRoutes(ctx, dv, cur, cands, false, flagged); err != nil {
+		// LA-C7 HIGH-1/2: the route's own WorkflowFailed may be durable with its error (an ack-lost
+		// append; emit.go appends before it projects). Re-project it now rather than on a later tick:
+		// the record that would bring it back is in memory, and a restart would lose it. The route's
+		// error is returned, joined with any error of the fence.
+		if ferr := e.fenceLoggedTerminal(ctx, iid); ferr != nil {
+			return errors.Join(err, ferr)
+		}
+		return err
+	}
+	return nil
+}
+
+// applyLoggedTerminal applies the terminal fence (applyTerminalFence) to cur from its log evs when
+// the log holds a workflow-terminal event (LA-C7 HIGH-1/2). It is a no-op otherwise.
+func (e *Engine) applyLoggedTerminal(ctx context.Context, cur core.WorkflowInstance, evs []core.ExecutionEvent) error {
+	if !hasWorkflowTerminal(evs, -1) {
+		return nil
+	}
+	dv, err := e.defViewFor(ctx, cur)
+	if err != nil {
+		return err
+	}
+	_, err = e.applyTerminalFence(ctx, dv, cur, evs)
+	return err
+}
+
+// fenceLoggedTerminal reads iid afresh and applies applyLoggedTerminal to it (LA-C7 HIGH-1/2).
+// A failed read is returned; an absent instance is a no-op.
+func (e *Engine) fenceLoggedTerminal(ctx context.Context, iid core.InstanceID) error {
+	cur, found, err := e.getInstance(ctx, iid)
+	if err != nil || !found {
+		return err
+	}
+	evs, err := e.storage.ReadEvents(ctx, iid, 0)
+	if err != nil {
+		return fmt.Errorf("engine: route recovery read events %s: %w", iid, err)
+	}
+	return e.applyLoggedTerminal(ctx, cur, evs)
 }
 
 // routeRecoveryGate reports whether a signal delivery or a timeout for iid must NOT proceed in this
-// tick because a committed route (3) awaits its terminal event (LA-C6 R3-M1). site names the caller
+// tick because a committed route (3) awaits its terminal event, or a durable terminal event's
+// projection is behind (LA-C6 R3-M1; LA-C7 HIGH-1/2). site names the caller
 // for the log. A refusal on a decision is recorded in e.routeRecovery so completeRouteRecovery
 // finishes it. A read error refuses WITHOUT recording: the next tick's scan retries the check, and
 // the signal stays undelivered in the inbox (internal/signal Waits.Resolve: ok=false leaves the
@@ -214,7 +274,7 @@ func (e *Engine) routeRecoveryGate(ctx context.Context, iid core.InstanceID, sit
 		return false
 	}
 	e.setRouteRecovery(iid, true)
-	e.log().Info("LA-C6 route gate: committed route (3) awaits its terminal event; not proceeding this tick",
+	e.log().Info("LA-C6/C7 route gate: a committed route (3) or a durable terminal event awaits the route-recovery stage; not proceeding this tick",
 		"site", site, "instance_id", string(iid), "step_id", stepID)
 	return true
 }
