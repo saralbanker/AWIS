@@ -224,3 +224,56 @@ func TestLA_C6_R3M2_RouteTerminalFailure_Route3WorkflowFailedFailure_IsTerminal(
 		t.Errorf("%d WorkflowFailed event(s) durable after a fail-before append; want 0", n)
 	}
 }
+
+// ── LA-R6 (backlog, R3-H2): parallel-wait continue-timeout wedge ─────────────────────────
+//
+// root → {w1, w2}, both waits parked in the same tick. w1 is a signal wait with a 1ms timeout and
+// timeout_action continue; w2 waits for signal "b". w1 times out first: resumeTimedOutInstance
+// writes the instance back to `running` while w2 is still parked (its wait_record exists). B3
+// (Finalization B3 step 3) delivers only to a `waiting` instance, so the signal "b" for w2 is
+// rejected in-process and the instance stays wedged until a restart (hydrate's RC-1 re-enters
+// w2's wait). Gated: pre-existing, not an LA-C6 fix (STATE.md LOOP A, LA-R6 backlog).
+func TestLA_R6_ParallelWaitContinueTimeout(t *testing.T) {
+	if os.Getenv("LA_DEFERRED") != "1" {
+		t.Skip("LA-R6: pre-existing parallel-wait continue-timeout wedge (backlog)")
+	}
+	w1 := signalStepTimeout("w1", "a", "1ms", "continue")
+	w2 := signalStep("w2", "b")
+	def := core.WorkflowDefinition{
+		SchemaVersion: 1, ID: "la.r6", Version: "1.0.0", Namespace: "la", Name: "r6",
+		Triggers:    []core.Trigger{{Type: core.TriggerTypeManual, Config: map[string]any{}}},
+		Steps:       []core.Step{nativeStep("root", "la_root"), w1, w2},
+		Transitions: []core.Transition{{From: "root", To: "w1"}, {From: "root", To: "w2"}},
+		InitialStep: "root", FinalSteps: []string{"w1", "w2"}, Metadata: map[string]any{},
+	}
+	s, fs := laSetup(t, def)
+	clk := newFakeClock(engineStart, 10*time.Millisecond)
+	ids := laIDs()
+	e := laEngine(fs, clk, ids, 2, &stepHandler{id: "la_root", outputs: map[string]any{}})
+	iid := laSubmit(t, e, def.ID)
+	ctx := context.Background()
+
+	// Drive until w1's continue-timeout is durable (setup; not part of K).
+	for n := 1; n <= laSetupTicks; n++ {
+		if err := e.Tick(ctx); err != nil {
+			t.Logf("setup tick %d error: %v", n, err)
+		}
+		if c4bHas(laEvents(t, s, iid), core.EventTypeStepCompleted, "w1") {
+			break
+		}
+	}
+	if !c4bHas(laEvents(t, s, iid), core.EventTypeStepCompleted, "w1") {
+		t.Fatalf("setup: w1 never continued within %d ticks", laSetupTicks)
+	}
+	if err := e.Signal(ctx, iid, "b", map[string]any{"by": "alice"}); err != nil {
+		t.Fatalf("Signal: %v", err)
+	}
+
+	_, errs := laTickUntil(t, e, s, iid, laK, laIsTerminal)
+	end := laInstance(t, s, iid)
+	t.Logf("end state after %d ticks (no restart): status=%s current_steps=%v tick_errors=%d",
+		laK, end.Status, end.CurrentSteps, len(errs))
+	if end.Status != core.InstanceStatusCompleted {
+		t.Errorf("status=%s after %d ticks; want completed once w2's signal arrives, without a restart", end.Status, laK)
+	}
+}
