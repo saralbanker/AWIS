@@ -248,7 +248,9 @@ func (e *Engine) routeRecoverySnapshot() []core.InstanceID {
 // read afresh, is not running: processInstance may have parked the instance in `waiting` (enterWait)
 // before it failed. For each candidate it runs completeAwaitingRoutes, then keeps the record while a
 // committed route (3) still awaits its terminal event (or while its check failed), and drops it
-// once a workflow-terminal event is durable.
+// once a workflow-terminal event is durable. Every read error in this stage (the instance read here,
+// and each read or check of completeAwaitingRoutes and the awaiting check) keeps or puts the record
+// (LA-C7 HIGH-3), so the next tick retries it.
 //
 // LA-C6 R3-M1: completes an already-committed route (3); not the LA-D1 recovery stage (design
 // pending founder approval). Errors are returned for tick to join; the instance is retried next tick.
@@ -264,7 +266,12 @@ func (e *Engine) completeRouteRecovery(ctx context.Context, errored []core.Insta
 		}
 		inst, found, err := e.getInstance(ctx, iid)
 		if err != nil {
+			// LA-C7 HIGH-3: the status is unknown, and a waiting instance is not scanned again, so the
+			// record is what makes the next tick retry it (an unrecorded iid would never be retried).
 			errs = append(errs, fmt.Errorf("engine: route recovery read instance %s: %w", iid, err))
+			e.log().Error("LA-C7 route recovery: reading the instance failed; retried next tick",
+				"instance_id", string(iid), "error", err.Error())
+			e.setRouteRecovery(iid, true)
 			continue
 		}
 		if !found || inst.Status == core.InstanceStatusRunning {
