@@ -51,6 +51,13 @@ func (e *Engine) signalTimeoutScan(ctx context.Context) {
 		return
 	}
 	for _, wr := range records {
+		// LA-C6 R3-M1: a committed route (3) of this instance awaits its terminal event (the
+		// no-fault run never times this wait out: the instance is terminal after WorkflowFailed).
+		// The record is not deleted, so it is re-checked on a later tick (routeRecoveryGate,
+		// route_recovery.go).
+		if e.routeRecoveryGate(ctx, wr.InstanceID, "timeout") {
+			continue
+		}
 		if err := e.processTimeout(ctx, store, wr); err != nil {
 			e.log().Error("signal timeout: process expired wait",
 				"instance_id", string(wr.InstanceID), "step_id", wr.StepID,

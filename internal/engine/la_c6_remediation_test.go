@@ -8,9 +8,7 @@ package engine
 // test states otherwise. Fault models are documented on laFaultStorage (la_stranded_repro_test.go).
 
 import (
-	"context"
 	"os"
-	"sync"
 	"testing"
 
 	"github.com/awis/awis/internal/core"
@@ -138,36 +136,6 @@ func c6R3H1FullEquivalence(t *testing.T, restart bool) {
 	if got.undos != base.undos {
 		t.Errorf("%s: undo invocations=%q; the no-fault run undoes %q", label, got.undos, base.undos)
 	}
-}
-
-// ── shared fault wrappers (LA-C6) ──────────────────────────────────────────────────────
-
-// c6WFFault fails the next `remaining` WorkflowFailed appends (fail-before: nothing commits),
-// then forwards every call. It wraps laFaultStorage, so every engine-reached interface stays
-// promoted.
-type c6WFFault struct {
-	*laFaultStorage
-	mu        sync.Mutex
-	remaining int
-}
-
-func newC6WFFault(fs *laFaultStorage, n int) *c6WFFault {
-	return &c6WFFault{laFaultStorage: fs, remaining: n}
-}
-
-func (f *c6WFFault) AppendEvent(ctx context.Context, ev core.ExecutionEvent) error {
-	if ev.EventType == core.EventTypeWorkflowFailed {
-		f.mu.Lock()
-		hit := f.remaining > 0
-		if hit {
-			f.remaining--
-		}
-		f.mu.Unlock()
-		if hit {
-			return laInjected(laOpAppendEvent)
-		}
-	}
-	return f.laFaultStorage.AppendEvent(ctx, ev)
 }
 
 // TestLA_C6_R3H1_CommittedRouteThreeClassifiesWithSettleEnv pins the settle-side rule of

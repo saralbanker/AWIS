@@ -219,6 +219,10 @@ func (e *Engine) rememberWait(iid core.InstanceID, signalName, stepID string) {
 // e.waits (so the next Resolve for the same wait is a pure map lookup again).
 // The returned version is always the durable one (expectedVersion — the same
 // B-0 fix project() uses), never the possibly-stale e.ver cache directly.
+//
+// LA-C6 R3-M1: ok=false also when a committed route (3) of iid awaits its terminal event
+// (routeRecoveryGate, route_recovery.go). The signal then stays undelivered in the inbox and the
+// scan retries it on a later tick; the instance is recorded for completeRouteRecovery.
 func (e *Engine) Resolve(ctx context.Context, iid core.InstanceID, signalName string) (string, int, bool) {
 	e.mu.Lock()
 	m, ok := e.waits[iid]
@@ -233,6 +237,9 @@ func (e *Engine) Resolve(ctx context.Context, iid core.InstanceID, signalName st
 		if !ok {
 			return "", 0, false
 		}
+	}
+	if e.routeRecoveryGate(ctx, iid, "signal") {
+		return "", 0, false
 	}
 	return stepID, e.expectedVersion(ctx, iid), true
 }

@@ -148,6 +148,8 @@ func (e *Engine) tick(ctx context.Context, stop <-chan struct{}) error {
 
 	// SCAN_RUNNABLE.
 	var errs []error
+	// errored collects the instances whose processInstance failed this tick (LA-C6 R3-M1).
+	var errored []core.InstanceID
 	instances, err := e.storage.ListInstances(ctx, core.InstanceFilter{Status: core.InstanceStatusRunning})
 	if err != nil {
 		errs = append(errs, fmt.Errorf("engine: Tick list running instances: %w", err))
@@ -169,8 +171,17 @@ func (e *Engine) tick(ctx context.Context, stop <-chan struct{}) error {
 				e.log().Error("process instance failed; skipping for this tick",
 					"instance_id", string(inst.InstanceID), "error", err.Error())
 				errs = append(errs, fmt.Errorf("engine: Tick process instance %s: %w", inst.InstanceID, err))
+				errored = append(errored, inst.InstanceID)
 			}
 		}
+	}
+
+	// LA-C6 R3-M1: completes a committed route (3) whose WorkflowFailed append failed, for the
+	// recorded instances and for each instance that errored while not running, BEFORE the signal
+	// scans (route_recovery.go). Committed-route completion only: no gather, no RC-1. Skipped once
+	// stop is closed (LA-C2 (d)); the record survives to the next tick.
+	if !stopRequested(stop) {
+		errs = append(errs, e.completeRouteRecovery(ctx, errored)...)
 	}
 
 	// SIGNAL_SCAN — deliver undelivered inbox signals (M07-C2). Runs

@@ -658,6 +658,8 @@ func hasOnErrorTransition(dv *defView, stepID string) bool {
 //     durable wait_records by recoverWait (Resolve), exactly as after a restart.
 //   - e.cancels, e.defs: a cancel intent is not reconstructed from the EventLog and is
 //     not recovery bookkeeping; the definition cache is keyed by immutable (id, version).
+//   - e.routeRecovery (LA-C6 R3-M1): re-derived from the EventLog on every check
+//     (committedRouteAwaitingTerminal, route_recovery.go); not reset here.
 //
 // Call-site invariant (verified at each caller): no dispatch goroutine for iid is in
 // flight. processInstance joins its dispatch goroutines (wg.Wait) before SETTLE, and
