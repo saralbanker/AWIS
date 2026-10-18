@@ -786,6 +786,27 @@ ROUND LA-C7 (Haiku executor; CE-verified after the executor's session ended befo
   (signal/timeout-continue/timeout-fail siblings, no-signal, completion path; same-process + after
   restart; stage read error) and PASS at b6b2380; the R4-L2 mutation (true→false) FAILS its test;
   `make verify` ALL GATES PASSED; TestLA_* -count=20 PASS; -race engine+storage -count=2 PASS.
-NEXT: real CI + fresh independent review of the LA-C7 diff; founder reviews EDR-012/013/014 and
+REVIEW ROUND 5 (fresh independent reviewer, PR #4 head e7ce5a6; real CI green: push 39118378999,
+  pull_request 39118382552) — REQUEST CHANGES. In scope: R4-H1 PASS (every ack-lost probe family matches
+  no-fault, same-process + restart), R4-H2 PASS, R4-H3 code PASS, R4-L2 PASS, R4-L3 PASS; applyTerminalFence
+  a faithful extraction; no duplicate events; no-fault path identical (7 probes). Findings:
+  R5-1 HIGH (pre-existing, LA-D1) compensation-bracket write fault (WorkflowCompensating ack-lost or its
+    projection lost; or WorkflowCompensated projection lost) → compensation silently abandoned (`failed`,
+    zero undos) → EDR-013 case W7 added; D1-10 tightened to "exactly one undo run + one closing event".
+  R5-2 MEDIUM (LA-C6/C7) tick skips the route-recovery stage when stop is requested, so an instance that
+    errored in that tick is never recorded → stranded in-process (W6 after restart). Fix pending: record
+    errored instances before the stop check; regression test.
+  R5-3 MEDIUM (tests) R4-H3 keep-on-error pinned at 1 of ~6 stage read sites → per-site tests pending.
+  R5-4 LOW (tests) WC-last guard unpinned; awaiting-check keep unpinned; HIGH3 test never asserts its fault
+    fired → pending.
+  R5-5 LOW (pre-existing, reasoned) Cancel runs outside tickMu; a stage-appended terminal event could follow
+    a WorkflowCancelled in a narrow window → backlog LA-R7. Acceptance: reproducer; if confirmed, Cancel
+    serializes with the tick or consults the log.
+  R5-6 (pre-existing design, no-fault too) a route-(1) fallback target does not run while a sibling wait is
+    parked → owner question LA-Q2: intended behavior?
+  CE stop rule applied: review found a new defect (R5-2) → round stopped for owner authorization rather
+    than another unbounded loop.
+NEXT: owner authorizes the bounded round R5-2 + R5-3 + R5-4 (code fix + tests), then real CI + a fresh
+  independent review; owner reviews EDR-012/013/014 and
   approves (or amends) them before any LA-D1/LA-D2/LA-Q1 implementation; N5 text still outstanding.
   PR #4 stays unmerged until remediation and review are complete; merge is founder-only. Loop B closed.

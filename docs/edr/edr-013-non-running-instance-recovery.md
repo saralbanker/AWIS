@@ -25,7 +25,8 @@ succeeded.
 | W3 | `WorkflowCompensating`, some undos ran, process died mid-bracket | `compensating` | stuck forever | `compensation_interrupted` |
 | W4 (N4) | `WorkflowCompensating` durable, its projection write failed | `running` | a second `WorkflowCompensating` is appended | `compensating_projection_lost` |
 | W5 (LA-C5 STOP-1) | `StepFailed(signal_timeout)` with action fail/compensate, no `WorkflowFailed` after it | `waiting`, no wait_record | stuck forever | `timeout_route_lost` |
-| W6 (review 4, LOW-1/HIGH-2) | committed route-(3) `StepFailed{retrying:false}` with no terminal event, **or** a durable `WorkflowFailed` whose projection write was lost, on an instance parked by a sibling wait; **no further signal or timeout arrives** | `waiting` | in-process: handled by the LA-C6/LA-C7 committed-route stage. After a restart nothing touches the instance, so nothing triggers recovery; stuck forever | `parked_route_unfinished` |
+| W7 (review 5, finding 1) | compensation-bracket write fault: `WorkflowCompensating` durable but ack-lost, or its projection write failed → row still `failed`, **zero undos ran**; or `WorkflowCompensated` durable but its projection was lost | `failed` / `compensating` | silently abandoned (the terminal fence leaves compensating-last logs alone, by LA-D1 design) | `compensation_bracket_write_lost` |
+| W6 (review 4, LOW-1/HIGH-2) | committed route-(3) `StepFailed{retrying:false}` with no terminal event, **or** a durable `WorkflowFailed` whose projection write was lost, on an instance parked by a sibling wait; **no further signal or timeout arrives** | `waiting` | in-process: handled by the LA-C6/LA-C7 committed-route stage, **except** when a stop is requested in the same tick (the stage is skipped and the instance is never recorded; review 5 finding 2, fix pending). After a restart nothing touches the instance, so nothing triggers recovery; stuck forever | `parked_route_unfinished` |
 
 Out of scope here: LA-R6 (a `running` instance whose sibling wait cannot be delivered) is a
 projection-status issue, not a non-running recovery issue.
@@ -127,7 +128,7 @@ Changes needed:
 | D1-7 | retry fails too (fault injected twice) | stop event appended; evidence contains crash point, error chain, last events; no third attempt |
 | D1-8 | retry budget across restart | an instance with a recorded attempt is not retried after restart (per the §4.4 ruling) |
 | D1-9 | stop write also fails | no panic; Error log carries the evidence; no further attempts in this process |
-| D1-10 | ack-lost on every bracket write | no duplicate events, at most one run per undo |
+| D1-10 | ack-lost / projection loss on every bracket write (W7) | no duplicate events; **exactly one** run per eligible undo; exactly one closing event (`WorkflowCompensated` or `WorkflowCompensationFailed`); final status equals the no-fault run |
 | D1-12 | W6: committed route-(3) (fail-before and ack-lost `WorkflowFailed`) on a parked instance, restart, no signal | the startup sweep completes the route once; outcome identical to the no-fault run |
 | D1-11 | startup sweep cost | sweep over 10K terminal instances stays within an NFR-style bound (proposed < 2s), recorded |
 
