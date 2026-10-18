@@ -8,8 +8,11 @@ package engine
 // test states otherwise. Fault models are documented on laFaultStorage (la_stranded_repro_test.go).
 
 import (
+	"context"
+	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/awis/awis/internal/core"
 )
@@ -175,5 +178,49 @@ func TestLA_C6_R3H1_CommittedRouteThreeClassifiesWithSettleEnv(t *testing.T) {
 				t.Errorf("firingOnError disagrees: route (3)=%t; want %t", fires, c.want)
 			}
 		})
+	}
+}
+
+// ── R3-M2 (a): routeTerminalFailure route (3) reports terminal WITH the error ─────────────
+//
+// failure.go routeTerminalFailure route (3): once StepFailed{retrying:false} is durable the
+// terminal decision is committed (LA-C5 N2), so a failed WorkflowFailed append returns
+// terminal=true together with the error, and the settle loop stops on it. The settle loop's
+// durableTerminal check (committedRouteThree) would ALSO stop it, so the end-to-end runs do not
+// isolate this return: this test calls routeTerminalFailure directly. Mutation proof: reverting that
+// return to `return false, err` must fail this test (see the commit message).
+func TestLA_C6_R3M2_RouteTerminalFailure_Route3WorkflowFailedFailure_IsTerminal(t *testing.T) {
+	def := laDefFanOut()
+	s, fs := laSetup(t, def)
+	clk := newFakeClock(engineStart, 10*time.Millisecond)
+	e := laEngine(fs, clk, laIDs(), 1,
+		&stepHandler{id: "la_root", outputs: map[string]any{}},
+		&stepHandler{id: "la_b1", err: errLAHandler},
+		&stepHandler{id: "la_b2", outputs: map[string]any{}},
+	)
+	iid := laSubmit(t, e, def.ID)
+	ctx := context.Background()
+	inst := laInstance(t, s, iid)
+	dv, err := e.defViewFor(ctx, inst)
+	if err != nil {
+		t.Fatalf("defViewFor: %v", err)
+	}
+	step := dv.steps["b1"]
+	fs.arm(laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeWorkflowFailed}) // fail-before
+
+	terminal, err := e.routeTerminalFailure(ctx, dv, inst, step, 1,
+		core.StepError{Code: "handler_error", Message: "la: handler failure"})
+	if !errors.Is(err, errLAInjected) {
+		t.Fatalf("routeTerminalFailure error=%v; want the injected WorkflowFailed failure", err)
+	}
+	if !terminal {
+		t.Errorf("routeTerminalFailure route (3) with a failed WorkflowFailed append returned terminal=false; want true (the StepFailed{retrying:false} decision is committed, LA-C5 N2)")
+	}
+	evs := laEvents(t, s, iid)
+	if !c5HasEventType(evs, core.EventTypeStepFailed, "b1") {
+		t.Errorf("no durable StepFailed(b1): the route (3) decision was not committed before WorkflowFailed")
+	}
+	if n := c5Count(evs, core.EventTypeWorkflowFailed); n != 0 {
+		t.Errorf("%d WorkflowFailed event(s) durable after a fail-before append; want 0", n)
 	}
 }

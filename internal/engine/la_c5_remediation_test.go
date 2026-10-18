@@ -124,9 +124,10 @@ func c5Count(evs []core.ExecutionEvent, et core.EventType) int {
 //
 // CE-verified emission map (LA-C5 grep over the tracked tree, base db9fd36): emitWorkflowFailed
 // has exactly four call sites. Every site with a NON-EMPTY step_id runs maybeCompensate on
-// its no-fault path: failure.go:217→221 (route 3, also reached by the signal_timeout "fail"
-// action), hydrate.go:603→607 (LA-C3 route 3), signal_timeout.go:138→142 (compensate). The
-// only EMPTY step_id site, tick.go:434 (stalled), does not compensate.
+// its no-fault path: failure.go routeTerminalFailure route (3) (also reached by the
+// signal_timeout "fail" action), hydrate.go completeCommittedRoutes route (3) (LA-C3),
+// signal_timeout.go routeTimedOutWait (timeout_action compensate). The only EMPTY step_id
+// site, the processInstance completion check in tick.go (stalled), does not compensate.
 //
 // The guard that a route-3 WorkflowFailed (non-empty step_id) with a failed projection still
 // compensates exactly once is TestLA_C4a_OwedCompensation_WorkflowFailedProjectionFailure_
@@ -272,7 +273,16 @@ func c5CompensatingFrom(t *testing.T, evs []core.ExecutionEvent) []string {
 
 func c5N2(t *testing.T, restart, b2Fails bool) {
 	t.Helper()
-	label := laLabel(fmt.Sprintf("LA-C5 N2 route-3 WorkflowFailed append fails (b2_fails=%t)", b2Fails), restart)
+	c5N2Fault(t, restart, b2Fails,
+		laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeWorkflowFailed},
+		"WorkflowFailed append fails once (fail-before)")
+}
+
+// c5N2Fault runs the N2 fixture under ft (one transient fault, see laFault); injects names it for
+// the label. ft == nil is not used: the no-fault baseline is always run first, inside this function.
+func c5N2Fault(t *testing.T, restart, b2Fails bool, ft laFault, injects string) {
+	t.Helper()
+	label := laLabel(fmt.Sprintf("LA-C5 N2 route-3 b1 decision, %s (b2_fails=%t)", injects, b2Fails), restart)
 
 	var bu c5Undo
 	base := c5Run(t, c5DefFanOutComp(), 2, nil, false, c5FanOutHandlers(&bu, b2Fails)...)
@@ -286,7 +296,6 @@ func c5N2(t *testing.T, restart, b2Fails bool) {
 	}
 
 	var fu c5Undo
-	ft := laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeWorkflowFailed}
 	got := c5Run(t, c5DefFanOutComp(), 2, &ft, restart, c5FanOutHandlers(&fu, b2Fails)...)
 	got.undos = fu.calls()
 
@@ -329,14 +338,32 @@ func TestLA_C5_N2_Route3WorkflowFailedAppendFails_StopsSettling_AfterRestart(t *
 	c5N2(t, true, true)
 }
 
-// (b) Hypothesis (review item): a SUCCESSFUL sibling b2 in the same batch must not enter the
-// completed set during the window and must not be undone during compensation.
-func TestLA_C5_N2b_SuccessfulSiblingNotCompletedInWindow(t *testing.T) {
+// (b) A SUCCESSFUL sibling b2 in the same batch must not enter the completed set during the window
+// and must not be undone during compensation. This fixture injects a FAIL-BEFORE WorkflowFailed
+// append (the route-3 decision is then durable only as StepFailed), so it is NOT the N2b ack-lost
+// case: see TestLA_C5_N2b_StepFailedAckLost_* below for that.
+func TestLA_C5_N2_WorkflowFailedFailBefore_SuccessfulSiblingNotSettled(t *testing.T) {
 	c5N2(t, false, false)
 }
 
-func TestLA_C5_N2b_SuccessfulSiblingNotCompletedInWindow_AfterRestart(t *testing.T) {
+func TestLA_C5_N2_WorkflowFailedFailBefore_SuccessfulSiblingNotSettled_AfterRestart(t *testing.T) {
 	c5N2(t, true, false)
+}
+
+// N2b (ack-lost StepFailed, LA-C6 R3-M2 (b)): b1's StepFailed{retrying:false} is durable, but its
+// append returns an error. committedRouteThree (tick.go) must recognise the committed decision, so
+// b2 (which succeeds) is not settled after it. Fails with committedRouteThree disabled (mutation
+// proof, see the commit message).
+func TestLA_C5_N2b_StepFailedAckLost_SuccessfulSiblingNotSettled(t *testing.T) {
+	c5N2Fault(t, false, false,
+		laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeStepFailed, stepID: "b1", model: laModelAckLost},
+		"StepFailed(b1) ack-lost")
+}
+
+func TestLA_C5_N2b_StepFailedAckLost_SuccessfulSiblingNotSettled_AfterRestart(t *testing.T) {
+	c5N2Fault(t, true, false,
+		laFault{op: laOpAppendEvent, nth: 1, eventType: core.EventTypeStepFailed, stepID: "b1", model: laModelAckLost},
+		"StepFailed(b1) ack-lost")
 }
 
 // (c) A NON-terminal settle error still settles the sibling: pinned by
@@ -406,8 +433,9 @@ func TestLA_C5_N3_ContinueProjectionFailure_AfterRestart(t *testing.T) {
 // not the fail-before expectations of the original L-tests: under ack-lost the write is durable,
 // so the correct outcome is the one that durable event implies.
 //
-// A row that fails is a finding of this card, NOT a fix: it is gated behind LA_DEFERRED=1
-// (its failure message is reported), so the default run stays green.
+// Every row runs in the default test run and FAILS the run when its end state diverges from the
+// no-fault run. No row is gated behind LA_DEFERRED (LA-C6 R3-M2 (c): an earlier comment claimed such
+// a gate, and the code had none).
 
 // c5RunWait is L5's fixture (laDefWait: a → w → z). The fault hits StepCompleted(w), which
 // fires inside SIGNAL_SCAN after the delivery commits. ft == nil is the no-fault run.

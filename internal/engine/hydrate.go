@@ -172,10 +172,12 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 		if lastTerm.EventType == core.EventTypeWorkflowFailed && !sawCompensating && dv.def.Compensation != nil {
 			// LA-C5 N1: owed only for a WorkflowFailed that NAMES a step. CE-verified emission map
 			// (grep over the tracked tree, base db9fd36): emitWorkflowFailed has four call sites.
-			// Each non-empty step_id site runs maybeCompensate on its no-fault path (failure.go:217→221
-			// route 3; hydrate.go:603→607 LA-C3 route 3; signal_timeout.go:138→142 compensate). The
-			// only empty step_id site, tick.go:434 (stalled, SEC-08), never compensates, so its
-			// recovery must not compensate either.
+			// Each non-empty step_id site runs maybeCompensate on its no-fault path: failure.go
+			// routeTerminalFailure route (3) (also reached by the signal_timeout "fail" action);
+			// hydrate.go completeCommittedRoutes route (3) (LA-C3); signal_timeout.go
+			// routeTimedOutWait (timeout_action compensate). The only empty step_id site, the
+			// processInstance completion check in tick.go (stalled, SEC-08), never compensates, so
+			// its recovery must not compensate either.
 			var wf workflowFailedPayload
 			if err := json.Unmarshal(lastTerm.Payload, &wf); err != nil {
 				return fmt.Errorf("engine: hydrate decode WorkflowFailed %s: %w", inst.InstanceID, err)
@@ -480,7 +482,7 @@ func (e *Engine) reprojectTerminal(ctx context.Context, inst core.WorkflowInstan
 //   - signal step: a SignalReceived after its latest StepStarted completes it through
 //     CompleteStep (completing an in-flight step is not an activation). Otherwise its
 //     wait_record is deleted and StepFailed{code:"cancelled", retrying:false} is emitted
-//     with cancel.go's waiting-step message (cancel.go:92).
+//     with cancel.go Cancel's waiting-step message.
 //   - non-signal step: StepFailed{code:"worker_crash", retrying:false} with RC-1's message,
 //     and nothing else (no routeTerminalFailure).
 //
@@ -556,11 +558,11 @@ type committedFailure struct {
 // Guards (CE ruling LA-C3, binding; all applied, belt and braces). None of these
 // StepFailed rows carries a routing decision, so no route is completed for them:
 //   - (a) cancellationRequested: the instance is cancel-requested; the B4 cancellation
-//     gate owns it (Finalization B4 step 3; cancel.go:92,190).
-//   - (b) the step's latest StepFailed code is "cancelled": cancel.go:92,190 emit it
+//     gate owns it (Finalization B4 step 3; cancel.go Cancel and handleCancellation).
+//   - (b) the step's latest StepFailed code is "cancelled": cancel.go Cancel and handleCancellation emit it
 //     with no routing decision (Finalization B4 step 3).
-//   - (c) the step's latest StepFailed code is "signal_timeout": signal_timeout.go:58-60
-//     deletes the wait_record before routing, and the compensate action (lines 95-114)
+//   - (c) the step's latest StepFailed code is "signal_timeout": signal_timeout.go processTimeout
+//     deletes the wait_record before routing, and the compensate action (routeTimedOutWait)
 //     skips fallback and on_error. The timeout action is not durable after expiry, so
 //     recovery cannot reconstruct which route was decided.
 //
@@ -584,10 +586,10 @@ func (e *Engine) completeCommittedRoutes(ctx context.Context, dv *defView, inst 
 	}
 	for _, c := range cands {
 		if c.err.Code == "cancelled" {
-			continue // guard (b): cancel.go:92,190 emit this code with no routing decision.
+			continue // guard (b): cancel.go Cancel and handleCancellation emit this code with no routing decision.
 		}
 		if c.err.Code == "signal_timeout" {
-			continue // guard (c): signal_timeout.go:58-60,95-114; the action is not durable.
+			continue // guard (c): signal_timeout.go processTimeout and routeTimedOutWait (compensate); the action is not durable.
 		}
 		step, ok := dv.steps[c.stepID]
 		if !ok {
