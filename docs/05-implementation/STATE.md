@@ -868,5 +868,31 @@ FOUNDER CHECKPOINT 1 (2026-10-20; all CE recommendations approved as presented):
     CLAUDE.md amended accordingly.
   Structure: PR #4 = review fixes only; PR #5 (new branch from the PR #4 branch) = EDR-012/013/014
     Phase 1 + LA-R8. No merge, tag, release, history rewrite or Loop B.
-NEXT: round LA-C8 on PR #4 (R5-2, R5-3, R5-4, R5-5 gated reproducer, N5 comment) → real CI → fresh
-  independent review; then PR #5. Founder Checkpoint 2 after verification. Merge is founder-only.
+ROUND LA-C8 (PR #4; Haiku executors in isolated worktrees, CE-integrated and CE-verified; no attribution):
+  db4749b LA-C8a — R5-2: tick runs completeRouteRecovery also when stop is requested (tick.go; doc in
+    route_recovery.go). Tests TestLA_C8a_R52_StopTrip_{WaitingSibling_WFFailsBeforeWrite,
+    WaitingSibling_WFAckLost, NothingElseAppended} FAIL with the guard restored (CE mutation re-run) and
+    PASS now; _RunningNoSibling is a convergence control (passes either way; running instances are
+    re-hydrated). Gated (LA_DEFERRED=1, FAIL today): TestLA_C8a_W6_StageFailsInStoppedTick_RestartConverges
+    → EDR-013 D1-12. Residual (CE ruling: W6, not R5-2): a tick ENTERED with stop already closed runs no
+    stage (LA-C2 (a), pinned by S8); the process exits after it → EDR-013 startup sweep.
+    R5-4(c): HIGH-3 and TestLA_C7_GateRefusesBehindTerminal assert their injected read fault fired
+    (perturbation getFailAfterWF=false now FAILS HIGH-3). R5-5/LA-R7 (P2): gated reproducers
+    TestLA_C8a_R55_CancelDuringStageWFAppend and _CancelDuringSettleWFAppend_NoFault (FAIL under
+    LA_DEFERRED=1: WorkflowFailed, WorkflowCompensating, WorkflowCompensated after WorkflowCancelled;
+    undo-root ran). N5: hydrate.go LA-C3 ordering comment rewritten to the current settle rule.
+  345e0d1 LA-C8b — tests only. R5-3: one test per reachable stage read site (S1, S4, S5, S9, S10,
+    S10+S10b, S11a, S11c, S11d, S12, S14, S15), each asserting its fault fired and equality with the
+    no-read-fault control; deleting the completeAwaitingRoutes keep FAILS 7 of them (CE re-run), the
+    errored-status keep FAILS S1. S8/S13 (GetWorkflow) unreachable — definition cache warm from Submit
+    — pinned by a tripwire test. R5-4(a): TestLA_C8b_WCLast_HydrateFenceDoesNotProject and
+    _AwaitingCheckNotAwaiting each FAIL when their WorkflowCompensating guard is removed.
+    R5-4(b) CE RULING: the two awaiting-check keeps (route_recovery.go completeRouteRecovery, after
+    committedRouteAwaitingTerminal) are outcome-neutral in every constructed scenario
+    (completeAwaitingRoutes either makes the terminal durable or errors into the earlier keep);
+    kept as defensive record hygiene (the drop clears a stale record), not claimed as tested.
+  Evidence (local, at 345e0d1): make verify ALL GATES PASSED; TestLA_* -count=20 2960 PASS / 0 FAIL /
+    220 SKIP (11 gated tests × 20); -race engine+storage -count=2 PASS.
+NEXT: push PR #4 (LA-C8) → real CI → fresh independent review (Haiku, not an implementer); PR #5
+  (branch loop-a-recovery) in progress: P5-A (LA-R8 + EDR-012). Founder Checkpoint 2 after
+  verification. Merge is founder-only.
