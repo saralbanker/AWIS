@@ -529,8 +529,8 @@ BRANCH: loop-a-engine-confidence (from tag v1.0.0, now 9574303 after the 2026-10
   v1.0.0 tag untouched by Loop A). PR #2 (head aa6561f) was squash-merged by the founder as b60a074;
   the post-merge remediation round (LA-C5) continues on the same branch after merging main (db9fd36)
   and is proposed in a NEW PR (PR #2 is closed to pushes).
-PHASE: ROUND LA-C6 + DECISION DESIGNS (EDR-012/013/014 Proposed) → FOUNDER REVIEW (PR #4 not merged)
-MODEL: Opus 5.5 CE (orchestration, rulings, review) + Haiku 5.5 executors (all code/tests), per the
+PHASE: ROUND LA-C8 (PR #4 review fixes) after FOUNDER CHECKPOINT 1 (2026-10-20); PR #5 (EDR-012/013/014, LA-R8) next
+MODEL: Opus 5.5 CE (orchestration, rulings, integration) + Haiku 5.5 (code, tests, verification, review), per the
   founder MODEL-DIRECTIVE recorded in the M18 section.
 CARDS (sha on loop-a-engine-confidence; post-rewrite SHAs — pre-rewrite SHAs in older notes are stale):
   LA-P1-REPRO  dfc6bec  failing reproducers L1-L6 (stranded StepStarted)
@@ -806,7 +806,67 @@ REVIEW ROUND 5 (fresh independent reviewer, PR #4 head e7ce5a6; real CI green: p
     parked → owner question LA-Q2: intended behavior?
   CE stop rule applied: review found a new defect (R5-2) → round stopped for owner authorization rather
     than another unbounded loop.
-NEXT: owner authorizes the bounded round R5-2 + R5-3 + R5-4 (code fix + tests), then real CI + a fresh
-  independent review; owner reviews EDR-012/013/014 and
-  approves (or amends) them before any LA-D1/LA-D2/LA-Q1 implementation; N5 text still outstanding.
-  PR #4 stays unmerged until remediation and review are complete; merge is founder-only. Loop B closed.
+PHASE 0 AUDIT (2026-10-20; Opus CE + two Haiku read-only agents; every probe below re-run by the CE at
+  b6b2380 = PR #4 head 5a2983f's code; probes not committed):
+  Evidence reconciliation: e7ce5a6 and 5a2983f are docs-only over b6b2380 → the b6b2380 local
+    verification and the e7ce5a6/5a2983f real CI (push 39119876689, pull_request 39119879400) cover
+    the same code. Any code change voids them.
+  R5-2 CONFIRMED: stop closed inside the route-(3) trip tick → `waiting`, recorded=[] after 50 live
+    ticks (control without stop: `compensated`); restart variant also stuck (W6).
+  R5-3 CONFIRMED gap: 14 stage read sites; all converge under a single fault; only the GetInstance
+    site is exercised (HIGH-3), unasserted; removing the completeAwaitingRoutes keep leaves LA green
+    except via that one test.
+  R5-4 CONFIRMED gaps: WC-last guards (hydrate.go applyTerminalFence, route_recovery.go
+    projectionBehindTerminal) removable with TestLA_* green; awaiting-check keeps not observable in
+    any probed scenario; HIGH-3 passes with its stage read fault disabled.
+  R5-5 CONFIRMED (upgraded): Cancel during a tick-side WorkflowFailed append → WorkflowFailed,
+    WorkflowCompensating, WorkflowCompensated appended AFTER WorkflowCancelled, undo ran; reproduces
+    with NO injected fault; pre-existing since v1.0.0 (Cancel never serialized with the tick). Cancel
+    under tickMu deadlocks 4 tests (handler-called Cancel) → not a valid fix.
+  NEW (pre-existing in v1.0.0, no fault): LA-R8 signal step timeout_action=fail whose route is (1)
+    fallback or (2) on_error → StepFailed(signal_timeout) [+ StepFallbackActivated], status `waiting`,
+    no wait_record, target never runs, also after restart. LA-R9 compensation runs the undo of a step
+    that failed and was replaced by its fallback (StepFallbackActivated sentinel counts as completed;
+    compensation.go intends "skip never-completed").
+  EDR audit: EDR-012 gather-batch boundary also breaks after a signal RC-1 re-entry (no event) in the
+    same processInstance; gate side (routeThreeAwaiting) still static; D2-1 text stale (ends
+    `compensated` misattributed, not `stalled`); D2-5 contradicts LA-C3 guard tests; D2-2..7
+    underspecified; D2-7 needs an undo-invocation oracle. EDR-013 W5 signature collides with the
+    healthy route-(1)/(2) timeout outcome; expired undo records read as absent (24h re-run risk);
+    audit_log has no read API and the engine no write path (retry budget); undo-done write loss ⇒
+    compensation_failed for a successful undo (D1-10 wording); missing W9 (interrupted waiting-cancel);
+    sweep has no status index. EDR-014: StepResult caches outputs only — token usage is not durable.
+  N5 FOUND (owner's second review, 2026-10-12 session transcript): "P3 — process/documentation:
+    STATE.md doesn't record the LA-C4a/b/c round; the comment at hydrate.go:324-327 is no longer
+    accurate after F-S." First half resolved by REVIEW ROUND 1/2 entries above.
+FOUNDER CHECKPOINT 1 (2026-10-20; all CE recommendations approved as presented):
+  1 PR #4 round AUTHORIZED: R5-2 (the committed-route stage also runs when stop is requested — the
+    no-fault path already completes a route-(3) decision inline during a stop; restart residual = W6 →
+    EDR-013 sweep), R5-3 (per-site tests), R5-4 (pin both WC-last guards; HIGH-3 asserts its fault;
+    awaiting keeps pinned or removed with a CE justification), R5-5 → gated reproducer, LA-R7 raised
+    to P2, fix designed separately; N5 → fix the stale comment. Then real CI + fresh independent review.
+  2 EDR-012 APPROVED with amendments: residual edge widened to the signal RC-1 re-entry case (known
+    limitation, affects only conditions reading a sibling's status); the gate uses the same
+    reconstructed-env evaluation; acceptance table rewritten with exact fixtures; D2-7 adds undo-call
+    counts; D2-5 sequenced after LA-R8.
+  3 EDR-013 APPROVED with amendments (written into the EDR before code): W5 classified by route;
+    undo-record expiry derived from the bracket's WorkflowCompensating emitted_at (too old ⇒ stop);
+    retry budget via an optional audit append/read interface (no frozen-port or schema change);
+    D1-10 reworded (an ambiguous undo-done ⇒ stop, even if the undo succeeded; configured undo retries
+    are by design); W9 added; D1-11 gets a concrete bound. RESTART RULE CONFIRMED: once the single
+    retry is used, a restart does NOT grant another.
+  4 EDR-014 Phase 1 APPROVED: cache token usage at completion (second cache key) and emit it on
+    cache recovery (counted once); missing usage ⇒ usage fields omitted (unknown), never estimated or
+    zero; "recovered from cache" marker in the audit/diagnostic record only (StepCompleted frozen);
+    cache hit under a cancel request completes then cancels (live B4 behavior); disagreement ⇒ stop;
+    Phase 2 verifier CONTRA DEFERRED.
+  5 LA-Q2: current behavior INTENDED for V1 (pending targets run once the instance resumes); EDR-011
+    §8 wording to be corrected. LA-R8 to be FIXED in PR #5. LA-R9 BACKLOG (no change this loop).
+  6 N5 confirmed as the finding quoted above.
+  7 MODEL-DIRECTIVE EXTENDED: Opus orchestrates/integrates/CE-reviews; Haiku implements, tests,
+    verifies and independently reviews (no Sonnet); a reviewer never reviews its own change.
+    CLAUDE.md amended accordingly.
+  Structure: PR #4 = review fixes only; PR #5 (new branch from the PR #4 branch) = EDR-012/013/014
+    Phase 1 + LA-R8. No merge, tag, release, history rewrite or Loop B.
+NEXT: round LA-C8 on PR #4 (R5-2, R5-3, R5-4, R5-5 gated reproducer, N5 comment) → real CI → fresh
+  independent review; then PR #5. Founder Checkpoint 2 after verification. Merge is founder-only.
