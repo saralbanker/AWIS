@@ -303,7 +303,8 @@ func (e *Engine) routeRecoverySnapshot() []core.InstanceID {
 }
 
 // completeRouteRecovery is the LA-C6 R3-M1 tick stage. It runs after SCAN_RUNNABLE and before
-// SIGNAL_SCAN, and only when no stop is requested. Its candidates are the instances recorded in
+// SIGNAL_SCAN, and also when a stop is requested (LA-C8 R5-2: it completes only an already durable
+// decision, so it never gathers, claims or dispatches). Its candidates are the instances recorded in
 // e.routeRecovery and each instance in errored (processInstance failed in this tick) whose status,
 // read afresh, is not running: processInstance may have parked the instance in `waiting` (enterWait)
 // before it failed. For each candidate it runs completeAwaitingRoutes, then keeps the record while a

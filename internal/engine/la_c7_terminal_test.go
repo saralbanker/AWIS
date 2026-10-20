@@ -145,6 +145,13 @@ func TestLA_C7_GateRefusesBehindTerminal(t *testing.T) {
 	if got := laInstance(t, s, iid).Status; got != core.InstanceStatusWaiting {
 		t.Fatalf("setup: status=%s; want waiting (WorkflowFailed durable, projection behind)", got)
 	}
+	// LA-C8 R5-4(c): the read fault must have fired, or the setup above does not test the gate.
+	st.mu.Lock()
+	tripped := st.getTripped
+	st.mu.Unlock()
+	if !tripped {
+		t.Fatalf("LA-C8 R5-4(c): the injected GetInstance fault after the ack-lost WorkflowFailed never fired")
+	}
 
 	fresh := laEngine(st, clk, ids, 2, handlers...)
 	if _, _, ok := fresh.Resolve(ctx, iid, "go"); ok {

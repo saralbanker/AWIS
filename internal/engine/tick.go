@@ -178,11 +178,12 @@ func (e *Engine) tick(ctx context.Context, stop <-chan struct{}) error {
 
 	// LA-C6 R3-M1: completes a committed route (3) whose WorkflowFailed append failed, for the
 	// recorded instances and for each instance that errored while not running, BEFORE the signal
-	// scans (route_recovery.go). Committed-route completion only: no gather, no RC-1. Skipped once
-	// stop is closed (LA-C2 (d)); the record survives to the next tick.
-	if !stopRequested(stop) {
-		errs = append(errs, e.completeRouteRecovery(ctx, errored)...)
-	}
+	// scans (route_recovery.go). Committed-route completion only: no gather, no claim, no dispatch,
+	// no RC-1. LA-C8 R5-2: runs also once stop is closed. It completes only a decision that is
+	// already durable, as the settle's inline route (3) does in a stopped tick, so no LA-C2 gate
+	// applies to it. Skipping it here left an instance that errored in a stopped tick unrecorded:
+	// it stayed `waiting` with no later tick to revisit it.
+	errs = append(errs, e.completeRouteRecovery(ctx, errored)...)
 
 	// SIGNAL_SCAN — deliver undelivered inbox signals (M07-C2). Runs
 	// regardless of any error above (D-17 point 2). LA-C2 (d): skipped once

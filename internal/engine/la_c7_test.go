@@ -147,9 +147,19 @@ func c7Case(t *testing.T, label string, w core.Step, withSignal bool, mk func(*l
 // instance recorded on a read error (completeRouteRecovery) so the next tick completes route (3).
 // Before the fix the instance stayed `waiting` with no compensation.
 func TestLA_C7_HIGH3_StageReadErrorRetried(t *testing.T) {
+	var st *c7Storage
 	c7Case(t, "LA-C7 HIGH-3 stage read error after WorkflowFailed fail-before, no signal",
 		signalStep("w", "go"), false,
 		func(fs *laFaultStorage) core.StoragePort {
-			return &c7Storage{laFaultStorage: fs, wfFail: 1, getFailAfterWF: true}
+			st = &c7Storage{laFaultStorage: fs, wfFail: 1, getFailAfterWF: true}
+			return st
 		}, false)
+	// LA-C8 R5-4(c): the stage read fault must actually have fired. Without it the run is the
+	// no-fault path and the test proves nothing about a read error in the route-recovery stage.
+	st.mu.Lock()
+	tripped := st.getTripped
+	st.mu.Unlock()
+	if !tripped {
+		t.Errorf("LA-C7 HIGH-3: the injected stage read fault (GetInstance after the WorkflowFailed fail-before) never fired")
+	}
 }
