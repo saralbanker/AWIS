@@ -95,6 +95,12 @@ type Engine struct {
 	hydrated map[core.InstanceID]bool            // set once hydrate(iid) has run this process (hydrate.go)
 	failed   map[core.InstanceID]map[string]bool // terminally-failed steps, never re-activated (B-4, failure.go)
 
+	// routeRecovery (LA-C6 R3-M1) holds the instances whose committed route (3) awaits its terminal
+	// event, recorded when the signal or timeout gate refused them (route_recovery.go). Membership is
+	// advisory: committedRouteAwaitingTerminal re-derives the fact from the EventLog each time. Guarded
+	// by mu.
+	routeRecovery map[core.InstanceID]bool
+
 	// claimLostStreak counts CONSECUTIVE lost-claim ticks per (instance, step),
 	// reset to absent on the next win (tick.go noteClaimLost /
 	// clearClaimLostStreak); it is what turns a permanently-unwinnable claim
@@ -180,6 +186,7 @@ func New(storage core.StoragePort, runners map[core.StepType]Runner, cfg Config,
 		hydrated: make(map[core.InstanceID]bool),
 		failed:   make(map[core.InstanceID]map[string]bool),
 
+		routeRecovery:   make(map[core.InstanceID]bool),
 		claimLostStreak: make(map[retryKey]int),
 	}
 	e.loggerPtr.Store(logger)

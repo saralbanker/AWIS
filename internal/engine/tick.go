@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -147,6 +148,8 @@ func (e *Engine) tick(ctx context.Context, stop <-chan struct{}) error {
 
 	// SCAN_RUNNABLE.
 	var errs []error
+	// errored collects the instances whose processInstance failed this tick (LA-C6 R3-M1).
+	var errored []core.InstanceID
 	instances, err := e.storage.ListInstances(ctx, core.InstanceFilter{Status: core.InstanceStatusRunning})
 	if err != nil {
 		errs = append(errs, fmt.Errorf("engine: Tick list running instances: %w", err))
@@ -168,9 +171,19 @@ func (e *Engine) tick(ctx context.Context, stop <-chan struct{}) error {
 				e.log().Error("process instance failed; skipping for this tick",
 					"instance_id", string(inst.InstanceID), "error", err.Error())
 				errs = append(errs, fmt.Errorf("engine: Tick process instance %s: %w", inst.InstanceID, err))
+				errored = append(errored, inst.InstanceID)
 			}
 		}
 	}
+
+	// LA-C6 R3-M1: completes a committed route (3) whose WorkflowFailed append failed, for the
+	// recorded instances and for each instance that errored while not running, BEFORE the signal
+	// scans (route_recovery.go). Committed-route completion only: no gather, no claim, no dispatch,
+	// no RC-1. LA-C8 R5-2: runs also once stop is closed. It completes only a decision that is
+	// already durable, as the settle's inline route (3) does in a stopped tick, so no LA-C2 gate
+	// applies to it. Skipping it here left an instance that errored in a stopped tick unrecorded:
+	// it stayed `waiting` with no later tick to revisit it.
+	errs = append(errs, e.completeRouteRecovery(ctx, errored)...)
 
 	// SIGNAL_SCAN — deliver undelivered inbox signals (M07-C2). Runs
 	// regardless of any error above (D-17 point 2). LA-C2 (d): skipped once
@@ -328,15 +341,21 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 	// recorded and the loop CONTINUES with i+1..n; the errors are joined and returned
 	// after the loop, so Tick still resets recovery (F1).
 	//
-	// Terminal stop: once the workflow has a durable terminal event, no further item
-	// is settled and no event is appended after it. The stop is taken when (a)
-	// settleFailure reports terminal, or (b) a settle error occurred and the EventLog
-	// already holds a terminal workflow event (durableTerminal). Case (b) is needed
-	// because emit appends before it projects, and routeTerminalFailure can fail
-	// after WorkflowFailed is durable (projection or maybeCompensate), so an error
-	// does not by itself prove the workflow is still running. Items after the stop
-	// keep their StepStarted and are not settled in this tick; settling after a
-	// terminal event is not permitted (LA-C4a hydrate fence covers the recovery side).
+	// Terminal stop (LA-C5 N2: the first committed terminal decision wins). Once the
+	// workflow has a committed terminal decision, no further item is settled and no
+	// event is appended after it. The stop is taken when (a) settleFailure reports
+	// terminal. routeTerminalFailure reports terminal=true for every outcome once its
+	// StepFailed{retrying:false} is durable (route 3), so a failed WorkflowFailed
+	// append, a projection fault or a failed compensation stops the loop WITH its
+	// error. Or (b) a settle error occurred and the EventLog holds a committed terminal
+	// decision for this item (durableTerminal, LA-C5 N2b): a workflow-terminal event, or
+	// the item's own durable route-(3) StepFailed. The second case is an ack-lost append:
+	// the StepFailed committed, but its append returned an error, so routeTerminalFailure
+	// never reached its own terminal return. No other settle path appends a
+	// workflow-terminal event and then reports terminal=false. Items after the stop keep
+	// their StepStarted and are not settled in this tick. The next tick's hydrate completes
+	// the committed route (LA-C3 completeCommittedRoutes), and the LA-C4a fence covers the
+	// post-terminal side.
 	var settleErrs []error
 	stopped := false
 	for i := range items {
@@ -354,7 +373,7 @@ func (e *Engine) processInstance(ctx context.Context, inst core.WorkflowInstance
 		if err != nil {
 			settleErrs = append(settleErrs, err)
 			if !terminal {
-				durable, derr := e.durableTerminal(ctx, inst.InstanceID)
+				durable, derr := e.durableTerminal(ctx, dv, inst, it.step)
 				if derr != nil {
 					settleErrs = append(settleErrs, derr)
 				}
@@ -553,13 +572,22 @@ func (e *Engine) settleSuccess(ctx context.Context, inst core.WorkflowInstance, 
 	return nil
 }
 
-// durableTerminal reports whether iid's EventLog already holds a terminal workflow
-// event (WorkflowCompleted, WorkflowFailed or WorkflowCancelled). It reads the log,
-// not the projection: emit appends the event before it projects, so a projection
-// failure can leave the terminal event durable while the instance still reads as
-// running. LA-C4b F-S: used only on a settle error, to decide whether settling may
-// continue; a read error is returned so the caller can stop (see processInstance).
-func (e *Engine) durableTerminal(ctx context.Context, iid core.InstanceID) (bool, error) {
+// durableTerminal reports whether iid's EventLog holds a committed terminal decision
+// for the item whose settle returned an error (step). It is consulted only on a
+// NON-terminal settle error (LA-C4b F-S), and a read or decode error is returned so
+// the caller stops (conservative). Two durable facts count:
+//
+//   - a workflow-terminal event (WorkflowCompleted, WorkflowFailed or WorkflowCancelled).
+//     The log is read, not the projection: emit appends before it projects, so a
+//     projection failure leaves the terminal event durable while the instance still
+//     reads as running.
+//   - the item's own route-(3) StepFailed{retrying:false}, committed by an append
+//     whose error was returned (LA-C5 N2b; see committedRouteThree).
+//
+// inst is the instance value processInstance passed to settleFailure for this item
+// (LA-C6 R3-H1): committedRouteThree classifies the route on that same value.
+func (e *Engine) durableTerminal(ctx context.Context, dv *defView, inst core.WorkflowInstance, step core.Step) (bool, error) {
+	iid := inst.InstanceID
 	evs, err := e.storage.ReadEvents(ctx, iid, 0)
 	if err != nil {
 		return false, fmt.Errorf("engine: settle terminal check %s: %w", iid, err)
@@ -569,6 +597,55 @@ func (e *Engine) durableTerminal(ctx context.Context, iid core.InstanceID) (bool
 		case core.EventTypeWorkflowCompleted, core.EventTypeWorkflowFailed, core.EventTypeWorkflowCancelled:
 			return true, nil
 		}
+	}
+	committed, err := committedRouteThree(dv, inst, step, evs)
+	if err != nil {
+		return false, fmt.Errorf("engine: settle terminal check %s: %w", iid, err)
+	}
+	return committed, nil
+}
+
+// committedRouteThree reports whether step's own route-(3) terminal decision is durable
+// in evs (LA-C5 N2b, the ack-lost case of LA-C3 completeCommittedRoutes). The decision is
+// a StepFailed{retrying:false} for step appended after the step's latest StepStarted
+// (this tick's attempt; a step with no StepStarted counts from the start of the log,
+// which is the template_error item that never emitted one). Codes "cancelled" and
+// "signal_timeout" carry no routing decision (LA-C3 guards (b) and (c)). A payload that
+// cannot be decoded is an error.
+//
+// LA-C6 R3-H1: the route is classified with the SAME computation routeTerminalFailure
+// performs for this item, on the SAME inst that processInstance passed to settleFailure:
+// route (3) iff step.Fallback == "" and firingOnError(dv, step.ID, buildEnv(inst)) is
+// empty. An on_error condition is evaluated against the settle-time environment, so a
+// conditional edge whose condition is false is route (3) here, while the static rule of
+// LA-C3 (hasOnErrorTransition) would call it route (2). This is the settle side only: the
+// recovery side (hydrate.go completeCommittedRoutes) stays static, because the EventLog
+// cannot reproduce the condition environment (LA-D2 / EDR-012, pending).
+//
+// Route (1) and route (2) decisions return false, so their siblings keep settling
+// (LA-C4b behaviour, unchanged).
+func committedRouteThree(dv *defView, inst core.WorkflowInstance, step core.Step, evs []core.ExecutionEvent) (bool, error) {
+	if step.Fallback != "" || len(firingOnError(dv, step.ID, buildEnv(inst))) != 0 {
+		return false, nil
+	}
+	startedSeq := 0
+	for _, ev := range evs {
+		if ev.EventType == core.EventTypeStepStarted && ev.StepID == step.ID && ev.SequenceNum > startedSeq {
+			startedSeq = ev.SequenceNum
+		}
+	}
+	for _, ev := range evs {
+		if ev.EventType != core.EventTypeStepFailed || ev.StepID != step.ID || ev.SequenceNum <= startedSeq {
+			continue
+		}
+		var p stepFailedPayload
+		if err := json.Unmarshal(ev.Payload, &p); err != nil {
+			return false, fmt.Errorf("decode StepFailed %s/%s seq=%d: %w", ev.InstanceID, step.ID, ev.SequenceNum, err)
+		}
+		if p.Retrying || p.Error.Code == "cancelled" || p.Error.Code == "signal_timeout" {
+			continue
+		}
+		return true, nil
 	}
 	return false, nil
 }

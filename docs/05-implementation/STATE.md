@@ -525,18 +525,32 @@ NEXT (after B-BUILD/C-VERIFY): D-CLOSE semantic review (Fable) → G4 human verd
 
 # ── LOOP A — Engine correctness under failure (opened 2026-10-12) ─────────────────
 LOOP: A (bounded engine confidence; founder-authorized 2026-10-12 after v1.0.0)
-BRANCH: loop-a-engine-confidence (from tag v1.0.0 = d6fe341; v1.0.0 tag untouched)
-PHASE: FOUNDER REVIEW (PR open; NOT merged; one founder decision open — LA-D1 below)
-MODEL: Opus 5.5 CE (orchestration, rulings, review) + Haiku 5.5 executors (all code/tests), per the
+BRANCH: loop-a-engine-confidence (from tag v1.0.0, now 9574303 after the 2026-10-12 history rewrite;
+  v1.0.0 tag untouched by Loop A). PR #2 (head aa6561f) was squash-merged by the founder as b60a074;
+  the post-merge remediation round (LA-C5) continues on the same branch after merging main (db9fd36)
+  and is proposed in a NEW PR (PR #2 is closed to pushes).
+PHASE: ROUND LA-C8 (PR #4 review fixes) after FOUNDER CHECKPOINT 1 (2026-10-20); PR #5 (EDR-012/013/014, LA-R8) next
+MODEL: Opus 5.5 CE (orchestration, rulings, integration) + Haiku 5.5 (code, tests, verification, review), per the
   founder MODEL-DIRECTIVE recorded in the M18 section.
-CARDS (sha on loop-a-engine-confidence):
-  LA-B5        a98e010  mid-transaction crash injection for DeliverSignal (M18-B5)
-  LA-P1-REPRO  bd6f58a  failing reproducers L1-L6 (stranded StepStarted)
-  LA-P2-REPRO  8ea1bdd  failing reproducers S1-S4 (shutdown / cancel with in-flight work)
-  LA-C1        417a6a2  fix L1-L6 (in-process RC-1 re-arm; partial-dispatch; signal-step recovery)
-  LA-P3-BUSY   271325c  env-gated SQLITE_BUSY experiment (M18-B2), LA_BUSY_EXPERIMENT=1
-  LA-C2        8f2ce15  fix shutdown drain (FR-RM-04)
-  LA-C3        78c02ca  fix L7/L8 (committed terminal routing completed on recovery); L9 gated reproducers
+CARDS (sha on loop-a-engine-confidence; post-rewrite SHAs — pre-rewrite SHAs in older notes are stale):
+  LA-P1-REPRO  dfc6bec  failing reproducers L1-L6 (stranded StepStarted)
+  LA-P2-REPRO  d3d317b  failing reproducers S1-S4 (shutdown / cancel with in-flight work)
+  LA-B5        2b0ae00  mid-transaction crash injection for DeliverSignal (M18-B5)
+  LA-C1        0359b86  fix L1-L6 (in-process RC-1 re-arm; partial-dispatch; signal-step recovery)
+  LA-P3-BUSY   3f835db  env-gated SQLITE_BUSY experiment (M18-B2), LA_BUSY_EXPERIMENT=1
+  LA-C2        52620ce  fix shutdown drain (FR-RM-04)
+  LA-C3        e9e39d6  fix L7/L8 (committed terminal routing completed on recovery); L9 gated reproducers
+  (ledger)     a251354  Loop A record
+  LA-B5r       5af1996  macOS: drop stdout fsync in crash_point (test-only portability)
+  LA-C4c       0c8461a  review-1 #3/#5: signal timeout durable version; wait_record restore on routing failure
+  LA-C4b       a7d4637  review-1 #2/#8: settle every dispatched item; serialize ticks (tickMu)
+  LA-C4a       aa6561f  review-1 #1/#4/#6/#9: terminal fence; settled-step re-projection; cancel-aware RC-1;
+                        owed route-(3) compensation  ← PR #2 head, squash-merged as b60a074
+  (merge)      db9fd36  merge main b60a074 into the branch for the post-merge round
+  LA-C5 N1     3afac76  owed compensation only for a WorkflowFailed that names a step
+  LA-C5 N2     7374ea7  a committed route-(3) decision stops settling (first terminal decision wins)
+  LA-C5 N3     af56ab8  reset recovery after a signal-timeout routing error; test fault model; end-state hardening
+  LA-C5 N2b    f7f685d  ack-lost-aware terminal check after a settle error
 REPAIRED (each: deterministic reproducer FAILED pre-fix, PASSES post-fix; adjacent suites green):
   L1/L3/L6 P1 — one transient AppendEvent failure (StepCompleted / StepFailed / RC-1's own StepFailed)
     left the instance `running` with a StepStarted no in-process path settled, until restart
@@ -563,6 +577,57 @@ REPAIRED (each: deterministic reproducer FAILED pre-fix, PASSES post-fix; adjace
     durably committed route; route decided from static structure only (Fallback → (1); no on_error
     transition at all → (3)); skipped when cancellation requested, code "cancelled" (cancel.go:94,191)
     or "signal_timeout" (signal_timeout.go:103).
+REVIEW ROUND 1 (independent read-only reviewer, CE-dispatched, at c45a519/5af1996): F2 and LA-C3 DEFECTIVE,
+  others SOUND-WITH-NOTES. Confirmed and fixed in LA-C4a/b/c (each with a test that FAILED pre-fix):
+  #1 P1 durable WorkflowFailed + failed projection → RC-1 appended a SECOND terminal event (append-only log
+     corruption) → LA-C4a terminal fence: nothing is appended after a durable workflow-terminal event; the
+     terminal projection is re-applied from the log.
+  #6 P1 durable StepCompleted / StepFailed{retrying:false} + failed projection → instance `running` forever
+     (only `awis rebuild-state` repaired it) → LA-C4a settled-step re-projection in hydrate.
+  #4/#9 RC-1 ignored cancellation (re-entered a cancelled wait → `waiting` forever; fallback activated after
+     the cancel request, B4 step 3) → LA-C4a cancel-aware RC-1 (StepFailed without routing).
+  #2 P1 a settle error abandoned later items whose handlers had run → LA-C4b settles every item.
+  #8 ticks were not serialized (F1 reset invariant) → LA-C4b tickMu (Blueprint "single goroutine dispatcher").
+  #3 P1 timeout continue path used the cached version (0 after restart) → `waiting` forever → LA-C4c durable
+     version. #5 timeout routing failure after the wait_record delete → LA-C4c restores the wait_record
+     unless the routing event is durable (decided by re-reading the log).
+  Ruled not a defect: sequence_num gaps after a failed append (EDR-005 / TDS-01 §3 require monotonic, not
+  contiguous). Designed behavior kept: items after a terminal outcome in the same batch stay StepStarted
+  (fail-fast, identical to the no-fault path).
+REVIEW ROUND 2 (owner's independent review of aa6561f vs a251354, verdict REQUEST CHANGES; findings from
+  the owner's remediation brief 2026-10-13) → round LA-C5:
+  N1 P1 (regression from LA-C4a) — stalled WorkflowFailed (SEC-08, tick.go, step_id "") durable + failed
+    projection → recovery ran undo handlers and ended `compensated`; no-fault path: no undo, `failed`.
+    FIXED (3afac76): owed compensation requires a WorkflowFailed that names a step. Contract-derived: every
+    WorkflowFailed emission site with a step id compensates on its no-fault path (failure.go route (3),
+    signal_timeout compensate/fail, hydrate LA-C3); the only empty-step_id site (stalled) never does. No new
+    compensation policy; LA-D1 untouched. Pre-fix FAIL: status=compensated, undo invocations
+    "undo-b,undo-a" (want failed, none); same-process and after restart.
+  N2 P2 (regression from LA-C4b) — fan-out b1,b2 both route (3); b1's WorkflowFailed append fails → b2
+    settled → workflow failure (and compensation from_step) attributed to b2. Hypothesis CONFIRMED pre-fix:
+    a successful sibling entered the completed set inside the window and its undo ran. FIXED (7374ea7):
+    once route (3)'s StepFailed{retrying:false} is durable, routeTerminalFailure reports terminal=true with
+    any later error, so settling stops exactly as on the no-fault path; LA-C3 completes the first committed
+    decision. Non-terminal settle errors still settle siblings (LA-C4b tests green). Ack-lost variant
+    (StepFailed durable but its append reported an error) FIXED (f7f685d): after a non-terminal settle
+    error the EventLog check also stops on the item's durable route-(3) StepFailed{retrying:false}
+    (excluding cancelled / signal_timeout); a genuinely failed write still continues. CE ruling: a
+    template_error item has no StepStarted, so its check counts from the log start (sound: B-4 markFailed
+    forbids re-activation after a terminal StepFailed).
+  N3 P1 (pre-existing, L1/L3/L6 class) — continue-timeout StepCompleted durable, projection failed →
+    instance stuck until restart (no in-process reset on the timeout path). FIXED (af56ab8): processTimeout
+    resets the instance's recovery bookkeeping on error. Acceptance MET: same-process deterministic test
+    (pre-fix FAIL: status=running current_steps=[w] after 50 ticks) + restart coverage retained.
+  N4 P2 (LA-D1-adjacent) — RECORDED under LA-D1, not fixed (see LA-D1).
+  N5 — cited in the owner's brief (STATE update list) but its content was not provided to the CE; NOT
+    dispositioned. Acceptance: owner supplies the finding text.
+  Test quality (af56ab8): fault wrappers document their model; new "ack-lost" model (real write, then an
+    error) run over L1, L3, L5, L7, L8, N1, N2 — all PASS except the N2-StepFailed probe, fixed by f7f685d;
+    the N1-projection ack-lost row is vacuous (the committed projection leaves `running`) and the
+    N2-WorkflowFailed row does not discriminate (both commented). TestLA_C4b serialization is now a
+    deterministic tickMu.TryLock check that FAILS with tickMu removed; the old loop is kept as
+    ..._StressRegression (not a proof). TestLA_C4c_DurableRouting_NotRestored has an end-state assertion,
+    GATED (LA_DEFERRED=1) because it exposes the LA-D1 timeout residual below.
 M18-B5: acceptance criteria MET on this branch (LA-B5): SQLite triggers + app-defined crash_point()
   SIGKILL the child inside the B3 tx (after_guard, after_append, before_commit; child proves the point
   via "AT <stage>"); after reopen delivered_at NULL + 0 SignalReceived + status waiting; recovery
@@ -588,6 +653,16 @@ FOUNDER DECISIONS OPEN:
     new semantics / frozen-format gap (E3-grade). Reproducers committed, gated (LA_DEFERRED=1, FAIL).
     Acceptance: founder picks the semantics (or CONTRA on the event set); then a recovery stage for
     failed/compensating instances with tests that FAIL today under LA_DEFERRED=1.
+    Same root cause (no recovery path for non-running instances), also in LA-D1:
+    - N4 (P2, confirmed by the owner's review): cancel-with-compensate — WorkflowCompensating durable, its
+      projection fails → recovery appends a SECOND WorkflowCompensating (hydrate.go terminal fence excludes
+      a WorkflowCompensating-last log; cancel.go runCompensation). Duplicate event in the append-only log.
+      Whether compensation resumes, restarts or is complete is the owner's decision.
+    - Timeout fail/compensate (LA-C5 STOP-1): StepFailed(signal_timeout) durable, then WorkflowFailed lost →
+      status `waiting`, no wait_record, nothing scans it; permanent. Gated end-state assertion in
+      TestLA_C4c_DurableRouting_NotRestored (LA_DEFERRED=1: status=waiting live_wait_records=0).
+    - WorkflowFailed projection succeeded but WorkflowCompensating never appended → row `failed`, never
+      scanned, owed compensation not reached (covered by the gated L9a reproducers).
   LA-Q1 — a successful handler whose StepCompleted append failed is recovered as worker_crash (RC-1);
     recovering it from the idempotency cache would be new semantics. Acceptance: founder ruling; if
     adopted, L1 tests flipped to assert StepCompleted with the cached outputs.
@@ -601,9 +676,223 @@ BACKLOG (non-blocking, with acceptance):
     documents unbounded; test asserting the bound.
   LA-R3 (P3) LA-C2 residual window: a stop arriving between the processInstance stop check and the first
     claim still dispatches that tick's gathered items; they are drained and settled, never stranded.
+  LA-R4 (P3) LA-C4c double fault: if the log re-read that decides "routing event durable?" also fails, the
+    wait_record is not restored (logged at Error). Acceptance: test with both faults documents the outcome.
+  LA-R5 (lead, UNCONFIRMED, code reading) Cancel() on a pending/waiting instance whose projection write
+    failed: a retried `awis cancel` sees a non-terminal row and may append a second WorkflowCancelled.
+    Acceptance: reproducer; if confirmed, Cancel consults the log for a terminal event before appending.
+  LA-R2 note: the unbounded drain also applies to awis-server (cmd/awis-server/main.go waits for Run).
   LA-B2a (P3) see M18-B2 above. Acceptance: decide whether first-open concurrency must succeed; if so a
     deterministic two-opener test passes 200/200.
-EVIDENCE (local, at 78c02ca): `make verify` ALL GATES PASSED; all TestLA_* -count=20 PASS; storage
-  MidTx|DeliverSignal -count=20 PASS; -race engine+storage -count=2 PASS. Real CI: recorded on the PR.
-NEXT: independent review + real CI on the PR → founder review; founder rules LA-D1 / LA-Q1; merge is
-  founder-only (EEOS rule 6). No further loop started.
+EVIDENCE: PR #2 head aa6561f — real CI green before the founder merge (push 38252994323, pull_request
+  38252996530); main b60a074 CI 38254759724 green.
+  LA-C5 (local, at f7f685d): `make verify` ALL GATES PASSED; TestLA_* -count=20 PASS; -race engine+storage
+  -count=2 PASS; go test ./... and apps/oip PASS; golangci-lint 0 issues. Real CI + review-3 verdict:
+  recorded on the LA-C5 PR.
+REVIEW ROUND 3 (fresh independent read-only reviewer, not the implementer, PR #4 head 9355ae0; real CI
+  green: push 38308985046, pull_request 38309021682) — verdict REQUEST CHANGES. N1 SOUND; N3 SOUND-WITH-
+  NOTES; N2 and N2b DEFECTIVE; test quality SOUND-WITH-NOTES. Findings (all CONFIRMED by probe/mutation):
+  R3-H1 (from N2b) committedRouteThree classifies route (3) statically (tick.go `Fallback != "" ||
+    hasOnErrorTransition`), but the live route is env-dependent (failure.go firingOnError(buildEnv(inst))):
+    with a conditional on_error edge whose condition is false and an ack-lost StepFailed, settling continues
+    and the faulted run ends `completed` (no-fault: WorkflowFailed + compensation). A settle-side fix (use the
+    settle-time env, as routeTerminalFailure does) is in scope; the RECOVERY side cannot re-derive a
+    condition-dependent route from the EventLog today (LA-R1) → owner decision LA-D2 below.
+  R3-M1 (N2 residual) SIGNAL_SCAN / SIGNAL_TIMEOUT_SCAN still run after a processInstance error in the
+    same tick (tick.go), so a parked signal sibling can be delivered and completed after a committed
+    route-(3) decision (faulted compensation includes its undo; no-fault does not).
+  R3-M2 (tests) reverting failure.go's route-(3) `return true` alone leaves TestLA_C5_N2_* green (masked by
+    the durableTerminal / committedRouteThree check); the test named N2b injects fail-before, not ack-lost;
+    the Q3 comment claims failing rows are LA_DEFERRED-gated but the test has no gate.
+  R3-L1 stale emission-map line numbers in hydrate.go and la_c5_remediation_test.go comments.
+  R3-H2 (pre-existing, outside the diff) continue-timeout sets status running while a sibling signal step
+    is still parked; B3 then rejects that sibling's delivery (status must be 'waiting') → in-process wedge
+    (restart recovers). Recorded as LA-R6.
+FOUNDER DECISION ADDED:
+  LA-D2 (from R3-H1 / LA-R1) — recovery of a terminal failure whose route depends on an on_error
+    CONDITION. The EventLog does not record which route was taken. Options: (a) recovery re-evaluates the
+    condition against the env reconstructed from the log as of the failing attempt (StepCompleted outputs
+    before that attempt's StepStarted + inputs) — faithful replay, new recovery code; (b) keep the static
+    rule (never complete a conditional route; instance ends SEC-08 `stalled`, no compensation);
+    (c) record the route decision durably (frozen event-format change → CONTRA). Acceptance: owner picks;
+    a test with a false conditional on_error + ack-lost StepFailed matches the no-fault run.
+BACKLOG ADDED:
+  LA-R6 (P1-class, pre-existing) R3-H2 parallel-wait continue-timeout wedge. Acceptance: same-process test
+    root→{w1 continue-timeout, w2 signal} completes after w2's signal without restart.
+FOUNDER DECISION CHECKPOINT (2026-10-18; recorded by Opus CE):
+  LA-D2 → direction A APPROVED: recovery reconstructs the earlier workflow state and re-evaluates the
+    conditional route. LA-D1 → policy: capture crash location + maximum diagnostic evidence, retry once,
+    on retry failure stop and preserve evidence; retries must account for operations that may already
+    have succeeded. LA-Q1 → investigate independent completion verification (multiple sources +
+    fallback; local system/HAL and server); define disagreement resolution before implementation.
+  Required BEFORE implementing those decisions (acceptance tests, LA-D2 log sufficiency, LA-D1 retry +
+    evidence, LA-Q1 feasibility) → CE design drafts, status Proposed, awaiting founder approval:
+    docs/edr/edr-012-conditional-route-recovery.md (LA-D2: EventLog SUFFICIENT — inputs/outputs/status
+      derivable; boundary = the call site's snapshot, reconstructed via the "gather batch" rule; one
+      documented residual edge; acceptance D2-1..D2-7; also closes LA-R1),
+    docs/edr/edr-013-non-running-instance-recovery.md (LA-D1: cases W1-W5 incl. N4 and the timeout
+      residual; undo start/done records in step_results_cache; ambiguous undo ⇒ stop, never re-run;
+      evidence to audit log + WorkflowCompensationFailed details; startup sweep + RECOVERY stage;
+      acceptance D1-1..D1-11; one confirmation needed: fresh retry after restart — proposed NO),
+    docs/edr/edr-014-completion-verification.md (LA-Q1 feasibility: only the idempotency cache is an
+      independent durable source in V1 → Phase 1 feasible now; handler verifiers need a CONTRA; HAL is
+      handler-specific; "server" = V2 (awis-server serves static GUI only); disagreement ⇒ stop;
+      four founder decisions listed). None of these is implemented.
+ROUND LA-C6 (next-loop work per the checkpoint; Haiku executor, CE-reviewed; no attribution):
+  acd8aeb R3-H1 settle side — committedRouteThree classifies route (3) with the SAME settle-time env as
+    routeTerminalFailure (firingOnError(buildEnv(inst))). Pre-fix FAIL: sibling settled, run ended
+    `completed`. Recovery side stays static until EDR-012 is implemented: the faulted run now ends
+    WorkflowFailed attributed to the stranded sibling (RC-1 worker_crash) + compensation — logged; full
+    no-fault equivalence test gated (LA_DEFERRED=1, FAILS today) → closes with LA-D2.
+  379e96b R3-M1 — durable, restart-safe gate: Engine.Resolve (after the live-wait lookup) and the timeout
+    scan refuse to deliver / fire while the EventLog holds a STATIC route-(3) StepFailed{retrying:false}
+    with no workflow-terminal event after it (read error ⇒ refuse this tick); the instance is queued in
+    e.routeRecovery and a new tick step completes ONLY the committed route (completeCommittedRoutes;
+    never gather, never RC-1 on a non-running instance). Pre-fix: 13/13 FAIL (signal sibling delivered,
+    undo-w,undo-root; timeout sibling WorkflowFailed attributed to w). Refusal is safe: internal/signal
+    deliverOne leaves the signal undelivered on !ok.
+  41de94f R3-M2/R3-L1 — failure.go route-(3) terminal=true pinned by its own unit test (mutation FAILS
+    it); real N2b ack-lost tests (FAIL with committedRouteThree disabled); fail-before test renamed;
+    Q3 comment fixed; LA file:line citations replaced by function names.
+  2315f46 LA-R6 — gated regression test (LA_DEFERRED=1: FAILS, status=running current_steps=[w2] after
+    50 ticks); not fixed (backlog).
+  Residuals (each mapped to an approved decision, none silently closed):
+    - conditional route (3) + parked signal sibling: the R3-M1 gate is static, so the sibling is
+      delivered and the run completes → closes with LA-D2 / EDR-012.
+    - committed route + sibling signal never arrives + restart → instance stays `waiting` → LA-D1 /
+      EDR-013 case W6 (corrected from "W5" per review 4 LOW-1; W5 is the signal-timeout case).
+  Evidence (local, at 2315f46): engine -count=1 PASS; TestLA_* -count=20 2260 PASS / 0 FAIL / 160 SKIP
+  (gated); -race engine+storage PASS; go test ./... PASS; apps/oip PASS; make verify ALL GATES PASSED;
+  golangci-lint 0. Real CI + review-4 verdict: recorded on PR #4.
+REVIEW ROUND 4 (fresh independent reviewer, PR #4 head e8ef604; real CI green: push 39115358963,
+  pull_request 39115362583) — REQUEST CHANGES. R3-H1 SOUND; R3-M2 SOUND-WITH-NOTES; R3-L1 SOUND; LA-R6
+  test SOUND; no-fault path identical in 7 probes (248b7c2 vs 2315f46). R3-M1 DEFECTIVE:
+  R4-H1 (pre-existing) ack-lost WorkflowFailed leaves the projection `waiting`; the gate saw a terminal
+    event and let a parked sibling's signal through (undo-w ran); timeout-fail appended a SECOND
+    WorkflowFailed. R4-H2 (pre-existing) same root, no signal: `waiting` forever, no compensation; the
+    EDR-013 mapping was wrong (corrected: new case W6). R4-H3 (introduced by LA-C6) one transient read
+    error in the recovery stage dropped the candidate. R4-M1 cost: one full event read per delivery to a
+    live wait / due timeout (accepted, recorded). R4-L1 W5 label wrong (corrected to W6). R4-L2 route-(3)
+    `return true, err` after maybeCompensate unpinned. R4-L3 static route-(3) rule written three times.
+ROUND LA-C7 (Haiku executor; CE-verified after the executor's session ended before its report):
+  0e8ea47 R4-H3 — any read error in the recovery stage keeps the instance queued for the next tick.
+  5e3fee5 R4-H1/H2 — the gate treats "log has a workflow-terminal event, projection non-terminal" as
+    awaiting (refuses delivery / timeout); the stage re-applies the logged terminal via the SAME terminal
+    fence as hydrate (factored into applyTerminalFence: reprojectTerminal + owed-compensation rule);
+    WorkflowCompensating-last logs untouched (LA-D1).
+  b6b2380 R4-L2/L3 — unit test pins route (3)'s post-maybeCompensate `return true, err`; one
+    staticRouteThree helper (tick.go's env-based committedRouteThree deliberately separate, R3-H1).
+  CE verification: all 14 behavioral LA-C7 tests FAIL against e8ef604's hydrate.go/route_recovery.go
+  (signal/timeout-continue/timeout-fail siblings, no-signal, completion path; same-process + after
+  restart; stage read error) and PASS at b6b2380; the R4-L2 mutation (true→false) FAILS its test;
+  `make verify` ALL GATES PASSED; TestLA_* -count=20 PASS; -race engine+storage -count=2 PASS.
+REVIEW ROUND 5 (fresh independent reviewer, PR #4 head e7ce5a6; real CI green: push 39118378999,
+  pull_request 39118382552) — REQUEST CHANGES. In scope: R4-H1 PASS (every ack-lost probe family matches
+  no-fault, same-process + restart), R4-H2 PASS, R4-H3 code PASS, R4-L2 PASS, R4-L3 PASS; applyTerminalFence
+  a faithful extraction; no duplicate events; no-fault path identical (7 probes). Findings:
+  R5-1 HIGH (pre-existing, LA-D1) compensation-bracket write fault (WorkflowCompensating ack-lost or its
+    projection lost; or WorkflowCompensated projection lost) → compensation silently abandoned (`failed`,
+    zero undos) → EDR-013 case W7 added; D1-10 tightened to "exactly one undo run + one closing event".
+  R5-2 MEDIUM (LA-C6/C7) tick skips the route-recovery stage when stop is requested, so an instance that
+    errored in that tick is never recorded → stranded in-process (W6 after restart). Fix pending: record
+    errored instances before the stop check; regression test.
+  R5-3 MEDIUM (tests) R4-H3 keep-on-error pinned at 1 of ~6 stage read sites → per-site tests pending.
+  R5-4 LOW (tests) WC-last guard unpinned; awaiting-check keep unpinned; HIGH3 test never asserts its fault
+    fired → pending.
+  R5-5 LOW (pre-existing, reasoned) Cancel runs outside tickMu; a stage-appended terminal event could follow
+    a WorkflowCancelled in a narrow window → backlog LA-R7. Acceptance: reproducer; if confirmed, Cancel
+    serializes with the tick or consults the log.
+  R5-6 (pre-existing design, no-fault too) a route-(1) fallback target does not run while a sibling wait is
+    parked → owner question LA-Q2: intended behavior?
+  CE stop rule applied: review found a new defect (R5-2) → round stopped for owner authorization rather
+    than another unbounded loop.
+PHASE 0 AUDIT (2026-10-20; Opus CE + two Haiku read-only agents; every probe below re-run by the CE at
+  b6b2380 = PR #4 head 5a2983f's code; probes not committed):
+  Evidence reconciliation: e7ce5a6 and 5a2983f are docs-only over b6b2380 → the b6b2380 local
+    verification and the e7ce5a6/5a2983f real CI (push 39119876689, pull_request 39119879400) cover
+    the same code. Any code change voids them.
+  R5-2 CONFIRMED: stop closed inside the route-(3) trip tick → `waiting`, recorded=[] after 50 live
+    ticks (control without stop: `compensated`); restart variant also stuck (W6).
+  R5-3 CONFIRMED gap: 14 stage read sites; all converge under a single fault; only the GetInstance
+    site is exercised (HIGH-3), unasserted; removing the completeAwaitingRoutes keep leaves LA green
+    except via that one test.
+  R5-4 CONFIRMED gaps: WC-last guards (hydrate.go applyTerminalFence, route_recovery.go
+    projectionBehindTerminal) removable with TestLA_* green; awaiting-check keeps not observable in
+    any probed scenario; HIGH-3 passes with its stage read fault disabled.
+  R5-5 CONFIRMED (upgraded): Cancel during a tick-side WorkflowFailed append → WorkflowFailed,
+    WorkflowCompensating, WorkflowCompensated appended AFTER WorkflowCancelled, undo ran; reproduces
+    with NO injected fault; pre-existing since v1.0.0 (Cancel never serialized with the tick). Cancel
+    under tickMu deadlocks 4 tests (handler-called Cancel) → not a valid fix.
+  NEW (pre-existing in v1.0.0, no fault): LA-R8 signal step timeout_action=fail whose route is (1)
+    fallback or (2) on_error → StepFailed(signal_timeout) [+ StepFallbackActivated], status `waiting`,
+    no wait_record, target never runs, also after restart. LA-R9 compensation runs the undo of a step
+    that failed and was replaced by its fallback (StepFallbackActivated sentinel counts as completed;
+    compensation.go intends "skip never-completed").
+  EDR audit: EDR-012 gather-batch boundary also breaks after a signal RC-1 re-entry (no event) in the
+    same processInstance; gate side (routeThreeAwaiting) still static; D2-1 text stale (ends
+    `compensated` misattributed, not `stalled`); D2-5 contradicts LA-C3 guard tests; D2-2..7
+    underspecified; D2-7 needs an undo-invocation oracle. EDR-013 W5 signature collides with the
+    healthy route-(1)/(2) timeout outcome; expired undo records read as absent (24h re-run risk);
+    audit_log has no read API and the engine no write path (retry budget); undo-done write loss ⇒
+    compensation_failed for a successful undo (D1-10 wording); missing W9 (interrupted waiting-cancel);
+    sweep has no status index. EDR-014: StepResult caches outputs only — token usage is not durable.
+  N5 FOUND (owner's second review, 2026-10-12 session transcript): "P3 — process/documentation:
+    STATE.md doesn't record the LA-C4a/b/c round; the comment at hydrate.go:324-327 is no longer
+    accurate after F-S." First half resolved by REVIEW ROUND 1/2 entries above.
+FOUNDER CHECKPOINT 1 (2026-10-20; all CE recommendations approved as presented):
+  1 PR #4 round AUTHORIZED: R5-2 (the committed-route stage also runs when stop is requested — the
+    no-fault path already completes a route-(3) decision inline during a stop; restart residual = W6 →
+    EDR-013 sweep), R5-3 (per-site tests), R5-4 (pin both WC-last guards; HIGH-3 asserts its fault;
+    awaiting keeps pinned or removed with a CE justification), R5-5 → gated reproducer, LA-R7 raised
+    to P2, fix designed separately; N5 → fix the stale comment. Then real CI + fresh independent review.
+  2 EDR-012 APPROVED with amendments: residual edge widened to the signal RC-1 re-entry case (known
+    limitation, affects only conditions reading a sibling's status); the gate uses the same
+    reconstructed-env evaluation; acceptance table rewritten with exact fixtures; D2-7 adds undo-call
+    counts; D2-5 sequenced after LA-R8.
+  3 EDR-013 APPROVED with amendments (written into the EDR before code): W5 classified by route;
+    undo-record expiry derived from the bracket's WorkflowCompensating emitted_at (too old ⇒ stop);
+    retry budget via an optional audit append/read interface (no frozen-port or schema change);
+    D1-10 reworded (an ambiguous undo-done ⇒ stop, even if the undo succeeded; configured undo retries
+    are by design); W9 added; D1-11 gets a concrete bound. RESTART RULE CONFIRMED: once the single
+    retry is used, a restart does NOT grant another.
+  4 EDR-014 Phase 1 APPROVED: cache token usage at completion (second cache key) and emit it on
+    cache recovery (counted once); missing usage ⇒ usage fields omitted (unknown), never estimated or
+    zero; "recovered from cache" marker in the audit/diagnostic record only (StepCompleted frozen);
+    cache hit under a cancel request completes then cancels (live B4 behavior); disagreement ⇒ stop;
+    Phase 2 verifier CONTRA DEFERRED.
+  5 LA-Q2: current behavior INTENDED for V1 (pending targets run once the instance resumes); EDR-011
+    §8 wording to be corrected. LA-R8 to be FIXED in PR #5. LA-R9 BACKLOG (no change this loop).
+  6 N5 confirmed as the finding quoted above.
+  7 MODEL-DIRECTIVE EXTENDED: Opus orchestrates/integrates/CE-reviews; Haiku implements, tests,
+    verifies and independently reviews (no Sonnet); a reviewer never reviews its own change.
+    CLAUDE.md amended accordingly.
+  Structure: PR #4 = review fixes only; PR #5 (new branch from the PR #4 branch) = EDR-012/013/014
+    Phase 1 + LA-R8. No merge, tag, release, history rewrite or Loop B.
+ROUND LA-C8 (PR #4; Haiku executors in isolated worktrees, CE-integrated and CE-verified; no attribution):
+  db4749b LA-C8a — R5-2: tick runs completeRouteRecovery also when stop is requested (tick.go; doc in
+    route_recovery.go). Tests TestLA_C8a_R52_StopTrip_{WaitingSibling_WFFailsBeforeWrite,
+    WaitingSibling_WFAckLost, NothingElseAppended} FAIL with the guard restored (CE mutation re-run) and
+    PASS now; _RunningNoSibling is a convergence control (passes either way; running instances are
+    re-hydrated). Gated (LA_DEFERRED=1, FAIL today): TestLA_C8a_W6_StageFailsInStoppedTick_RestartConverges
+    → EDR-013 D1-12. Residual (CE ruling: W6, not R5-2): a tick ENTERED with stop already closed runs no
+    stage (LA-C2 (a), pinned by S8); the process exits after it → EDR-013 startup sweep.
+    R5-4(c): HIGH-3 and TestLA_C7_GateRefusesBehindTerminal assert their injected read fault fired
+    (perturbation getFailAfterWF=false now FAILS HIGH-3). R5-5/LA-R7 (P2): gated reproducers
+    TestLA_C8a_R55_CancelDuringStageWFAppend and _CancelDuringSettleWFAppend_NoFault (FAIL under
+    LA_DEFERRED=1: WorkflowFailed, WorkflowCompensating, WorkflowCompensated after WorkflowCancelled;
+    undo-root ran). N5: hydrate.go LA-C3 ordering comment rewritten to the current settle rule.
+  345e0d1 LA-C8b — tests only. R5-3: one test per reachable stage read site (S1, S4, S5, S9, S10,
+    S10+S10b, S11a, S11c, S11d, S12, S14, S15), each asserting its fault fired and equality with the
+    no-read-fault control; deleting the completeAwaitingRoutes keep FAILS 7 of them (CE re-run), the
+    errored-status keep FAILS S1. S8/S13 (GetWorkflow) unreachable — definition cache warm from Submit
+    — pinned by a tripwire test. R5-4(a): TestLA_C8b_WCLast_HydrateFenceDoesNotProject and
+    _AwaitingCheckNotAwaiting each FAIL when their WorkflowCompensating guard is removed.
+    R5-4(b) CE RULING: the two awaiting-check keeps (route_recovery.go completeRouteRecovery, after
+    committedRouteAwaitingTerminal) are outcome-neutral in every constructed scenario
+    (completeAwaitingRoutes either makes the terminal durable or errors into the earlier keep);
+    kept as defensive record hygiene (the drop clears a stale record), not claimed as tested.
+  Evidence (local, at 345e0d1): make verify ALL GATES PASSED; TestLA_* -count=20 2960 PASS / 0 FAIL /
+    220 SKIP (11 gated tests × 20); -race engine+storage -count=2 PASS.
+NEXT: push PR #4 (LA-C8) → real CI → fresh independent review (Haiku, not an implementer); PR #5
+  (branch loop-a-recovery) in progress: P5-A (LA-R8 + EDR-012). Founder Checkpoint 2 after
+  verification. Merge is founder-only.

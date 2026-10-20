@@ -76,21 +76,7 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 	// LA-C4a F-P: the latest StepStarted/StepCompleted/StepFailed event per step, kept
 	// whole so a projection catch-up re-applies it verbatim.
 	latest := make(map[string]core.ExecutionEvent)
-	// LA-C4a F-T: the last workflow-lifecycle event of the terminal class (see
-	// workflowTerminalClass); nil when the log has none.
-	var lastTerm *core.ExecutionEvent
-	// LA-C4a F-T: whether the log holds any WorkflowCompensating (the compensation bracket
-	// was opened). An owed compensation needs none (see the terminal fence below).
-	sawCompensating := false
-
 	for _, ev := range evs {
-		if workflowTerminalClass(ev.EventType) {
-			evCopy := ev
-			lastTerm = &evCopy
-		}
-		if ev.EventType == core.EventTypeWorkflowCompensating {
-			sawCompensating = true
-		}
 		switch ev.EventType {
 		case core.EventTypeStepStarted:
 			if ev.StepID == "" {
@@ -145,45 +131,17 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 		}
 	}
 
-	// ── LA-C4a F-T: terminal fence (EventLog is append-only; P2 / #1, and the
-	// terminal case of #6). A durable workflow-terminal event is the last word for
-	// this instance: nothing may be appended after it. Its projection write may have
-	// failed (the LA-C1 reset re-runs this hydrate), so the projection is re-applied
-	// from the log and hydrate returns WITHOUT RC-1 and WITHOUT committed-route
-	// completion, both of which append. processInstance's re-read right after hydrate
-	// (`if !found || isTerminalStatus(cur.Status) { return nil }`, tick.go) then stops
-	// this instance before any gather.
-	//
-	// Successor rule (compensation.go runCompensation, EDR-011 §6): the only lifecycle
-	// event that may follow WorkflowFailed is the compensation bracket opener
-	// WorkflowCompensating, and only when the definition has a plan and ≥1 step
-	// completed. Compensation-in-progress recovery is LA-D1 (deferred): when the last
-	// terminal-class event is WorkflowCompensating the bracket is open, so nothing new is
-	// done here (the code below continues exactly as before).
-	if lastTerm != nil && lastTerm.EventType != core.EventTypeWorkflowCompensating {
-		if err := e.reprojectTerminal(ctx, inst, *lastTerm); err != nil {
-			return err
-		}
-		// LA-C4a: completes the committed route (3) — compensation owed by a durable
-		// WorkflowFailed (EDR-011 §6). Route (3) is failure.go's emitWorkflowFailed followed by
-		// maybeCompensate; a crash or projection fault between the two leaves the bracket
-		// owed. Only the case with no WorkflowCompensating in the log is owed; maybeCompensate
-		// applies the plan and ≥1-completed-step rule itself.
-		if lastTerm.EventType == core.EventTypeWorkflowFailed && !sawCompensating && dv.def.Compensation != nil {
-			var wf workflowFailedPayload
-			if err := json.Unmarshal(lastTerm.Payload, &wf); err != nil {
-				return fmt.Errorf("engine: hydrate decode WorkflowFailed %s: %w", inst.InstanceID, err)
-			}
-			cur, found, err := e.getInstance(ctx, inst.InstanceID)
-			if err != nil {
-				return err
-			}
-			if found {
-				if err := e.maybeCompensate(ctx, dv, cur, wf.StepID); err != nil {
-					return fmt.Errorf("engine: hydrate owed compensation %s: %w", inst.InstanceID, err)
-				}
-			}
-		}
+	// ── LA-C4a F-T: terminal fence (applyTerminalFence, the one shared body; see its comment). A
+	// durable workflow-terminal event is the last word for this instance: when the fence applies,
+	// hydrate returns WITHOUT RC-1 and WITHOUT committed-route completion, both of which append.
+	// processInstance's re-read right after hydrate (`if !found || isTerminalStatus(cur.Status)
+	// { return nil }`, tick.go) then stops this instance before any gather. The LA-C7 route-recovery
+	// stage (route_recovery.go completeAwaitingRoutes) applies the same fence.
+	fenced, err := e.applyTerminalFence(ctx, dv, inst, evs)
+	if err != nil {
+		return err
+	}
+	if fenced {
 		e.mu.Lock()
 		e.hydrated[inst.InstanceID] = true
 		e.mu.Unlock()
@@ -323,8 +281,14 @@ func (e *Engine) hydrate(ctx context.Context, dv *defView, inst core.WorkflowIns
 
 	// LA-C3, EDR-011 §8: complete the terminal routes already made durable by
 	// StepFailed{retrying:false}, BEFORE RC-1. A committed terminal decision precedes
-	// in-flight recovery: in the live path a route-(3) failure stops the serial
-	// settle, so a stranded StepStarted in the same tick is never settled after it.
+	// in-flight recovery. In the live settle (tick.go), a route (3) decision whose
+	// StepFailed{retrying:false} is durable stops the loop (LA-C5 N2; failure.go
+	// routeTerminalFailure), so a dispatched sibling after it keeps its StepStarted
+	// unsettled. Once its route completes the workflow is terminal, and hydrate returns
+	// before RC-1, so that StepStarted is never settled. Route (1) and route (2)
+	// decisions never stop the loop, and a settle error that is not a committed terminal
+	// decision (tick.go durableTerminal) does not either: the remaining dispatched items
+	// are still settled (LA-C4b F-S).
 	cands := make([]committedFailure, 0, len(failedSteps))
 	for stepID := range failedSteps {
 		lf := last[stepID]
@@ -465,6 +429,75 @@ func (e *Engine) reprojectTerminal(ctx context.Context, inst core.WorkflowInstan
 	return nil
 }
 
+// terminalFenceState returns the last workflow-terminal-class event of evs (nil when the log has
+// none; see workflowTerminalClass) and whether the log holds any WorkflowCompensating (the
+// compensation bracket was opened). An owed compensation needs none (applyTerminalFence).
+func terminalFenceState(evs []core.ExecutionEvent) (*core.ExecutionEvent, bool) {
+	var last *core.ExecutionEvent
+	sawCompensating := false
+	for _, ev := range evs {
+		if workflowTerminalClass(ev.EventType) {
+			evCopy := ev
+			last = &evCopy
+		}
+		if ev.EventType == core.EventTypeWorkflowCompensating {
+			sawCompensating = true
+		}
+	}
+	return last, sawCompensating
+}
+
+// applyTerminalFence is the terminal fence (LA-C4a F-T; EDR-011 §6; LA-C5 N1). It is the ONE body that
+// re-projects a durable workflow-terminal event and completes its owed compensation: hydrate calls it on
+// first touch, and the LA-C7 route-recovery stage (route_recovery.go completeAwaitingRoutes) calls it
+// before it gates or completes a committed route (LA-C7 HIGH-1/2). Both callers apply the same rules.
+//
+// It applies when the log's last workflow-terminal-class event is not WorkflowCompensating; applied
+// reports whether it did, and the caller then stops its own recovery. Successor rule (compensation.go
+// runCompensation, EDR-011 §6): the only lifecycle event that may follow WorkflowFailed is the
+// compensation bracket opener WorkflowCompensating, and only when the definition has a plan and ≥1 step
+// completed. Compensation-in-progress recovery is LA-D1 (deferred): when the last terminal-class event is
+// WorkflowCompensating the bracket is open, so nothing is done here (applied is false). Errors are
+// returned, never swallowed.
+func (e *Engine) applyTerminalFence(ctx context.Context, dv *defView, inst core.WorkflowInstance, evs []core.ExecutionEvent) (bool, error) {
+	lastTerm, sawCompensating := terminalFenceState(evs)
+	if lastTerm == nil || lastTerm.EventType == core.EventTypeWorkflowCompensating {
+		return false, nil
+	}
+	if err := e.reprojectTerminal(ctx, inst, *lastTerm); err != nil {
+		return true, err
+	}
+	// LA-C4a: completes the committed route (3) — compensation owed by a durable
+	// WorkflowFailed (EDR-011 §6). Route (3) is failure.go's emitWorkflowFailed followed by
+	// maybeCompensate; a crash or projection fault between the two leaves the bracket
+	// owed. Only the case with no WorkflowCompensating in the log is owed; maybeCompensate
+	// applies the plan and ≥1-completed-step rule itself.
+	if lastTerm.EventType == core.EventTypeWorkflowFailed && !sawCompensating && dv.def.Compensation != nil {
+		// LA-C5 N1: owed only for a WorkflowFailed that NAMES a step. CE-verified emission map
+		// (grep over the tracked tree, base db9fd36): emitWorkflowFailed has four call sites.
+		// Each non-empty step_id site runs maybeCompensate on its no-fault path: failure.go
+		// routeTerminalFailure route (3) (also reached by the signal_timeout "fail" action);
+		// hydrate.go completeCommittedRoutes route (3) (LA-C3); signal_timeout.go
+		// routeTimedOutWait (timeout_action compensate). The only empty step_id site, the
+		// processInstance completion check in tick.go (stalled, SEC-08), never compensates, so
+		// its recovery must not compensate either.
+		var wf workflowFailedPayload
+		if err := json.Unmarshal(lastTerm.Payload, &wf); err != nil {
+			return true, fmt.Errorf("engine: hydrate decode WorkflowFailed %s: %w", inst.InstanceID, err)
+		}
+		cur, found, err := e.getInstance(ctx, inst.InstanceID)
+		if err != nil {
+			return true, err
+		}
+		if found && wf.StepID != "" { // LA-C5 N1: see the emission map above.
+			if err := e.maybeCompensate(ctx, dv, cur, wf.StepID); err != nil {
+				return true, fmt.Errorf("engine: hydrate owed compensation %s: %w", inst.InstanceID, err)
+			}
+		}
+	}
+	return true, nil
+}
+
 // settleStrandedCancelled settles one stranded StepStarted while cancellation is
 // requested (LA-C4a F-C; Finalization B4 step 3). It never re-enters a wait and never
 // routes: no fallback, no on_error, no WorkflowFailed.
@@ -472,7 +505,7 @@ func (e *Engine) reprojectTerminal(ctx context.Context, inst core.WorkflowInstan
 //   - signal step: a SignalReceived after its latest StepStarted completes it through
 //     CompleteStep (completing an in-flight step is not an activation). Otherwise its
 //     wait_record is deleted and StepFailed{code:"cancelled", retrying:false} is emitted
-//     with cancel.go's waiting-step message (cancel.go:92).
+//     with cancel.go Cancel's waiting-step message.
 //   - non-signal step: StepFailed{code:"worker_crash", retrying:false} with RC-1's message,
 //     and nothing else (no routeTerminalFailure).
 //
@@ -548,11 +581,11 @@ type committedFailure struct {
 // Guards (CE ruling LA-C3, binding; all applied, belt and braces). None of these
 // StepFailed rows carries a routing decision, so no route is completed for them:
 //   - (a) cancellationRequested: the instance is cancel-requested; the B4 cancellation
-//     gate owns it (Finalization B4 step 3; cancel.go:92,190).
-//   - (b) the step's latest StepFailed code is "cancelled": cancel.go:92,190 emit it
+//     gate owns it (Finalization B4 step 3; cancel.go Cancel and handleCancellation).
+//   - (b) the step's latest StepFailed code is "cancelled": cancel.go Cancel and handleCancellation emit it
 //     with no routing decision (Finalization B4 step 3).
-//   - (c) the step's latest StepFailed code is "signal_timeout": signal_timeout.go:58-60
-//     deletes the wait_record before routing, and the compensate action (lines 95-114)
+//   - (c) the step's latest StepFailed code is "signal_timeout": signal_timeout.go processTimeout
+//     deletes the wait_record before routing, and the compensate action (routeTimedOutWait)
 //     skips fallback and on_error. The timeout action is not durable after expiry, so
 //     recovery cannot reconstruct which route was decided.
 //
@@ -576,10 +609,10 @@ func (e *Engine) completeCommittedRoutes(ctx context.Context, dv *defView, inst 
 	}
 	for _, c := range cands {
 		if c.err.Code == "cancelled" {
-			continue // guard (b): cancel.go:92,190 emit this code with no routing decision.
+			continue // guard (b): cancel.go Cancel and handleCancellation emit this code with no routing decision.
 		}
 		if c.err.Code == "signal_timeout" {
-			continue // guard (c): signal_timeout.go:58-60,95-114; the action is not durable.
+			continue // guard (c): signal_timeout.go processTimeout and routeTimedOutWait (compensate); the action is not durable.
 		}
 		step, ok := dv.steps[c.stepID]
 		if !ok {
@@ -595,16 +628,16 @@ func (e *Engine) completeCommittedRoutes(ctx context.Context, dv *defView, inst 
 			}
 			e.addPending(cur.InstanceID, step.Fallback)
 			e.log().Info("settle", "instance_id", string(cur.InstanceID), "step_id", c.stepID, "outcome", "fallback")
-		case hasOnErrorTransition(dv, c.stepID):
-			// LA-C3: route decided from static structure only; a condition-dependent route
-			// is not reconstructable from the EventLog (residual R-1, pre-existing).
-			continue
-		default: // route (3): no Fallback and no on_error transition at all.
+		case staticRouteThree(dv, step): // route (3): the static classification (LA-C3, LA-C7 LOW-3).
 			if err := e.emitWorkflowFailed(ctx, cur, c.stepID, c.err); err != nil {
 				return err
 			}
 			e.log().Info("settle", "instance_id", string(cur.InstanceID), "step_id", c.stepID, "outcome", "failed")
 			return e.maybeCompensate(ctx, dv, cur, c.stepID)
+		default: // route (2): an on_error transition (static). LA-C3: route decided from static
+			// structure only; a condition-dependent route is not reconstructable from the EventLog
+			// (residual R-1, pre-existing). Never completed here.
+			continue
 		}
 	}
 	return nil
@@ -620,6 +653,15 @@ func hasOnErrorTransition(dv *defView, stepID string) bool {
 		}
 	}
 	return false
+}
+
+// staticRouteThree reports whether step's terminal failure is route (3) by static definition
+// structure alone (LA-C3, CE ruling round 2): no Fallback and no on_error transition at all,
+// conditional or not. It is the ONE static route-(3) predicate: completeCommittedRoutes (above)
+// and routeThreeAwaiting (route_recovery.go) both call it. tick.go's committedRouteThree is the
+// settle-time, environment-based classification (LA-C6 R3-H1) and is deliberately NOT this predicate.
+func staticRouteThree(dv *defView, step core.Step) bool {
+	return step.Fallback == "" && !hasOnErrorTransition(dv, step.ID)
 }
 
 // resetInstanceRecovery discards this process's recovery bookkeeping for iid, so
@@ -650,6 +692,8 @@ func hasOnErrorTransition(dv *defView, stepID string) bool {
 //     durable wait_records by recoverWait (Resolve), exactly as after a restart.
 //   - e.cancels, e.defs: a cancel intent is not reconstructed from the EventLog and is
 //     not recovery bookkeeping; the definition cache is keyed by immutable (id, version).
+//   - e.routeRecovery (LA-C6 R3-M1): re-derived from the EventLog on every check
+//     (committedRouteAwaitingTerminal, route_recovery.go); not reset here.
 //
 // Call-site invariant (verified at each caller): no dispatch goroutine for iid is in
 // flight. processInstance joins its dispatch goroutines (wg.Wait) before SETTLE, and

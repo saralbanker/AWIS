@@ -31,6 +31,12 @@ activate in Claude Code. Keep this file short; put real content in
 
 # Model Allocation Policy (Frozen)
 
+> **Founder override (MODEL-DIRECTIVE 2026-10-11, extended 2026-10-20 at Loop A Checkpoint 1;
+> recorded in `docs/05-implementation/STATE.md`):** orchestration, integration and CE review by
+> Opus 5.5; ALL implementation, testing, verification and independent review by Haiku 5.5 (no
+> Sonnet). The independent reviewer of a change must not be the agent that implemented it. The
+> frozen policy below is superseded where it conflicts and is kept for the record.
+
 The implementation phase of AWIS Baseline V1 uses a fixed model allocation.
 
 ## Allowed

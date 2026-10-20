@@ -420,7 +420,7 @@ func laEngineManual(st core.StoragePort, clk *manualClock, ids func() string, ha
 // Its timeout commits StepFailed{code:"signal_timeout", retrying:false}; then one
 // transient fault hits the next append (WorkflowFailed for compensate, which skips
 // routing; StepFallbackActivated for fail). The wait_record is already deleted and the
-// action is not durable (signal_timeout.go:58-60), so recovery must not complete a
+// action is not durable (signal_timeout.go processTimeout), so recovery must not complete a
 // route for w: no StepFallbackActivated is ever emitted for it. The instance parks in
 // waiting, so a second signal "go2" to wb makes it running; hydrate then runs on a
 // fresh engine (AfterRestart) or after the in-process reset Tick applies on error.

@@ -51,6 +51,13 @@ func (e *Engine) signalTimeoutScan(ctx context.Context) {
 		return
 	}
 	for _, wr := range records {
+		// LA-C6 R3-M1: a committed route (3) of this instance awaits its terminal event (the
+		// no-fault run never times this wait out: the instance is terminal after WorkflowFailed).
+		// The record is not deleted, so it is re-checked on a later tick (routeRecoveryGate,
+		// route_recovery.go).
+		if e.routeRecoveryGate(ctx, wr.InstanceID, "timeout") {
+			continue
+		}
 		if err := e.processTimeout(ctx, store, wr); err != nil {
 			e.log().Error("signal timeout: process expired wait",
 				"instance_id", string(wr.InstanceID), "step_id", wr.StepID,
@@ -69,7 +76,22 @@ func (e *Engine) signalTimeoutScan(ctx context.Context) {
 // so the next SIGNAL_TIMEOUT_SCAN re-fires it instead of parking the instance in
 // `waiting` with no wait_record forever. Once the routing event is durable the
 // record is never restored: a second fire would route the step twice.
-func (e *Engine) processTimeout(ctx context.Context, store signalTimeoutStore, wr storage.WaitRecord) error {
+//
+// LA-C5 N3: any error here resets the instance's recovery bookkeeping, the same
+// deferred pattern as CompleteStep (signal.go). Continue-timeout writes
+// status=running, then appends StepCompleted; if that append's projection fails,
+// the durable StepCompleted is applied only by a re-hydration (hydrate.go catch-up),
+// and nothing else re-hydrates this instance in-process. The reset makes the next
+// tick re-hydrate it. Call-site invariant (verified): processTimeout runs only from
+// signalTimeoutScan, which tick calls after the SCAN_RUNNABLE loop; processInstance has
+// returned (its dispatch goroutines joined by wg.Wait), and tick holds tickMu for its
+// whole body (LA-C4b F-M), so no dispatch for wr.InstanceID is in flight.
+func (e *Engine) processTimeout(ctx context.Context, store signalTimeoutStore, wr storage.WaitRecord) (err error) {
+	defer func() {
+		if err != nil {
+			e.resetInstanceRecovery(wr.InstanceID)
+		}
+	}()
 	// LA-C4c F-W: capture the durable sequence baseline BEFORE any mutation, so the
 	// routing event can be told apart from events appended earlier. A failure here
 	// leaves the wait_record intact; the next scan re-fires it.
